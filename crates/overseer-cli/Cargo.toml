@@ -1,0 +1,20 @@
+[package]
+name = "overseer-cli"
+description = "Command-line front end for the Overseer Fallout 4 mod manager."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "overseer"
+path = "src/main.rs"
+
+[dependencies]
+overseer-core = { path = "../overseer-core" }
+anyhow.workspace = true
+clap.workspace = true
+camino.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
