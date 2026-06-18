@@ -8,6 +8,7 @@ use overseer_core::deploy::{
     DeployManifest, DeployPlan, Deployer, HardlinkDeployer, ModSource, ProgressEvent, ProgressSink,
 };
 use overseer_core::instance::{Instance, Profile};
+use overseer_core::plugins::{PluginLoadOrder, discover_plugins};
 use owo_colors::{OwoColorize, Stream::Stdout, Style};
 
 /// A bold section heading
@@ -98,6 +99,14 @@ enum Command {
         #[arg(long, default_value = "Default")]
         profile: String,
     },
+
+    /// List the profile's plugin load order (top loads first)
+    Plugins {
+        #[arg(long)]
+        instance: Utf8PathBuf,
+        #[arg(long, default_value = "Default")]
+        profile: String,
+    },
 }
 
 fn main() -> Result<()> {
@@ -125,6 +134,7 @@ fn main() -> Result<()> {
             instance,
             profile,
         } => set_status(instance, profile, &name, false),
+        Command::Plugins { instance, profile } => plugins(instance, profile),
     }
 }
 
@@ -230,6 +240,50 @@ fn install(archive: Utf8PathBuf, instance_dir: Utf8PathBuf, name: Option<String>
         installed.name,
         instance.mods_dir().join(&installed.name)
     ));
+    Ok(())
+}
+
+fn plugins(instance_dir: Utf8PathBuf, profile_name: String) -> Result<()> {
+    let instance = Instance::new(&instance_dir, instance_dir.join("game"));
+
+    // Reconcile the mod list first, so plugin discovery sees new mods
+    let profile = load_reconciled(&instance, &profile_name)?;
+    let discovered = discover_plugins(&instance, &profile).context("Discovering plugins")?;
+    let mut load_order = PluginLoadOrder::load(&instance, &profile_name)
+        .with_context(|| format!("Loading plugins.txt for `{profile_name}`"))?;
+    if load_order.reconcile(&discovered) {
+        load_order.save(&instance).context("Saving plugins.txt")?;
+    }
+
+    if load_order.plugins.is_empty() {
+        println!("No plugins. (Install mods with plugins and enable them)");
+        return Ok(());
+    }
+
+    heading(format!(
+        "{} - {} plugins (load order; masters first)",
+        profile.name,
+        load_order.plugins.len()
+    ));
+
+    // Build a quick lookup of which discovered plugins are masters, for the tag
+    let active_style = Style::new().green();
+    let inactive_style = Style::new().dimmed();
+
+    for (i, entry) in load_order.plugins.iter().enumerate() {
+        let is_master = discovered
+            .iter()
+            .any(|m| m.name.eq_ignore_ascii_case(&entry.name) && m.is_master);
+        let mark = if entry.active { "[x]" } else { "[ ]" };
+        let tag = if is_master { " (master)" } else { "" };
+        let style = if entry.active {
+            active_style
+        } else {
+            inactive_style
+        };
+        let line = format!("{:>3}. {mark} {}{tag}", i + 1, entry.name);
+        println!("{}", line.if_supports_color(Stdout, |t| t.style(style)));
+    }
     Ok(())
 }
 
