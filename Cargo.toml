@@ -20,3 +20,4 @@ clap = { version = "4", features = ["derive"] }
 tempfile = "3"
 sevenz-rust = "0.6"
 zip = "2"
+esplugin = "6.1"
