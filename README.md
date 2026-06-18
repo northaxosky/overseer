@@ -2,20 +2,19 @@
 
 A Fallout 4 mod manager, written in Rust.
 
-Overseer follows the Mod Organizer 2 model — explicit, non-destructive mod and load-order
-management — and builds in the pieces MO2 leaves to plugins: root-folder deployment (script
+Overseer follows the Mod Organizer 2 model: explicit, non-destructive mod and load-order
+management. It builds in the pieces MO2 leaves to plugins: root-folder deployment (script
 extenders, ReShade, ENB), in-app plugin grouping, native tool integration (xEdit, Complex
-Sorter, BethINI, LOOT), and setup diagnostics.
+Sorter, BethINI) and setup diagnostics.
 
 ## Status
 
-Early development. This is the **Phase 0 spike**: a working hardlink deployment engine that
-proves the core approach.
+Early development.
 
 ## Workspace
 
-- `overseer-core` — UI-agnostic domain logic (the deployment engine lives here).
-- `overseer-cli` — command-line front end.
+- `overseer-core`: UI-agnostic domain logic (the deployment engine lives here).
+- `overseer-cli`: command-line front end.
 
 A desktop app (Tauri) will sit on top of `overseer-core` later, sharing the same core.
 
