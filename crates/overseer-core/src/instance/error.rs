@@ -13,6 +13,12 @@ pub enum InstanceError {
 
     #[error("path is not valid UTF-8: {0}")]
     NonUtf8Path(String),
+
+    #[error("no mod named `{0}` in this profile")]
+    ModNotInList(String),
+
+    #[error("a mod named `{0}` is already in this profile")]
+    ModAlreadyInList(String),
 }
 
 pub(crate) fn io_err(path: &Utf8Path, source: std::io::Error) -> InstanceError {

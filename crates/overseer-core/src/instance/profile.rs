@@ -7,6 +7,7 @@ use crate::deploy::ModSource;
 pub struct ModListEntry {
     pub name: String,
     pub enabled: bool,
+    pub foreign: bool,
 }
 
 /// Profile: a named, ordered mod list.
@@ -44,7 +45,11 @@ impl Profile {
     pub fn to_modlist_string(&self) -> String {
         let mut out = String::new();
         for entry in &self.mods {
-            out.push(if entry.enabled { '+' } else { '-' });
+            out.push(match (entry.foreign, entry.enabled) {
+                (true, _) => '*',
+                (false, true) => '+',
+                (false, false) => '-',
+            });
             out.push_str(&entry.name);
             out.push('\n');
         }
@@ -60,6 +65,93 @@ impl Profile {
             .map(|entry| ModSource::new(entry.name.clone(), instance.mods_dir().join(&entry.name)))
             .collect()
     }
+
+    /// Index of a mod by name (case-insensitive)
+    pub fn position(&self, name: &str) -> Option<usize> {
+        self.mods
+            .iter()
+            .position(|e| e.name.eq_ignore_ascii_case(name))
+    }
+
+    pub fn contains(&self, name: &str) -> bool {
+        self.position(name).is_some()
+    }
+
+    /// Add a mod at the highest priority
+    pub fn add(&mut self, name: impl Into<String>, enabled: bool) -> Result<(), InstanceError> {
+        let name = name.into();
+        if self.contains(&name) {
+            return Err(InstanceError::ModAlreadyInList(name));
+        }
+        self.mods.insert(
+            0,
+            ModListEntry {
+                name,
+                enabled,
+                foreign: false,
+            },
+        );
+        Ok(())
+    }
+
+    /// Remove a mod from the profile
+    pub fn remove(&mut self, name: &str) -> Result<(), InstanceError> {
+        let idx = self
+            .position(name)
+            .ok_or_else(|| InstanceError::ModNotInList(name.to_owned()))?;
+        self.mods.remove(idx);
+        Ok(())
+    }
+
+    fn entry_mut(&mut self, name: &str) -> Result<&mut ModListEntry, InstanceError> {
+        let idx = self
+            .position(name)
+            .ok_or_else(|| InstanceError::ModNotInList(name.to_owned()))?;
+        Ok(&mut self.mods[idx])
+    }
+
+    pub fn enable(&mut self, name: &str) -> Result<(), InstanceError> {
+        self.entry_mut(name)?.enabled = true;
+        Ok(())
+    }
+
+    pub fn disable(&mut self, name: &str) -> Result<(), InstanceError> {
+        self.entry_mut(name)?.enabled = false;
+        Ok(())
+    }
+
+    /// Raise a mod's priority by one (toward the front)
+    pub fn move_up(&mut self, name: &str) -> Result<(), InstanceError> {
+        let idx = self
+            .position(name)
+            .ok_or_else(|| InstanceError::ModNotInList(name.to_owned()))?;
+        if idx > 0 {
+            self.mods.swap(idx, idx - 1);
+        }
+        Ok(())
+    }
+
+    /// Lower a mod's priority by one (toward the back)
+    pub fn move_down(&mut self, name: &str) -> Result<(), InstanceError> {
+        let idx = self
+            .position(name)
+            .ok_or_else(|| InstanceError::ModNotInList(name.to_owned()))?;
+        if idx + 1 < self.mods.len() {
+            self.mods.swap(idx, idx + 1);
+        }
+        Ok(())
+    }
+
+    /// Move a mod to an absolute index
+    pub fn move_to(&mut self, name: &str, target: usize) -> Result<(), InstanceError> {
+        let from = self
+            .position(name)
+            .ok_or_else(|| InstanceError::ModNotInList(name.to_owned()))?;
+        let entry = self.mods.remove(from);
+        let target = target.min(self.mods.len());
+        self.mods.insert(target, entry);
+        Ok(())
+    }
 }
 
 /// Parse `modlist.txt`: `+Name` enabled, `-Name` disabled, top line = highest priority, other lines skipped
@@ -67,15 +159,17 @@ fn parse_modlist(text: &str) -> Vec<ModListEntry> {
     text.lines()
         .filter_map(|line| {
             let line = line.trim();
-            let enabled = match line.chars().next() {
-                Some('+') => true,
-                Some('-') => false,
+            let (enabled, foreign) = match line.chars().next() {
+                Some('+') => (true, false),
+                Some('*') => (true, true),
+                Some('-') => (false, false),
                 _ => return None,
             };
             let name = line[1..].trim();
             (!name.is_empty()).then(|| ModListEntry {
                 name: name.to_owned(),
                 enabled,
+                foreign,
             })
         })
         .collect()
@@ -95,6 +189,15 @@ mod tests {
         ModListEntry {
             name: name.to_owned(),
             enabled,
+            foreign: false,
+        }
+    }
+
+    fn foreign_entry(name: &str) -> ModListEntry {
+        ModListEntry {
+            name: name.to_owned(),
+            enabled: true,
+            foreign: true,
         }
     }
 
@@ -105,10 +208,30 @@ mod tests {
         (dir, instance)
     }
 
+    /// A profile with the given mods, all enabled and managed, in priority order.
+    fn profile_of(names: &[&str]) -> Profile {
+        Profile {
+            name: "P".to_owned(),
+            mods: names.iter().map(|n| entry(n, true)).collect(),
+        }
+    }
+
+    fn names_of(profile: &Profile) -> Vec<&str> {
+        profile.mods.iter().map(|e| e.name.as_str()).collect()
+    }
+
+    // --- parsing ---
+
     #[test]
     fn parses_enabled_and_disabled_markers() {
         let mods = parse_modlist("+Enabled\n-Disabled\n");
         assert_eq!(mods, vec![entry("Enabled", true), entry("Disabled", false)]);
+    }
+
+    #[test]
+    fn parses_asterisk_as_enabled_foreign() {
+        let mods = parse_modlist("*DLCRobot\n");
+        assert_eq!(mods, vec![foreign_entry("DLCRobot")]);
     }
 
     #[test]
@@ -124,6 +247,17 @@ mod tests {
         assert!(parse_modlist("+\n-\n").is_empty());
     }
 
+    // --- serialization ---
+
+    #[test]
+    fn to_modlist_string_uses_correct_prefixes() {
+        let profile = Profile {
+            name: "P".to_owned(),
+            mods: vec![entry("On", true), entry("Off", false), foreign_entry("DLC")],
+        };
+        assert_eq!(profile.to_modlist_string(), "+On\n-Off\n*DLC\n");
+    }
+
     #[test]
     fn modlist_string_round_trips_through_parse() {
         let profile = Profile {
@@ -131,6 +265,7 @@ mod tests {
             mods: vec![
                 entry("Alpha", true),
                 entry("Beta", false),
+                foreign_entry("DLCworkshop01"),
                 entry("Gamma", true),
             ],
         };
@@ -138,23 +273,13 @@ mod tests {
         assert_eq!(parse_modlist(&text), profile.mods);
     }
 
-    #[test]
-    fn to_modlist_string_uses_plus_minus_prefixes() {
-        let profile = Profile {
-            name: "P".to_owned(),
-            mods: vec![entry("On", true), entry("Off", false)],
-        };
-        assert_eq!(profile.to_modlist_string(), "+On\n-Off\n");
-    }
+    // --- deploy_sources bridge ---
 
     #[test]
     fn deploy_sources_reverses_to_lowest_priority_first() {
         let (_tmp, instance) = temp_instance();
         // Stored highest-priority-first; the engine wants lowest-priority-first.
-        let profile = Profile {
-            name: "P".to_owned(),
-            mods: vec![entry("High", true), entry("Mid", true), entry("Low", true)],
-        };
+        let profile = profile_of(&["High", "Mid", "Low"]);
         let sources = profile.deploy_sources(&instance);
         let names: Vec<&str> = sources.iter().map(|s| s.name.as_str()).collect();
         assert_eq!(names, ["Low", "Mid", "High"]);
@@ -178,13 +303,12 @@ mod tests {
     #[test]
     fn deploy_sources_point_into_the_mods_dir() {
         let (_tmp, instance) = temp_instance();
-        let profile = Profile {
-            name: "P".to_owned(),
-            mods: vec![entry("CoolMod", true)],
-        };
+        let profile = profile_of(&["CoolMod"]);
         let sources = profile.deploy_sources(&instance);
         assert_eq!(sources[0].staging_dir, instance.mods_dir().join("CoolMod"));
     }
+
+    // --- load / save ---
 
     #[test]
     fn load_missing_modlist_yields_empty_profile() {
@@ -199,7 +323,7 @@ mod tests {
         let (_tmp, instance) = temp_instance();
         let profile = Profile {
             name: "Default".to_owned(),
-            mods: vec![entry("A", true), entry("B", false)],
+            mods: vec![entry("A", true), entry("B", false), foreign_entry("DLC")],
         };
         profile.save(&instance).expect("save");
         let loaded = Profile::load(&instance, "Default").expect("load");
@@ -209,11 +333,136 @@ mod tests {
     #[test]
     fn save_creates_the_profile_directory() {
         let (_tmp, instance) = temp_instance();
+        let profile = profile_of(&["X"]);
         let profile = Profile {
             name: "Fresh".to_owned(),
-            mods: vec![entry("X", true)],
+            ..profile
         };
         profile.save(&instance).expect("save");
         assert!(instance.profile_dir("Fresh").join("modlist.txt").exists());
+    }
+
+    // --- lookup ---
+
+    #[test]
+    fn position_and_contains_are_case_insensitive() {
+        let profile = profile_of(&["MyMod", "Other"]);
+        assert_eq!(profile.position("mymod"), Some(0));
+        assert_eq!(profile.position("OTHER"), Some(1));
+        assert_eq!(profile.position("missing"), None);
+        assert!(profile.contains("mYmOd"));
+        assert!(!profile.contains("nope"));
+    }
+
+    // --- add / remove ---
+
+    #[test]
+    fn add_inserts_at_highest_priority() {
+        let mut profile = profile_of(&["Existing"]);
+        profile.add("Newcomer", true).expect("add");
+        assert_eq!(names_of(&profile), ["Newcomer", "Existing"]);
+        assert!(!profile.mods[0].foreign);
+    }
+
+    #[test]
+    fn add_rejects_duplicate() {
+        let mut profile = profile_of(&["Dup"]);
+        let err = profile.add("dup", true).expect_err("should reject");
+        assert!(matches!(err, InstanceError::ModAlreadyInList(n) if n == "dup"));
+    }
+
+    #[test]
+    fn remove_deletes_the_mod() {
+        let mut profile = profile_of(&["A", "B", "C"]);
+        profile.remove("b").expect("remove");
+        assert_eq!(names_of(&profile), ["A", "C"]);
+    }
+
+    #[test]
+    fn remove_missing_is_an_error() {
+        let mut profile = profile_of(&["A"]);
+        let err = profile.remove("ghost").expect_err("should error");
+        assert!(matches!(err, InstanceError::ModNotInList(n) if n == "ghost"));
+    }
+
+    // --- enable / disable ---
+
+    #[test]
+    fn enable_and_disable_toggle_state() {
+        let mut profile = profile_of(&["M"]);
+        profile.disable("m").expect("disable");
+        assert!(!profile.mods[0].enabled);
+        profile.enable("M").expect("enable");
+        assert!(profile.mods[0].enabled);
+    }
+
+    #[test]
+    fn enable_missing_is_an_error() {
+        let mut profile = profile_of(&["M"]);
+        assert!(matches!(
+            profile.enable("x").expect_err("err"),
+            InstanceError::ModNotInList(_)
+        ));
+    }
+
+    // --- reorder ---
+
+    #[test]
+    fn move_up_raises_priority() {
+        let mut profile = profile_of(&["A", "B", "C"]);
+        profile.move_up("C").expect("move_up");
+        assert_eq!(names_of(&profile), ["A", "C", "B"]);
+    }
+
+    #[test]
+    fn move_up_at_top_is_a_noop() {
+        let mut profile = profile_of(&["A", "B"]);
+        profile.move_up("A").expect("move_up");
+        assert_eq!(names_of(&profile), ["A", "B"]);
+    }
+
+    #[test]
+    fn move_down_lowers_priority() {
+        let mut profile = profile_of(&["A", "B", "C"]);
+        profile.move_down("A").expect("move_down");
+        assert_eq!(names_of(&profile), ["B", "A", "C"]);
+    }
+
+    #[test]
+    fn move_down_at_bottom_is_a_noop() {
+        let mut profile = profile_of(&["A", "B"]);
+        profile.move_down("B").expect("move_down");
+        assert_eq!(names_of(&profile), ["A", "B"]);
+    }
+
+    #[test]
+    fn move_to_relocates_to_absolute_index() {
+        let mut profile = profile_of(&["A", "B", "C", "D"]);
+        profile.move_to("D", 1).expect("move_to");
+        assert_eq!(names_of(&profile), ["A", "D", "B", "C"]);
+    }
+
+    #[test]
+    fn move_to_clamps_target_to_the_end() {
+        let mut profile = profile_of(&["A", "B", "C"]);
+        // usize::MAX means "send to the bottom".
+        profile.move_to("A", usize::MAX).expect("move_to");
+        assert_eq!(names_of(&profile), ["B", "C", "A"]);
+    }
+
+    #[test]
+    fn move_to_top_raises_to_highest() {
+        let mut profile = profile_of(&["A", "B", "C"]);
+        profile.move_to("C", 0).expect("move_to");
+        assert_eq!(names_of(&profile), ["C", "A", "B"]);
+    }
+
+    #[test]
+    fn move_to_missing_is_an_error() {
+        let mut profile = profile_of(&["A"]);
+        assert!(matches!(
+            profile.move_to("ghost", 0).expect_err("err"),
+            InstanceError::ModNotInList(_)
+        ));
     }
 }
