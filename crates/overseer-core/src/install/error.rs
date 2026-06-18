@@ -1,3 +1,4 @@
+use super::archive::ArchiveFormat;
 use camino::{Utf8Path, Utf8PathBuf};
 use thiserror::Error;
 
@@ -11,8 +12,11 @@ pub enum InstallError {
         source: std::io::Error,
     },
 
-    #[error("unsupported archive format: `{0}` (supported: .7z, .zip")]
-    UnsupportedFormat(String),
+    #[error(
+        "unsupported archive format: `{extension}` (supported: {})",
+        ArchiveFormat::supported_list()
+    )]
+    UnsupportedFormat { extension: String },
 
     #[error("failed to read 7z archive `{path}`")]
     SevenZip {
