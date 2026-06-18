@@ -1,7 +1,6 @@
-//! Core domain logic for Overseer, a Fallout 4 mod manager.
+//! Core logic for Overseer => Fallout 4 Mod Manager
 //!
-//! This crate is intentionally UI-agnostic: it pulls in no GUI or CLI dependencies,
-//! so the command-line tool and the (future) desktop app can both drive it, and the
-//! logic can be unit-tested on any platform.
+//! This crate is intentionally UI agnostic: It pulls in no GUI or CLI
+//! dependencies so the command line tool and the app can both drive it
 
 pub mod deploy;
