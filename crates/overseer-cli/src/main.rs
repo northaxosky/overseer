@@ -7,6 +7,7 @@ use clap::{Parser, Subcommand};
 use overseer_core::deploy::{
     DeployManifest, DeployPlan, Deployer, HardlinkDeployer, ModSource, ProgressEvent, ProgressSink,
 };
+use overseer_core::instance::Instance;
 use owo_colors::{OwoColorize, Stream::Stdout, Style};
 
 /// A bold section heading
@@ -39,6 +40,7 @@ struct Cli {
 enum Command {
     /// Run a self-contained proof of the hardlink deployment engine in a temp directory
     Demo,
+
     /// Deploy mods into a target directory
     Deploy {
         /// Target Directory (`Data` folder)
@@ -57,6 +59,18 @@ enum Command {
         #[arg(long)]
         manifest: Utf8PathBuf,
     },
+
+    /// Install a mod from an archive into an instance's mods/ directory
+    Install {
+        /// Path to the mod archive
+        archive: Utf8PathBuf,
+        /// Instance directory (contains mods/ and profiles/)
+        #[arg(long)]
+        instance: Utf8PathBuf,
+        /// Name for the installed mod (defaults to archive's file name)
+        #[arg(long)]
+        name: Option<String>,
+    },
 }
 
 fn main() -> Result<()> {
@@ -68,6 +82,11 @@ fn main() -> Result<()> {
             manifest,
         } => deploy(target, mods, manifest),
         Command::Purge { manifest } => purge(manifest),
+        Command::Install {
+            archive,
+            instance,
+            name,
+        } => install(archive, instance, name),
     }
 }
 
@@ -146,6 +165,32 @@ fn purge(manifest_path: Utf8PathBuf) -> Result<()> {
         "Purged {} files from {}",
         manifest.files.len(),
         manifest.target_root
+    ));
+    Ok(())
+}
+
+fn install(archive: Utf8PathBuf, instance_dir: Utf8PathBuf, name: Option<String>) -> Result<()> {
+    let archive = absolutize(&archive)?;
+    let instance_dir = absolutize(&instance_dir)?;
+
+    // TODO: game_dir is unused by install; a placeholder until an instance config exists.
+    let instance = Instance::new(&instance_dir, instance_dir.join("game"));
+
+    let name = match name {
+        Some(name) => name,
+        None => archive
+            .file_stem()
+            .ok_or_else(|| anyhow!("Could not derive a mod name from `{archive}`; pass --name"))?
+            .to_owned(),
+    };
+
+    heading(format!("Installing {archive} as `{name}`"));
+    let installed = overseer_core::install::install(&instance, &archive, &name)
+        .with_context(|| format!("Installing {archive}"))?;
+    success(format!(
+        "Installed `{}` to {}",
+        installed.name,
+        instance.mods_dir().join(&installed.name)
     ));
     Ok(())
 }

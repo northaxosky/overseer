@@ -40,6 +40,9 @@ pub enum InstallError {
 
     #[error("path is not valid UTF-8: {0}")]
     NonUtf8Path(String),
+
+    #[error("data dir `{0}` not found inside the archive")]
+    DataDirNotFound(String),
 }
 
 pub(crate) fn io_err(path: &Utf8Path, source: std::io::Error) -> InstallError {
