@@ -31,6 +31,15 @@ pub enum InstallError {
         #[source]
         source: zip::result::ZipError,
     },
+
+    #[error("a mod named `{0}` is already installed")]
+    AlreadyInstalled(String),
+
+    #[error("archive contains no installable files")]
+    EmptyArchive,
+
+    #[error("path is not valid UTF-8: {0}")]
+    NonUtf8Path(String),
 }
 
 pub(crate) fn io_err(path: &Utf8Path, source: std::io::Error) -> InstallError {
