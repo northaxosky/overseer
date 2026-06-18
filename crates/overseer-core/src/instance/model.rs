@@ -75,3 +75,68 @@ fn read_subdirs(dir: &Utf8Path) -> Result<Vec<String>, InstanceError> {
     names.sort();
     Ok(names)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    fn temp_instance() -> (TempDir, Instance) {
+        let dir = TempDir::new().expect("temp dir");
+        let root = Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).expect("utf8 path");
+        let instance = Instance::new(root.join("instance"), root.join("game"));
+        (dir, instance)
+    }
+
+    #[test]
+    fn path_helpers_compose_under_root() {
+        let instance = Instance::new("C:/inst", "C:/game");
+        assert_eq!(instance.mods_dir(), Utf8PathBuf::from("C:/inst/mods"));
+        assert_eq!(
+            instance.profiles_dir(),
+            Utf8PathBuf::from("C:/inst/profiles")
+        );
+        assert_eq!(
+            instance.profile_dir("Default"),
+            Utf8PathBuf::from("C:/inst/profiles/Default")
+        );
+    }
+
+    #[test]
+    fn discovery_is_empty_on_a_fresh_instance() {
+        // Nothing created yet: missing mods/ and profiles/ are a normal empty state.
+        let (_tmp, instance) = temp_instance();
+        assert!(instance.installed_mods().expect("mods").is_empty());
+        assert!(instance.profiles().expect("profiles").is_empty());
+    }
+
+    #[test]
+    fn installed_mods_lists_subdirs_sorted() {
+        let (_tmp, instance) = temp_instance();
+        for name in ["Zebra", "Alpha", "Mango"] {
+            std::fs::create_dir_all(instance.mods_dir().join(name)).expect("mkdir");
+        }
+        // A stray file in mods/ must not be reported as a mod.
+        std::fs::write(instance.mods_dir().join("loose.txt"), "x").expect("write");
+
+        let names: Vec<String> = instance
+            .installed_mods()
+            .expect("mods")
+            .into_iter()
+            .map(|m| m.name)
+            .collect();
+        assert_eq!(names, ["Alpha", "Mango", "Zebra"]);
+    }
+
+    #[test]
+    fn profiles_lists_profile_dirs_sorted() {
+        let (_tmp, instance) = temp_instance();
+        for name in ["Survival", "Default"] {
+            std::fs::create_dir_all(instance.profile_dir(name)).expect("mkdir");
+        }
+        assert_eq!(
+            instance.profiles().expect("profiles"),
+            ["Default", "Survival"]
+        );
+    }
+}

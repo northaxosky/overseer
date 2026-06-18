@@ -124,7 +124,11 @@ mod tests {
     fn modlist_string_round_trips_through_parse() {
         let profile = Profile {
             name: "Default".to_owned(),
-            mods: vec![entry("Alpha", true), entry("Beta", false), entry("Gamma", true)],
+            mods: vec![
+                entry("Alpha", true),
+                entry("Beta", false),
+                entry("Gamma", true),
+            ],
         };
         let text = profile.to_modlist_string();
         assert_eq!(parse_modlist(&text), profile.mods);
