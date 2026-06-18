@@ -152,6 +152,36 @@ impl Profile {
         self.mods.insert(target, entry);
         Ok(())
     }
+
+    /// Reconcile this profile's mod list with whats actually installed under `mods/`
+    pub fn reconcile(&mut self, instance: &Instance) -> Result<bool, InstanceError> {
+        let installed = instance.installed_mods()?;
+        let before = self.mods.len();
+
+        // Drop entries with no folder
+        self.mods.retain(|e| {
+            e.foreign
+                || installed
+                    .iter()
+                    .any(|m| m.name.eq_ignore_ascii_case(&e.name))
+        });
+        let removed = before - self.mods.len();
+
+        // Append installed mods not already present
+        let mut added = 0;
+        for m in &installed {
+            if !self.contains(&m.name) {
+                self.mods.push(ModListEntry {
+                    name: m.name.clone(),
+                    enabled: true,
+                    foreign: false,
+                });
+                added += 1;
+            }
+        }
+
+        Ok(removed + added > 0)
+    }
 }
 
 /// Parse `modlist.txt`: `+Name` enabled, `-Name` disabled, top line = highest priority, other lines skipped
@@ -464,5 +494,77 @@ mod tests {
             profile.move_to("ghost", 0).expect_err("err"),
             InstanceError::ModNotInList(_)
         ));
+    }
+
+    // --- reconcile ---
+
+    /// Create empty `mods/<name>/` folders so `installed_mods()` discovers them.
+    fn install_dirs(instance: &Instance, names: &[&str]) {
+        for name in names {
+            std::fs::create_dir_all(instance.mods_dir().join(name)).expect("mkdir");
+        }
+    }
+
+    #[test]
+    fn reconcile_appends_newly_installed_at_lowest_priority() {
+        let (_tmp, instance) = temp_instance();
+        install_dirs(&instance, &["Existing", "BrandNew"]);
+        let mut profile = profile_of(&["Existing"]);
+
+        let changed = profile.reconcile(&instance).expect("reconcile");
+        assert!(changed);
+        // New mod is appended at the back (lowest priority), existing order kept.
+        assert_eq!(names_of(&profile), ["Existing", "BrandNew"]);
+        assert!(profile.mods[1].enabled);
+    }
+
+    #[test]
+    fn reconcile_drops_uninstalled_mods() {
+        let (_tmp, instance) = temp_instance();
+        install_dirs(&instance, &["Kept"]);
+        let mut profile = profile_of(&["Kept", "Gone"]);
+
+        let changed = profile.reconcile(&instance).expect("reconcile");
+        assert!(changed);
+        assert_eq!(names_of(&profile), ["Kept"]);
+    }
+
+    #[test]
+    fn reconcile_preserves_existing_order_and_enabled_state() {
+        let (_tmp, instance) = temp_instance();
+        install_dirs(&instance, &["A", "B", "C"]);
+        let mut profile = Profile {
+            name: "P".to_owned(),
+            // Deliberately not alphabetical, with B disabled.
+            mods: vec![entry("C", true), entry("B", false), entry("A", true)],
+        };
+
+        let changed = profile.reconcile(&instance).expect("reconcile");
+        assert!(!changed, "everything already present, nothing to do");
+        assert_eq!(names_of(&profile), ["C", "B", "A"]);
+        assert!(!profile.mods[1].enabled, "B stays disabled");
+    }
+
+    #[test]
+    fn reconcile_keeps_foreign_mods_without_a_folder() {
+        let (_tmp, instance) = temp_instance();
+        install_dirs(&instance, &["Managed"]);
+        let mut profile = Profile {
+            name: "P".to_owned(),
+            mods: vec![entry("Managed", true), foreign_entry("DLCRobot")],
+        };
+
+        let changed = profile.reconcile(&instance).expect("reconcile");
+        // DLCRobot has no mods/ folder but must not be dropped.
+        assert!(!changed);
+        assert!(profile.contains("DLCRobot"));
+    }
+
+    #[test]
+    fn reconcile_reports_no_change_when_in_sync() {
+        let (_tmp, instance) = temp_instance();
+        install_dirs(&instance, &["A", "B"]);
+        let mut profile = profile_of(&["A", "B"]);
+        assert!(!profile.reconcile(&instance).expect("reconcile"));
     }
 }
