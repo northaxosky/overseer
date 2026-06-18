@@ -7,7 +7,7 @@ use clap::{Parser, Subcommand};
 use overseer_core::deploy::{
     DeployManifest, DeployPlan, Deployer, HardlinkDeployer, ModSource, ProgressEvent, ProgressSink,
 };
-use overseer_core::instance::Instance;
+use overseer_core::instance::{Instance, Profile};
 use owo_colors::{OwoColorize, Stream::Stdout, Style};
 
 /// A bold section heading
@@ -71,6 +71,33 @@ enum Command {
         #[arg(long)]
         name: Option<String>,
     },
+
+    /// List the profile's mods in priority order (highest first)
+    List {
+        #[arg(long)]
+        instance: Utf8PathBuf,
+        #[arg(long, default_value = "Default")]
+        profile: String,
+    },
+
+    /// Enable a mod in the profile
+    Enable {
+        /// Mod name (the folder name under mods/)
+        name: String,
+        #[arg(long)]
+        instance: Utf8PathBuf,
+        #[arg(long, default_value = "Default")]
+        profile: String,
+    },
+
+    /// Disable a mod in the profile
+    Disable {
+        name: String,
+        #[arg(long)]
+        instance: Utf8PathBuf,
+        #[arg(long, default_value = "Default")]
+        profile: String,
+    },
 }
 
 fn main() -> Result<()> {
@@ -87,6 +114,17 @@ fn main() -> Result<()> {
             instance,
             name,
         } => install(archive, instance, name),
+        Command::List { instance, profile } => list(instance, profile),
+        Command::Enable {
+            name,
+            instance,
+            profile,
+        } => set_status(instance, profile, &name, true),
+        Command::Disable {
+            name,
+            instance,
+            profile,
+        } => set_status(instance, profile, &name, false),
     }
 }
 
@@ -191,6 +229,79 @@ fn install(archive: Utf8PathBuf, instance_dir: Utf8PathBuf, name: Option<String>
         "Installed `{}` to {}",
         installed.name,
         instance.mods_dir().join(&installed.name)
+    ));
+    Ok(())
+}
+
+/// Load a profile and reconcile it against whats installed
+fn load_reconciled(instance: &Instance, profile: &str) -> Result<Profile> {
+    let mut p =
+        Profile::load(instance, profile).with_context(|| format!("Loading profile `{profile}`"))?;
+    if p.reconcile(instance)
+        .context("Reconciling with installed mods")?
+    {
+        p.save(instance).context("Saving reconciled profile")?;
+    }
+    Ok(p)
+}
+
+fn list(instance_dir: Utf8PathBuf, profile: String) -> Result<()> {
+    let instance = Instance::new(&instance_dir, instance_dir.join("game"));
+    let profile = load_reconciled(&instance, &profile)?;
+
+    if profile.mods.is_empty() {
+        println!("No mods installed.");
+        return Ok(());
+    }
+
+    heading(format!(
+        "{} - {} mods (highest priority first)",
+        profile.name,
+        profile.mods.len()
+    ));
+
+    let enabled_style = Style::new().green();
+    let disabled_style = Style::new().dimmed();
+
+    for (i, entry) in profile.mods.iter().enumerate() {
+        let mark = if entry.enabled { "[x]" } else { "[ ]" };
+        let style = if entry.enabled {
+            enabled_style
+        } else {
+            disabled_style
+        };
+        let line = format!("{:>3}. {mark} {}", i + 1, entry.name);
+        println!("{}", line.if_supports_color(Stdout, |t| t.style(style)));
+    }
+    Ok(())
+}
+
+fn set_status(
+    instance_dir: Utf8PathBuf,
+    profile_name: String,
+    mod_name: &str,
+    enabled: bool,
+) -> Result<()> {
+    let instance = Instance::new(&instance_dir, instance_dir.join("game"));
+    let mut profile = load_reconciled(&instance, &profile_name)?;
+
+    if enabled {
+        profile.enable(mod_name)
+    } else {
+        profile.disable(mod_name)
+    }
+    .with_context(|| {
+        format!(
+            "{} `{mod_name}`",
+            if enabled { "enabling" } else { "disabling" }
+        )
+    })?;
+
+    profile.save(&instance).context("Saving profile")?;
+    success(format!(
+        "{} `{mod_name}` in profile `{}`",
+        if enabled { "Enabled" } else { "Disabled" },
+        profile.name
     ));
     Ok(())
 }
