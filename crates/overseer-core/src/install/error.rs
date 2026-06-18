@@ -10,6 +10,23 @@ pub enum InstallError {
         #[source]
         source: std::io::Error,
     },
+
+    #[error("unsupported archive format: `{0}` (supported: .7z, .zip")]
+    UnsupportedFormat(String),
+
+    #[error("failed to read 7z archive `{path}`")]
+    SevenZip {
+        path: Utf8PathBuf,
+        #[source]
+        source: sevenz_rust::Error,
+    },
+
+    #[error("failed to read zip archive `{path}`")]
+    Zip {
+        path: Utf8PathBuf,
+        #[source]
+        source: zip::result::ZipError,
+    },
 }
 
 pub(crate) fn io_err(path: &Utf8Path, source: std::io::Error) -> InstallError {
