@@ -4,4 +4,5 @@
 //! dependencies so the command line tool and the app can both drive it
 
 pub mod deploy;
+pub mod install;
 pub mod instance;
