@@ -14,9 +14,10 @@ Early development.
 ## Workspace
 
 - `overseer-core`: UI-agnostic domain logic (the deployment engine lives here).
-- `overseer-cli`: command-line front end.
+- `overseer-cli`: command-line front end (scriptable / one-shot).
 
-A desktop app (Tauri) will sit on top of `overseer-core` later, sharing the same core.
+The primary interactive front end will be a **TUI** (`overseer-tui`, built on `ratatui`) over the
+same core; a desktop GUI (Tauri) is an optional later addition if broader adoption calls for it.
 
 ## Try it
 
