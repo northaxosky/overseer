@@ -17,4 +17,7 @@ pub enum PluginError {
         #[source]
         source: std::io::Error,
     },
+
+    #[error("no plugin named `{0}` in the load order")]
+    NotInLoadOrder(String),
 }
