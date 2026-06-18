@@ -1,0 +1,31 @@
+# Normalize all text files to LF in the repository (and on checkout) to avoid
+# CRLF churn on this Windows-first, cross-platform Rust project.
+* text=auto eol=lf
+
+# Source and config — always LF
+*.rs     text eol=lf
+*.toml   text eol=lf
+*.md     text eol=lf
+*.yml    text eol=lf
+*.yaml   text eol=lf
+*.json   text eol=lf
+
+# Windows-only scripts keep CRLF
+*.bat    text eol=crlf
+*.cmd    text eol=crlf
+*.ps1    text eol=crlf
+
+# Binary assets — never normalize (Bethesda formats, archives, images)
+*.ba2    binary
+*.esp    binary
+*.esm    binary
+*.esl    binary
+*.dds    binary
+*.nif    binary
+*.bsa    binary
+*.7z     binary
+*.zip    binary
+*.rar    binary
+*.png    binary
+*.jpg    binary
+*.ico    binary
