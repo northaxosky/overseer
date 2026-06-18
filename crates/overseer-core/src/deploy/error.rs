@@ -15,7 +15,9 @@ pub enum DeployError {
     #[error("failed to walk a staging directory")]
     Walk(#[source] walkdir::Error),
 
-    #[error("mods and target are on different volumes; hardlink deployment requires the same drive (source: `{source_path}`, target: `{target}`")]
+    #[error(
+        "mods and target are on different volumes; hardlink deployment requires the same drive (source: `{source_path}`, target: `{target}`"
+    )]
     CrossVolume {
         source_path: Utf8PathBuf,
         target: Utf8PathBuf,
