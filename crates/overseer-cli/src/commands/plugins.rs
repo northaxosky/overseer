@@ -31,7 +31,7 @@ fn synced(instance: &Instance, profile_name: &str) -> Result<(Vec<PluginMeta>, P
 }
 
 fn list(target: ProfileArgs) -> Result<()> {
-    let instance = open_instance(&target.instance);
+    let instance = open_instance(&target.instance)?;
     let (discovered, order) = synced(&instance, &target.profile)?;
 
     if order.plugins.is_empty() {
@@ -55,7 +55,7 @@ fn list(target: ProfileArgs) -> Result<()> {
 }
 
 fn set_active(target: ProfileArgs, plugin: &str, active: bool) -> Result<()> {
-    let instance = open_instance(&target.instance);
+    let instance = open_instance(&target.instance)?;
     let (_discovered, mut order) = synced(&instance, &target.profile)?;
 
     if active {

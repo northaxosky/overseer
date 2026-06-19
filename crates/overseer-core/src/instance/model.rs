@@ -1,11 +1,29 @@
 use super::error::{InstanceError, io_err};
 use camino::{Utf8Path, Utf8PathBuf};
+use serde::{Deserialize, Serialize};
+
+/// Persisted configuration for an instance, stored as `overseer.toml` at the instance root
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InstanceConfig {
+    /// The game install directory (contains `Fallout4.exe` & `Data/`)
+    pub game_dir: Utf8PathBuf,
+    /// Where the game's real `Plugins.txt` lives
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub local_dir: Option<Utf8PathBuf>,
+    /// The profile used when a command doesn't specify one
+    #[serde(default = "default_profile")]
+    pub default_profile: String,
+}
+
+fn default_profile() -> String {
+    "Default".to_owned()
+}
 
 /// A managed Overseer instance: a `mods/` folder and `profiles/`, plus target game
 #[derive(Debug, Clone)]
 pub struct Instance {
     pub root: Utf8PathBuf,
-    pub game_dir: Utf8PathBuf,
+    pub config: InstanceConfig,
 }
 
 /// An installed mod: a named staging folder under the instance's `mods/` directory.
@@ -15,11 +33,75 @@ pub struct InstalledMod {
 }
 
 impl Instance {
+    /// Construct an in-memory instance with a default config for the given game directory
     pub fn new(root: impl Into<Utf8PathBuf>, game_dir: impl Into<Utf8PathBuf>) -> Self {
         Self {
             root: root.into(),
-            game_dir: game_dir.into(),
+            config: InstanceConfig {
+                game_dir: game_dir.into(),
+                local_dir: None,
+                default_profile: default_profile(),
+            },
         }
+    }
+
+    /// Path to the instance's config file
+    pub fn config_path(root: &Utf8Path) -> Utf8PathBuf {
+        root.join("overseer.toml")
+    }
+
+    /// Load an existing instance from disk by reading its `overseer.toml`
+    pub fn load(root: impl Into<Utf8PathBuf>) -> Result<Self, InstanceError> {
+        let root = root.into();
+        let path = Self::config_path(&root);
+        let text = std::fs::read_to_string(&path).map_err(|source| {
+            if source.kind() == std::io::ErrorKind::NotFound {
+                InstanceError::NotAnInstance { path: path.clone() }
+            } else {
+                io_err(&path, source)
+            }
+        })?;
+
+        let config = toml::from_str(&text).map_err(|source| InstanceError::Config {
+            path: path.clone(),
+            source: Box::new(source),
+        })?;
+        Ok(Self { root, config })
+    }
+
+    /// Creates a new instance on disk: write `overseer.toml` and the `mods/`/`profiles/` dirs
+    pub fn init(
+        root: impl Into<Utf8PathBuf>,
+        config: InstanceConfig,
+    ) -> Result<Self, InstanceError> {
+        let root = root.into();
+        let path = Self::config_path(&root);
+        if path.exists() {
+            return Err(InstanceError::AlreadyAnInstance { path });
+        }
+        std::fs::create_dir_all(&root).map_err(|e| io_err(&root, e))?;
+        let instance = Self { root, config };
+        instance.save_config()?;
+        std::fs::create_dir_all(instance.mods_dir())
+            .map_err(|e| io_err(&instance.mods_dir(), e))?;
+        std::fs::create_dir_all(instance.profiles_dir())
+            .map_err(|e| io_err(&instance.profiles_dir(), e))?;
+        Ok(instance)
+    }
+
+    /// Write the current config to `overseer.toml`
+    pub fn save_config(&self) -> Result<(), InstanceError> {
+        let path = Self::config_path(&self.root);
+        let text =
+            toml::to_string_pretty(&self.config).map_err(|source| InstanceError::ConfigWrite {
+                path: path.clone(),
+                source: Box::new(source),
+            })?;
+        std::fs::write(&path, text).map_err(|e| io_err(&path, e))
+    }
+
+    pub fn game_dir(&self) -> &Utf8Path {
+        &self.config.game_dir
     }
 
     pub fn mods_dir(&self) -> Utf8PathBuf {
@@ -142,5 +224,90 @@ mod tests {
             instance.profiles().expect("profiles"),
             ["Default", "Survival"]
         );
+    }
+
+    // --- config persistence ---
+
+    fn temp_root() -> (TempDir, Utf8PathBuf) {
+        let dir = TempDir::new().expect("temp dir");
+        let root = Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).expect("utf8 path");
+        (dir, root.join("inst"))
+    }
+
+    fn config(game: &str) -> InstanceConfig {
+        InstanceConfig {
+            game_dir: Utf8PathBuf::from(game),
+            local_dir: None,
+            default_profile: "Default".to_owned(),
+        }
+    }
+
+    #[test]
+    fn init_writes_config_and_creates_dirs() {
+        let (_tmp, root) = temp_root();
+        let instance = Instance::init(&root, config("C:/games/FO4")).expect("init");
+
+        assert!(Instance::config_path(&root).exists());
+        assert!(instance.mods_dir().is_dir());
+        assert!(instance.profiles_dir().is_dir());
+        assert_eq!(instance.game_dir(), Utf8Path::new("C:/games/FO4"));
+    }
+
+    #[test]
+    fn init_then_load_round_trips_the_config() {
+        let (_tmp, root) = temp_root();
+        let cfg = InstanceConfig {
+            game_dir: Utf8PathBuf::from("D:/FO4"),
+            local_dir: Some(Utf8PathBuf::from("C:/Users/Me/AppData/Local/Fallout4")),
+            default_profile: "Survival".to_owned(),
+        };
+        Instance::init(&root, cfg).expect("init");
+
+        let loaded = Instance::load(&root).expect("load");
+        assert_eq!(loaded.config.game_dir, Utf8PathBuf::from("D:/FO4"));
+        assert_eq!(
+            loaded.config.local_dir,
+            Some(Utf8PathBuf::from("C:/Users/Me/AppData/Local/Fallout4"))
+        );
+        assert_eq!(loaded.config.default_profile, "Survival");
+    }
+
+    #[test]
+    fn load_missing_config_is_not_an_instance() {
+        let (_tmp, root) = temp_root();
+        let err = Instance::load(&root).expect_err("should fail");
+        assert!(matches!(err, InstanceError::NotAnInstance { .. }));
+    }
+
+    #[test]
+    fn init_refuses_to_clobber_existing_instance() {
+        let (_tmp, root) = temp_root();
+        Instance::init(&root, config("C:/a")).expect("first init");
+        let err = Instance::init(&root, config("C:/b")).expect_err("should refuse");
+        assert!(matches!(err, InstanceError::AlreadyAnInstance { .. }));
+    }
+
+    #[test]
+    fn omitted_local_dir_is_absent_from_the_toml_and_loads_as_none() {
+        let (_tmp, root) = temp_root();
+        Instance::init(&root, config("C:/FO4")).expect("init");
+
+        let text = std::fs::read_to_string(Instance::config_path(&root)).expect("read");
+        assert!(!text.contains("local_dir"), "None local_dir is omitted");
+
+        let loaded = Instance::load(&root).expect("load");
+        assert_eq!(loaded.config.local_dir, None);
+    }
+
+    #[test]
+    fn minimal_toml_uses_default_profile() {
+        // A hand-written config with only game_dir must load with the default profile.
+        let (_tmp, root) = temp_root();
+        std::fs::create_dir_all(&root).expect("mkdir");
+        std::fs::write(Instance::config_path(&root), "game_dir = \"C:/FO4\"\n").expect("write");
+
+        let loaded = Instance::load(&root).expect("load");
+        assert_eq!(loaded.config.default_profile, "Default");
+        assert_eq!(loaded.config.local_dir, None);
     }
 }

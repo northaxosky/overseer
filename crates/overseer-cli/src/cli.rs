@@ -61,6 +61,12 @@ pub enum Command {
         #[command(subcommand)]
         command: PluginCommand,
     },
+
+    /// Create or inspect an Overseer instance
+    Instance {
+        #[command(subcommand)]
+        command: InstanceCommand,
+    },
 }
 
 /// Arguments shared by every profile-scoped subcommand.
@@ -127,5 +133,30 @@ pub enum PluginCommand {
         name: String,
         #[command(flatten)]
         target: ProfileArgs,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum InstanceCommand {
+    /// Create a new instance (writes overseer.toml, mods/ and profiles/)
+    Init {
+        /// Directory to create the instance in
+        #[arg(long)]
+        path: Utf8PathBuf,
+        /// Game install directory (contains Fallout4.exe and Data/)
+        #[arg(long)]
+        game: Utf8PathBuf,
+        /// Where the real Plugins.txt lives (default: %LOCALAPPDATA%\Fallout4)
+        #[arg(long)]
+        local: Option<Utf8PathBuf>,
+        /// Name of the default profile
+        #[arg(long, default_value = "Default")]
+        profile: String,
+    },
+    /// Show an instance's configuration and status
+    Show {
+        /// The instance directory
+        #[arg(long)]
+        path: Utf8PathBuf,
     },
 }

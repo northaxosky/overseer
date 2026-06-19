@@ -14,12 +14,9 @@ pub fn absolutize(path: &Utf8Path) -> Result<Utf8PathBuf> {
     Ok(cwd.join(path))
 }
 
-/// Open an instance rooted at `instance_dir`.
-///
-/// The game directory is a placeholder for now (install/list/plugins don't use it); it
-/// will come from a persisted instance config once deploy-to-a-real-`Data/` lands.
-pub fn open_instance(instance_dir: &Utf8Path) -> Instance {
-    Instance::new(instance_dir, instance_dir.join("game"))
+/// Open an existing instance by loading its `overseer.toml`
+pub fn open_instance(instance_dir: &Utf8Path) -> Result<Instance> {
+    Instance::load(instance_dir).with_context(|| format!("Opening instance at {instance_dir}"))
 }
 
 /// Load a profile and reconcile it against what's installed, saving only if it changed.

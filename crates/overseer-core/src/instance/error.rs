@@ -19,6 +19,26 @@ pub enum InstanceError {
 
     #[error("a mod named `{0}` is already in this profile")]
     ModAlreadyInList(String),
+
+    #[error("no Overseer instance at `{path}` (run `instance init` first)")]
+    NotAnInstance { path: Utf8PathBuf },
+
+    #[error("an Overseer instance already exists at `path`")]
+    AlreadyAnInstance { path: Utf8PathBuf },
+
+    #[error("failed to parse instance config `{path}`")]
+    Config {
+        path: Utf8PathBuf,
+        #[source]
+        source: Box<toml::de::Error>,
+    },
+
+    #[error("failed to serialize instance config `{path}`")]
+    ConfigWrite {
+        path: Utf8PathBuf,
+        #[source]
+        source: Box<toml::ser::Error>,
+    },
 }
 
 pub(crate) fn io_err(path: &Utf8Path, source: std::io::Error) -> InstanceError {

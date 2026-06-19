@@ -16,7 +16,7 @@ pub fn run(command: ModCommand) -> Result<()> {
 }
 
 fn list(target: ProfileArgs) -> Result<()> {
-    let instance = open_instance(&target.instance);
+    let instance = open_instance(&target.instance)?;
     let profile = load_reconciled(&instance, &target.profile)?;
 
     if profile.mods.is_empty() {
@@ -36,7 +36,7 @@ fn list(target: ProfileArgs) -> Result<()> {
 }
 
 fn set_status(target: ProfileArgs, mod_name: &str, enabled: bool) -> Result<()> {
-    let instance = open_instance(&target.instance);
+    let instance = open_instance(&target.instance)?;
     let mut profile = load_reconciled(&instance, &target.profile)?;
 
     if enabled {
@@ -61,7 +61,7 @@ fn set_status(target: ProfileArgs, mod_name: &str, enabled: bool) -> Result<()> 
 }
 
 fn move_mod(target: ProfileArgs, mod_name: &str, to_1based: usize) -> Result<()> {
-    let instance = open_instance(&target.instance);
+    let instance = open_instance(&target.instance)?;
     let mut profile = load_reconciled(&instance, &target.profile)?;
 
     // The list is presented 1-based; convert to a 0-based index (move_to clamps the rest).

@@ -8,7 +8,7 @@ use crate::ui::{heading, success};
 
 pub fn run(archive: Utf8PathBuf, instance_dir: Utf8PathBuf, name: Option<String>) -> Result<()> {
     let archive = absolutize(&archive)?;
-    let instance = open_instance(&absolutize(&instance_dir)?);
+    let instance = open_instance(&absolutize(&instance_dir)?)?;
 
     // Default the mod name to the archive's file stem (CoolMod.7z -> CoolMod).
     let name = match name {

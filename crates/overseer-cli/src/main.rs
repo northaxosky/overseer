@@ -1,5 +1,4 @@
 //! Overseer CLI: argument parsing and dispatch. Command logic lives in `commands/`;
-//! shared presentation in `ui`, shared helpers in `context`.
 
 mod cli;
 mod commands;
@@ -27,5 +26,6 @@ fn main() -> Result<()> {
         } => commands::install::run(archive, instance, name),
         Command::Mod { command } => commands::mods::run(command),
         Command::Plugin { command } => commands::plugins::run(command),
+        Command::Instance { command } => commands::instance::run(command),
     }
 }

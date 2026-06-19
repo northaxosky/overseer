@@ -16,6 +16,7 @@ sevenz-rust.workspace = true
 zip.workspace = true
 tempfile.workspace = true
 esplugin.workspace = true
+toml.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
