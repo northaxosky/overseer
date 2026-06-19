@@ -16,9 +16,7 @@ pub fn run(command: PluginCommand) -> Result<()> {
     }
 }
 
-/// Reconcile the mod list, discover plugins from enabled mods, and load + reconcile the
-/// profile's plugin load order. Returns the discovered metadata (for the master tag) and
-/// the synced load order. This is the shared front half of every plugin command.
+/// Reconcile the mod list, discover plugins from enabled mods, and load + reconcile the plugin load order.
 fn synced(instance: &Instance, profile_name: &str) -> Result<(Vec<PluginMeta>, PluginLoadOrder)> {
     let profile = load_reconciled(instance, profile_name)?;
     let discovered = discover_plugins(instance, &profile).context("discovering plugins")?;

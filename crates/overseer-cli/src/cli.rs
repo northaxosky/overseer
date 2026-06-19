@@ -19,23 +19,16 @@ pub enum Command {
     /// Run a self-contained proof of the hardlink deployment engine in a temp directory
     Demo,
 
-    /// Deploy mod staging dirs into a target directory (low-level; lowest priority first)
+    /// Deploy a profile's enabled mods into the instance's game `Data/` directory
     Deploy {
-        /// Target directory (e.g. the game's Data folder)
-        #[arg(long)]
-        target: Utf8PathBuf,
-        /// A mod staging directory; repeat in priority order (the last one wins conflicts)
-        #[arg(long = "mod", value_name = "DIR", required = true)]
-        mods: Vec<Utf8PathBuf>,
-        /// Where to write the deploy manifest (needed to purge)
-        #[arg(long, default_value = "overseer-manifest.json")]
-        manifest: Utf8PathBuf,
+        #[command(flatten)]
+        target: ProfileArgs,
     },
 
-    /// Reverse a deployment using a manifest written by `deploy`
+    /// Removes the instance's live deployment, restoring the game directory
     Purge {
         #[arg(long)]
-        manifest: Utf8PathBuf,
+        instance: Utf8PathBuf,
     },
 
     /// Install a mod from an archive (.7z or .zip) into an instance's mods/ directory

@@ -13,12 +13,8 @@ use cli::{Cli, Command};
 fn main() -> Result<()> {
     match Cli::parse().command {
         Command::Demo => commands::demo::run(),
-        Command::Deploy {
-            target,
-            mods,
-            manifest,
-        } => commands::deploy::deploy(target, mods, manifest),
-        Command::Purge { manifest } => commands::deploy::purge(manifest),
+        Command::Deploy { target } => commands::deploy::deploy(target),
+        Command::Purge { instance } => commands::deploy::purge(instance),
         Command::Install {
             archive,
             instance,

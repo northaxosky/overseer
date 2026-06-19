@@ -1,4 +1,5 @@
 use super::error::{InstanceError, io_err};
+use crate::deploy::DeployerKind;
 use camino::{Utf8Path, Utf8PathBuf};
 use serde::{Deserialize, Serialize};
 
@@ -7,12 +8,18 @@ use serde::{Deserialize, Serialize};
 pub struct InstanceConfig {
     /// The game install directory (contains `Fallout4.exe` & `Data/`)
     pub game_dir: Utf8PathBuf,
+
     /// Where the game's real `Plugins.txt` lives
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub local_dir: Option<Utf8PathBuf>,
+
     /// The profile used when a command doesn't specify one
     #[serde(default = "default_profile")]
     pub default_profile: String,
+
+    /// Which deployment backend this instance uses
+    #[serde(default)]
+    pub deployer: DeployerKind,
 }
 
 fn default_profile() -> String {
@@ -41,6 +48,7 @@ impl Instance {
                 game_dir: game_dir.into(),
                 local_dir: None,
                 default_profile: default_profile(),
+                deployer: DeployerKind::default(),
             },
         }
     }
@@ -114,6 +122,10 @@ impl Instance {
 
     pub fn profile_dir(&self, name: &str) -> Utf8PathBuf {
         self.profiles_dir().join(name)
+    }
+
+    pub fn state_dir(&self) -> Utf8PathBuf {
+        self.root.join("state")
     }
 
     /// Installed mods: the immediate subdirectories of `mods/`, sorted by name
@@ -239,6 +251,7 @@ mod tests {
             game_dir: Utf8PathBuf::from(game),
             local_dir: None,
             default_profile: "Default".to_owned(),
+            deployer: DeployerKind::default(),
         }
     }
 
@@ -260,6 +273,7 @@ mod tests {
             game_dir: Utf8PathBuf::from("D:/FO4"),
             local_dir: Some(Utf8PathBuf::from("C:/Users/Me/AppData/Local/Fallout4")),
             default_profile: "Survival".to_owned(),
+            deployer: DeployerKind::Usvfs,
         };
         Instance::init(&root, cfg).expect("init");
 
@@ -270,6 +284,7 @@ mod tests {
             Some(Utf8PathBuf::from("C:/Users/Me/AppData/Local/Fallout4"))
         );
         assert_eq!(loaded.config.default_profile, "Survival");
+        assert_eq!(loaded.config.deployer, DeployerKind::Usvfs);
     }
 
     #[test]
@@ -309,5 +324,6 @@ mod tests {
         let loaded = Instance::load(&root).expect("load");
         assert_eq!(loaded.config.default_profile, "Default");
         assert_eq!(loaded.config.local_dir, None);
+        assert_eq!(loaded.config.deployer, DeployerKind::HardLink);
     }
 }

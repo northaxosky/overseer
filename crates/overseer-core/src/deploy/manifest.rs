@@ -1,13 +1,25 @@
 //! Deployment manifest types for tracking and verifying deployed files.
 
+use super::{Deployer, HardlinkDeployer, UsvfsDeployer};
 use camino::Utf8PathBuf;
 use serde::{Deserialize, Serialize};
 
 /// Identifies which deployment backend produced a manifest
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum DeployerKind {
     /// NTFS hard links
+    #[default]
     HardLink,
+    /// TODO: User-space virtual filesystem (MO2)
+    Usvfs,
+}
+
+/// Construct the deployment backend for a [`DeployerKind`]
+pub fn deployer_for(kind: DeployerKind) -> Box<dyn Deployer> {
+    match kind {
+        DeployerKind::HardLink => Box::new(HardlinkDeployer::new()),
+        DeployerKind::Usvfs => Box::new(UsvfsDeployer::new()),
+    }
 }
 
 /// Record of what a deployment actually wrote, so it can be reversed
@@ -80,5 +92,17 @@ mod tests {
     fn deployer_kind_serializes_as_its_variant_name() {
         let json = serde_json::to_string(&DeployerKind::HardLink).expect("serialize");
         assert_eq!(json, "\"HardLink\"");
+    }
+
+    #[test]
+    fn factory_builds_a_backend_for_each_kind() {
+        assert_eq!(
+            deployer_for(DeployerKind::HardLink).kind(),
+            DeployerKind::HardLink
+        );
+        assert_eq!(
+            deployer_for(DeployerKind::Usvfs).kind(),
+            DeployerKind::Usvfs
+        );
     }
 }

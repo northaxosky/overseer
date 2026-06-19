@@ -5,6 +5,7 @@ use crate::context::absolutize;
 use crate::ui::{heading, success};
 use anyhow::{Context, Result};
 use camino::Utf8PathBuf;
+use overseer_core::deploy::DeployerKind;
 use overseer_core::instance::{Instance, InstanceConfig};
 
 pub fn run(command: InstanceCommand) -> Result<()> {
@@ -30,6 +31,7 @@ fn init(
         game_dir: absolutize(&game)?,
         local_dir: local.map(|l| absolutize(&l)).transpose()?,
         default_profile: profile,
+        deployer: DeployerKind::default(),
     };
 
     let instance = Instance::init(&path, config).with_context(|| format!("Initializing {path}"))?;
@@ -54,6 +56,7 @@ fn show(path: Utf8PathBuf) -> Result<()> {
             .map_or("(auto: %LOCALAPPDATA%\\Fallout4)", |p| p.as_str())
     );
     println!("  default profile: {}", instance.config.default_profile);
+    println!("  deployer:        {:?}", instance.config.deployer);
 
     let mods = instance.installed_mods().context("Listing mods")?;
     let profiles = instance.profiles().context("Listing profiles")?;

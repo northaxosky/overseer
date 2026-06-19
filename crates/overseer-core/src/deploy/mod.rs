@@ -6,10 +6,12 @@ mod hardlink;
 mod manifest;
 mod plan;
 mod progress;
+mod usvfs;
 
 pub use deployer::Deployer;
 pub use error::DeployError;
 pub use hardlink::HardlinkDeployer;
-pub use manifest::{DeployManifest, DeployerKind, VerifyReport};
+pub use manifest::{DeployManifest, DeployerKind, VerifyReport, deployer_for};
 pub use plan::{DeployPlan, ModSource, PlannedFile};
 pub use progress::{NullSink, ProgressEvent, ProgressSink};
+pub use usvfs::UsvfsDeployer;
