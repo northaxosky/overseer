@@ -2,7 +2,7 @@
 
 use crate::cli::ProfileArgs;
 use crate::context::{absolutize, open_instance};
-use crate::ui::{CliProgress, heading, success};
+use crate::ui::{CliProgress, check, heading, success};
 use anyhow::{Context, Result};
 use camino::Utf8PathBuf;
 use overseer_core::apply;
@@ -29,5 +29,33 @@ pub fn purge(instance_dir: Utf8PathBuf) -> Result<()> {
     apply::purge(&instance, &CliProgress).context("Purging deployment")?;
 
     success("Purged the live deployment");
+    Ok(())
+}
+
+pub fn status(instance_dir: Utf8PathBuf) -> Result<()> {
+    let instance = open_instance(&absolutize(&instance_dir)?)?;
+    heading(format!("Status for {}", instance.root));
+
+    match apply::status(&instance).context("Reading deployment status")? {
+        None => println!("  No live deployment. Run `overseer deploy --instance <dir>`"),
+        Some(status) => {
+            let manifest = &status.deployment.manifest;
+            println!("  profile:     {}", status.deployment.profile);
+            println!("  deployer:    {}", manifest.deployer);
+            println!("  files:       {}", manifest.files.len());
+            println!("  target:      {}", manifest.target_root);
+            let backup = if status.deployment.plugins_txt_backup.is_some() {
+                "Backed up"
+            } else {
+                "None (no prior file)"
+            };
+            println!("  Plugins.txt: {backup}");
+
+            check("All deployed files present", status.verified.is_ok());
+            for missing in &status.verified.missing {
+                println!("    missing: {missing}");
+            }
+        }
+    }
     Ok(())
 }

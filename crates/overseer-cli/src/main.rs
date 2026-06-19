@@ -23,5 +23,6 @@ fn main() -> Result<()> {
         Command::Mod { command } => commands::mods::run(command),
         Command::Plugin { command } => commands::plugins::run(command),
         Command::Instance { command } => commands::instance::run(command),
+        Command::Status { instance } => commands::deploy::status(instance),
     }
 }

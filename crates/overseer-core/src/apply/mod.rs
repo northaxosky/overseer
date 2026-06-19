@@ -6,7 +6,7 @@ mod state;
 pub use error::ApplyError;
 pub use state::Deployment;
 
-use crate::deploy::{DeployPlan, ProgressSink, deployer_for};
+use crate::deploy::{DeployPlan, ProgressSink, VerifyReport, deployer_for};
 use crate::instance::{Instance, Profile};
 use crate::plugins::{self, PluginLoadOrder};
 use camino::{Utf8Path, Utf8PathBuf};
@@ -64,6 +64,25 @@ pub fn purge(instance: &Instance, progress: &dyn ProgressSink) -> Result<(), App
     Deployment::remove(instance)
 }
 
+/// A snapshot of an instance's live deployment & a check
+pub struct DeploymentStatus {
+    pub deployment: Deployment,
+    pub verified: VerifyReport,
+}
+
+/// Report the instance's live deployment, or `None` if nothing is deployed
+pub fn status(instance: &Instance) -> Result<Option<DeploymentStatus>, ApplyError> {
+    if !Deployment::exists(instance) {
+        return Ok(None);
+    }
+    let deployment = Deployment::load(instance)?;
+    let verified = deployer_for(deployment.manifest.deployer).verify(&deployment.manifest);
+    Ok(Some(DeploymentStatus {
+        deployment,
+        verified,
+    }))
+}
+
 /// Discover the profile's plugins, reconcile the saved `plugins.txt` and write the real `Plugins.txt`
 fn write_game_plugins(
     instance: &Instance,
@@ -95,7 +114,7 @@ fn resolve_local_dir(instance: &Instance) -> Result<Utf8PathBuf, ApplyError> {
 
 #[cfg(test)]
 mod tests {
-    use super::{ApplyError, Deployment, deploy_profile, purge};
+    use super::{ApplyError, Deployment, deploy_profile, purge, status};
     use crate::deploy::NullSink;
     use crate::instance::{Instance, ModListEntry, Profile};
     use crate::plugins::test_support::write_plugin;
@@ -265,6 +284,53 @@ mod tests {
         assert_eq!(
             std::fs::read(local.join("Plugins.txt")).expect("read"),
             b"*Original.esp\n"
+        );
+    }
+
+    #[test]
+    fn status_is_none_when_nothing_deployed() {
+        let (_tmp, instance) = temp_instance();
+        assert!(status(&instance).expect("status").is_none());
+    }
+
+    #[test]
+    fn status_reports_the_live_deployment() {
+        let (_tmp, instance) = temp_instance();
+        install_plugin(&instance, "CoolMod", "Cool.esp");
+        save_profile(&instance, "Default", &[("CoolMod", true)]);
+        deploy_profile(&instance, "Default", &NullSink).expect("deploy");
+
+        let report = status(&instance).expect("status").expect("deployed");
+        assert_eq!(report.deployment.profile, "Default");
+        assert!(report.verified.is_ok(), "all deployed files present");
+        assert!(
+            report
+                .deployment
+                .manifest
+                .files
+                .iter()
+                .any(|f| f.as_str() == "Cool.esp")
+        );
+    }
+
+    #[test]
+    fn status_detects_a_missing_deployed_file() {
+        let (_tmp, instance) = temp_instance();
+        install_plugin(&instance, "CoolMod", "Cool.esp");
+        save_profile(&instance, "Default", &[("CoolMod", true)]);
+        deploy_profile(&instance, "Default", &NullSink).expect("deploy");
+
+        // Simulate the game dir being tampered with: delete a deployed file.
+        std::fs::remove_file(deployed(&instance, "Cool.esp")).expect("remove");
+
+        let report = status(&instance).expect("status").expect("deployed");
+        assert!(!report.verified.is_ok());
+        assert!(
+            report
+                .verified
+                .missing
+                .iter()
+                .any(|f| f.as_str() == "Cool.esp")
         );
     }
 }

@@ -56,7 +56,7 @@ fn show(path: Utf8PathBuf) -> Result<()> {
             .map_or("(auto: %LOCALAPPDATA%\\Fallout4)", |p| p.as_str())
     );
     println!("  default profile: {}", instance.config.default_profile);
-    println!("  deployer:        {:?}", instance.config.deployer);
+    println!("  deployer:        {}", instance.config.deployer);
 
     let mods = instance.installed_mods().context("Listing mods")?;
     let profiles = instance.profiles().context("Listing profiles")?;

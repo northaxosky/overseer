@@ -60,6 +60,13 @@ pub enum Command {
         #[command(subcommand)]
         command: InstanceCommand,
     },
+
+    /// Show the instance's deployment status
+    Status {
+        /// Instance directory (contains mods/ and profiles/)
+        #[arg(long)]
+        instance: Utf8PathBuf,
+    },
 }
 
 /// Arguments shared by every profile-scoped subcommand.
