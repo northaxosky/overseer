@@ -13,6 +13,9 @@ pub struct Deployment {
     pub profile: String,
     /// What the file deploy wrote, so `purge` can remove them
     pub manifest: DeployManifest,
+    /// The user's original `Plugins.txt` bytes, if any
+    #[serde(default)]
+    pub plugins_txt_backup: Option<Vec<u8>>,
 }
 
 impl Deployment {

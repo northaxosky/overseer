@@ -8,6 +8,8 @@ pub use state::Deployment;
 
 use crate::deploy::{DeployPlan, ProgressSink, deployer_for};
 use crate::instance::{Instance, Profile};
+use crate::plugins::{self, PluginLoadOrder};
+use camino::{Utf8Path, Utf8PathBuf};
 
 /// Deploy a profile's enabled mods into the instance's game `Data/` directory
 pub fn deploy_profile(
@@ -31,9 +33,20 @@ pub fn deploy_profile(
     let deployer = deployer_for(instance.config.deployer);
     let manifest = deployer.deploy(&plan, progress)?;
 
+    let local_dir = resolve_local_dir(instance)?;
+    std::fs::create_dir_all(&local_dir).map_err(|e| error::io_err(&local_dir, e))?;
+    let plugins_txt_backup = plugins::read_plugins_txt(&local_dir)?;
+
+    if let Err(e) = write_game_plugins(instance, &profile, &local_dir) {
+        let _ = deployer.undeploy(&manifest, progress);
+        let _ = plugins::restore_plugins_txt(&local_dir, plugins_txt_backup.as_deref());
+        return Err(e);
+    }
+
     let deployment = Deployment {
         profile: profile.name,
         manifest,
+        plugins_txt_backup,
     };
     deployment.save(instance)?;
     Ok(deployment)
@@ -44,7 +57,36 @@ pub fn purge(instance: &Instance, progress: &dyn ProgressSink) -> Result<(), App
     let deployment = Deployment::load(instance)?;
     let deployer = deployer_for(deployment.manifest.deployer);
     deployer.undeploy(&deployment.manifest, progress)?;
+
+    let local_dir = resolve_local_dir(instance)?;
+    plugins::restore_plugins_txt(&local_dir, deployment.plugins_txt_backup.as_deref())?;
+
     Deployment::remove(instance)
+}
+
+/// Discover the profile's plugins, reconcile the saved `plugins.txt` and write the real `Plugins.txt`
+fn write_game_plugins(
+    instance: &Instance,
+    profile: &Profile,
+    local_dir: &Utf8Path,
+) -> Result<(), ApplyError> {
+    let discovered = plugins::discover_plugins(instance, profile)?;
+    let mut order = PluginLoadOrder::load(instance, &profile.name)?;
+
+    order.reconcile(&discovered);
+    order.save(instance)?;
+
+    plugins::write_active_plugins(instance.game_dir(), local_dir, &order.plugins)?;
+    Ok(())
+}
+
+/// The dir holding the game's real `Plugins.txt`
+fn resolve_local_dir(instance: &Instance) -> Result<Utf8PathBuf, ApplyError> {
+    if let Some(dir) = &instance.config.local_dir {
+        return Ok(dir.clone());
+    }
+    let base = std::env::var("LOCALAPPDATA").map_err(|_| ApplyError::NoLocalAppData)?;
+    Ok(Utf8PathBuf::from(base).join("Fallout4"))
 }
 
 // ---------------------------------------------------------------------------
@@ -56,6 +98,7 @@ mod tests {
     use super::{ApplyError, Deployment, deploy_profile, purge};
     use crate::deploy::NullSink;
     use crate::instance::{Instance, ModListEntry, Profile};
+    use crate::plugins::test_support::write_plugin;
     use camino::Utf8PathBuf;
     use tempfile::TempDir;
 
@@ -63,7 +106,9 @@ mod tests {
     fn temp_instance() -> (TempDir, Instance) {
         let dir = TempDir::new().expect("temp dir");
         let root = Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).expect("utf8 path");
-        let instance = Instance::new(root.join("instance"), root.join("game"));
+        let mut instance = Instance::new(root.join("instance"), root.join("game"));
+        // Point Plugins.txt at a temp dir so tests never touch the real %LOCALAPPDATA%.
+        instance.config.local_dir = Some(root.join("local"));
         (dir, instance)
     }
 
@@ -74,6 +119,11 @@ mod tests {
             std::fs::create_dir_all(path.parent().expect("parent")).expect("mkdir");
             std::fs::write(&path, contents).expect("write file");
         }
+    }
+
+    /// Install a mod whose staging dir holds a single valid Fallout 4 plugin.
+    fn install_plugin(instance: &Instance, mod_name: &str, plugin: &str) {
+        write_plugin(&instance.mods_dir().join(mod_name), plugin, 0, &[]);
     }
 
     /// Save a profile (highest priority first) so `deploy_profile` can load it from disk.
@@ -113,7 +163,7 @@ mod tests {
     #[test]
     fn deploy_records_recoverable_state() {
         let (_tmp, instance) = temp_instance();
-        install_mod(&instance, "CoolMod", &[("a.esp", "x")]);
+        install_plugin(&instance, "CoolMod", "Cool.esp");
         save_profile(&instance, "Default", &[("CoolMod", true)]);
 
         let deployment = deploy_profile(&instance, "Default", &NullSink).expect("deploy");
@@ -141,7 +191,7 @@ mod tests {
     #[test]
     fn second_deploy_is_refused() {
         let (_tmp, instance) = temp_instance();
-        install_mod(&instance, "CoolMod", &[("a.esp", "x")]);
+        install_plugin(&instance, "CoolMod", "Cool.esp");
         save_profile(&instance, "Default", &[("CoolMod", true)]);
 
         deploy_profile(&instance, "Default", &NullSink).expect("first deploy");
@@ -174,16 +224,47 @@ mod tests {
     #[test]
     fn disabled_mods_are_not_deployed() {
         let (_tmp, instance) = temp_instance();
-        install_mod(&instance, "On", &[("on.esp", "1")]);
-        install_mod(&instance, "Off", &[("off.esp", "0")]);
+        install_plugin(&instance, "On", "On.esp");
+        install_plugin(&instance, "Off", "Off.esp");
         save_profile(&instance, "Default", &[("On", true), ("Off", false)]);
 
         deploy_profile(&instance, "Default", &NullSink).expect("deploy");
 
-        assert!(deployed(&instance, "on.esp").exists());
+        assert!(deployed(&instance, "On.esp").exists());
         assert!(
-            !deployed(&instance, "off.esp").exists(),
+            !deployed(&instance, "Off.esp").exists(),
             "disabled mod must not deploy"
+        );
+    }
+
+    #[test]
+    fn deploy_writes_plugins_txt_and_purge_restores_backup() {
+        let (_tmp, instance) = temp_instance();
+        let local = instance.config.local_dir.clone().expect("local dir set");
+        std::fs::create_dir_all(&local).expect("mk local");
+        // An existing Plugins.txt that purge must put back, byte for byte.
+        std::fs::write(local.join("Plugins.txt"), b"*Original.esp\n").expect("seed");
+
+        install_plugin(&instance, "CoolMod", "Cool.esp");
+        save_profile(&instance, "Default", &[("CoolMod", true)]);
+
+        let deployment = deploy_profile(&instance, "Default", &NullSink).expect("deploy");
+        assert_eq!(
+            deployment.plugins_txt_backup.as_deref(),
+            Some(&b"*Original.esp\n"[..]),
+            "the original Plugins.txt is captured in the deployment record"
+        );
+
+        // The real Plugins.txt now reflects the deployed, active plugin.
+        let txt = std::fs::read_to_string(local.join("Plugins.txt")).expect("read");
+        assert_eq!(txt, "*Cool.esp\n");
+
+        purge(&instance, &NullSink).expect("purge");
+
+        // Purge restores the user's original file exactly.
+        assert_eq!(
+            std::fs::read(local.join("Plugins.txt")).expect("read"),
+            b"*Original.esp\n"
         );
     }
 }

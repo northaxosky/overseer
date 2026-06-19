@@ -7,7 +7,7 @@ mod loadorder;
 mod metadata;
 
 #[cfg(test)]
-mod test_support;
+pub(crate) mod test_support;
 
 pub use discover::discover_plugins;
 pub use error::PluginError;

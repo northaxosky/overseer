@@ -2,6 +2,7 @@
 
 use crate::deploy::DeployError;
 use crate::instance::InstanceError;
+use crate::plugins::PluginError;
 use camino::{Utf8Path, Utf8PathBuf};
 use thiserror::Error;
 
@@ -24,6 +25,10 @@ pub enum ApplyError {
         source: serde_json::Error,
     },
 
+    /// The game's local app-data dir couldn't be located
+    #[error("could not locate %LOCALAPPDATA%; set `local_dir` in overseer.toml")]
+    NoLocalAppData,
+
     #[error("{path}: {source}")]
     Io {
         path: Utf8PathBuf,
@@ -36,6 +41,9 @@ pub enum ApplyError {
 
     #[error(transparent)]
     Instance(#[from] InstanceError),
+
+    #[error(transparent)]
+    Plugin(#[from] PluginError),
 }
 
 /// Build an [`ApplyError::Io`] tagged with the path that failed
