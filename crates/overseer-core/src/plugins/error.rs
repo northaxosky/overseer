@@ -20,4 +20,7 @@ pub enum PluginError {
 
     #[error("no plugin named `{0}` in the load order")]
     NotInLoadOrder(String),
+
+    #[error("writing the game load order: {0}")]
+    GameState(#[from] loadorder::Error),
 }
