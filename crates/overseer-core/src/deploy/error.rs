@@ -3,6 +3,8 @@
 use camino::{Utf8Path, Utf8PathBuf};
 use thiserror::Error;
 
+use super::DeployerKind;
+
 /// Errors produced by the deployment engine
 #[derive(Debug, Error)]
 pub enum DeployError {
@@ -32,6 +34,9 @@ pub enum DeployError {
 
     #[error("a backed-up file remains unresolved at `{path}`")]
     ResidualBackup { path: Utf8PathBuf },
+
+    #[error("the {deployer} backend is not implemented")]
+    Unsupported { deployer: DeployerKind },
 }
 
 /// Attach the offending path to an [`std::io::Error`].
