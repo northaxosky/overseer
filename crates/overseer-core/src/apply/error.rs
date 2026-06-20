@@ -29,6 +29,20 @@ pub enum ApplyError {
     #[error("could not locate %LOCALAPPDATA%; set `local_dir` in overseer.toml")]
     NoLocalAppData,
 
+    /// Another process or command already holds this instance's lock
+    #[error("instance is in use by another Overseer process; try again once it finishes")]
+    Busy,
+
+    /// A reversal could not be fully resolved; the journal is kept
+    #[error("{path} has an unresolved deployment reversal; run `overseer recover` to retry")]
+    RecoveryFailed { path: Utf8PathBuf },
+
+    /// A backup directory survives from a previous run with no journal to reverse it
+    #[error(
+        "{path} holds an orphaned backup from a previous run with no deployment journal; remove it by hand"
+    )]
+    OrphanedBackup { path: Utf8PathBuf },
+
     #[error("{path}: {source}")]
     Io {
         path: Utf8PathBuf,

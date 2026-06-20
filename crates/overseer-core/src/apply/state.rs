@@ -3,12 +3,27 @@
 use super::error::{ApplyError, io_err};
 use crate::deploy::DeployRecord;
 use crate::instance::Instance;
-use camino::Utf8PathBuf;
+use atomicwrites::{AtomicFile, OverwriteBehavior};
+use camino::{Utf8Path, Utf8PathBuf};
 use serde::{Deserialize, Serialize};
+use std::io::Write;
+
+/// Where a deployment transaction stands, used in crash recovery
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Status {
+    /// Journalled before Data/ was mutated - reversible
+    InProgress,
+    /// Deployment completed & is live
+    Committed,
+    /// A reversal could not resolve every path - gg
+    RecoveryFailed,
+}
 
 /// The one live deployment for an instance, stored at `<instance>/state/deployment.json`
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Deployment {
+    /// Where this transaction stands
+    pub status: Status,
     /// Name of the profile that was deployed
     pub profile: String,
     /// What the file deploy wrote, so `purge` can remove them
@@ -42,7 +57,7 @@ impl Deployment {
         serde_json::from_str(&text).map_err(|source| ApplyError::State { path, source })
     }
 
-    /// Write this deployment to the state file, creating `state/` if needed
+    /// Write state file atomically
     pub fn save(&self, instance: &Instance) -> Result<(), ApplyError> {
         let dir = instance.state_dir();
         std::fs::create_dir_all(&dir).map_err(|e| io_err(&dir, e))?;
@@ -51,7 +66,7 @@ impl Deployment {
             path: path.clone(),
             source,
         })?;
-        std::fs::write(&path, text).map_err(|e| io_err(&path, e))
+        write_atomic(&path, text.as_bytes())
     }
 
     /// Delete the state file, marking the instance as no longer deployed
@@ -59,4 +74,11 @@ impl Deployment {
         let path = Self::path(instance);
         std::fs::remove_file(&path).map_err(|e| io_err(&path, e))
     }
+}
+
+/// Durable and atomic write
+pub(crate) fn write_atomic(path: &Utf8Path, bytes: &[u8]) -> Result<(), ApplyError> {
+    let file = AtomicFile::new(path, OverwriteBehavior::AllowOverwrite);
+    file.write(|f| f.write_all(bytes))
+        .map_err(|e: atomicwrites::Error<std::io::Error>| io_err(path, e.into()))
 }

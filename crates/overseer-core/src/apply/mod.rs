@@ -1,23 +1,29 @@
 //! Orchestration: turn a profile into a live on disk deployment, and reverse it
 
 mod error;
+mod lock;
 mod state;
 
 pub use error::ApplyError;
-pub use state::Deployment;
+pub use lock::InstanceLock;
+pub use state::{Deployment, Status};
 
 use crate::deploy::{DeployPlan, DeployRecord, ProgressSink, VerifyReport, deployer_for};
 use crate::instance::{Instance, Profile};
 use crate::plugins::{self, PluginLoadOrder};
 use camino::{Utf8Path, Utf8PathBuf};
 
-/// Deploy a profile's enabled mods into the instance's game `Data/` directory
+/// Deploy a profile's enabled mods into the instance's game `Data/` dir
 pub fn deploy_profile(
     instance: &Instance,
     profile_name: &str,
     progress: &dyn ProgressSink,
 ) -> Result<Deployment, ApplyError> {
+    let _lock = InstanceLock::acquire(instance)?;
+    recover_if_needed(instance, progress)?;
+
     if Deployment::exists(instance) {
+        // recover_if_needed only ever leaves a *Committed* journal
         return Err(ApplyError::AlreadyDeployed {
             path: Deployment::path(instance),
         });
@@ -34,44 +40,53 @@ pub fn deploy_profile(
     deployer.check_supported(&plan)?;
 
     let backup_root = instance.game_dir().join(".overseer-backup");
+    guard_no_orphaned_backup(&backup_root)?;
     let record = DeployRecord::from_plan(&plan, backup_root, instance.config.deployer)?;
-    deployer.deploy(&record, progress)?;
 
     let local_dir = resolve_local_dir(instance)?;
     std::fs::create_dir_all(&local_dir).map_err(|e| error::io_err(&local_dir, e))?;
+
+    // Profile bookkeeping doesnt touch anything so its safe
+    let order = prepare_load_order(instance, &profile)?;
+
+    // Capture the users original Plugins.txt
     let plugins_txt_backup = plugins::read_plugins_txt(&local_dir)?;
 
-    if let Err(e) = write_game_plugins(instance, &profile, &local_dir) {
-        let _ = deployer.undeploy(&record, progress);
-        let _ = plugins::restore_plugins_txt(&local_dir, plugins_txt_backup.as_deref());
-        return Err(e);
-    }
-
-    let deployment = Deployment {
+    // First write: journal as InProgress
+    let mut deployment = Deployment {
+        status: Status::InProgress,
         profile: profile.name,
         record,
         plugins_txt_backup,
     };
+    deployment.save(instance)?;
+
+    if let Err(e) = deployer.deploy(&deployment.record, progress) {
+        let _ = reverse_and_finalize(instance, deployment, progress);
+        return Err(e.into());
+    }
+
+    if let Err(e) = plugins::write_active_plugins(instance.game_dir(), &local_dir, &order.plugins) {
+        let _ = reverse_and_finalize(instance, deployment, progress);
+        return Err(e.into());
+    }
+
+    // Second Write: InProgress -> Committed flip
+    deployment.status = Status::Committed;
     deployment.save(instance)?;
     Ok(deployment)
 }
 
 /// Reverses the instance's live deployment: remove the deployed files and clear the state
 pub fn purge(instance: &Instance, progress: &dyn ProgressSink) -> Result<(), ApplyError> {
+    let _lock = InstanceLock::acquire(instance)?;
+    recover_if_needed(instance, progress)?;
+
     let deployment = Deployment::load(instance)?;
-    let deployer = deployer_for(deployment.record.deployer);
-    let report = deployer.undeploy(&deployment.record, progress);
-
-    let local_dir = resolve_local_dir(instance)?;
-    plugins::restore_plugins_txt(&local_dir, deployment.plugins_txt_backup.as_deref())?;
-
-    if let Some(err) = report.unresolved.into_iter().next() {
-        return Err(err.into());
-    }
-    Deployment::remove(instance)
+    reverse_and_finalize(instance, deployment, progress)
 }
 
-/// A snapshot of an instance's live deployment & a check
+/// A snapshot of an instance's live deployment
 pub struct DeploymentStatus {
     pub deployment: Deployment,
     pub verified: VerifyReport,
@@ -90,20 +105,59 @@ pub fn status(instance: &Instance) -> Result<Option<DeploymentStatus>, ApplyErro
     }))
 }
 
-/// Discover the profile's plugins, reconcile the saved `plugins.txt` and write the real `Plugins.txt`
-fn write_game_plugins(
+/// Lock held recovery used by every mutating entry point
+fn recover_if_needed(instance: &Instance, progress: &dyn ProgressSink) -> Result<(), ApplyError> {
+    if !Deployment::exists(instance) {
+        return Ok(());
+    }
+    let deployment = Deployment::load(instance)?;
+    match deployment.status {
+        Status::Committed => Ok(()),
+        Status::InProgress | Status::RecoveryFailed => {
+            reverse_and_finalize(instance, deployment, progress)
+        }
+    }
+}
+
+/// Shared reversal for purge and recovery: run record driven reversal, restore Plugins.txt, resolve
+fn reverse_and_finalize(
+    instance: &Instance,
+    deployment: Deployment,
+    progress: &dyn ProgressSink,
+) -> Result<(), ApplyError> {
+    let deployer = deployer_for(deployment.record.deployer);
+    let report = deployer.undeploy(&deployment.record, progress);
+
+    let local_dir = resolve_local_dir(instance)?;
+    let plugins_restored =
+        plugins::restore_plugins_txt(&local_dir, deployment.plugins_txt_backup.as_deref());
+
+    if report.is_fully_resolved() && plugins_restored.is_ok() {
+        Deployment::remove(instance)
+    } else {
+        let path = Deployment::path(instance);
+        let failed = Deployment {
+            status: Status::RecoveryFailed,
+            ..deployment
+        };
+        failed.save(instance)?;
+        Err(plugins_restored
+            .err()
+            .map(ApplyError::from)
+            .unwrap_or(ApplyError::RecoveryFailed { path }))
+    }
+}
+
+/// Discover the profile's plugins and reconcile and save its load order
+fn prepare_load_order(
     instance: &Instance,
     profile: &Profile,
-    local_dir: &Utf8Path,
-) -> Result<(), ApplyError> {
+) -> Result<PluginLoadOrder, ApplyError> {
     let discovered = plugins::discover_plugins(instance, profile)?;
     let mut order = PluginLoadOrder::load(instance, &profile.name)?;
-
     order.reconcile(&discovered);
     order.save(instance)?;
-
-    plugins::write_active_plugins(instance.game_dir(), local_dir, &order.plugins)?;
-    Ok(())
+    Ok(order)
 }
 
 /// The dir holding the game's real `Plugins.txt`
@@ -111,8 +165,19 @@ fn resolve_local_dir(instance: &Instance) -> Result<Utf8PathBuf, ApplyError> {
     if let Some(dir) = &instance.config.local_dir {
         return Ok(dir.clone());
     }
+
     let base = std::env::var("LOCALAPPDATA").map_err(|_| ApplyError::NoLocalAppData)?;
     Ok(Utf8PathBuf::from(base).join("Fallout4"))
+}
+
+// Dont start a deploy when the backup dir survives from a previous run
+fn guard_no_orphaned_backup(backup_root: &Utf8Path) -> Result<(), ApplyError> {
+    if backup_root.exists() {
+        return Err(ApplyError::OrphanedBackup {
+            path: backup_root.to_owned(),
+        });
+    }
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -121,7 +186,7 @@ fn resolve_local_dir(instance: &Instance) -> Result<Utf8PathBuf, ApplyError> {
 
 #[cfg(test)]
 mod tests {
-    use super::{ApplyError, Deployment, deploy_profile, purge, status};
+    use super::{ApplyError, Deployment, InstanceLock, Status, deploy_profile, purge, status};
     use crate::deploy::NullSink;
     use crate::instance::{Instance, ModListEntry, Profile};
     use crate::plugins::test_support::write_plugin;
@@ -171,6 +236,13 @@ mod tests {
     /// Absolute path of a file as it would land under the game's Data/ directory.
     fn deployed(instance: &Instance, rel: &str) -> Utf8PathBuf {
         instance.game_dir().join("Data").join(rel)
+    }
+
+    /// Rewrite the on-disk journal's status to mimic a crash at a given stage.
+    fn force_status(instance: &Instance, status: Status) {
+        let mut deployment = Deployment::load(instance).expect("load journal");
+        deployment.status = status;
+        deployment.save(instance).expect("save journal");
     }
 
     #[test]
@@ -366,6 +438,93 @@ mod tests {
                 .missing
                 .iter()
                 .any(|f| f.as_str() == "Cool.esp")
+        );
+    }
+
+    #[test]
+    fn an_interrupted_deployment_is_recovered_so_the_next_deploy_proceeds() {
+        let (_tmp, instance) = temp_instance();
+        install_plugin(&instance, "CoolMod", "Cool.esp");
+        save_profile(&instance, "Default", &[("CoolMod", true)]);
+
+        // Deploy, then forge the journal back to InProgress to mimic a crash that
+        // struck after the files landed but before the commit flip.
+        deploy_profile(&instance, "Default", &NullSink).expect("first deploy");
+        force_status(&instance, Status::InProgress);
+
+        // A non-Committed journal must be reversed on the next entry; without
+        // recovery this second deploy would be refused with AlreadyDeployed.
+        deploy_profile(&instance, "Default", &NullSink).expect("recovery clears the way");
+
+        assert!(deployed(&instance, "Cool.esp").exists());
+        assert_eq!(
+            Deployment::load(&instance).expect("load").status,
+            Status::Committed
+        );
+    }
+
+    #[test]
+    fn a_held_lock_makes_deploy_busy() {
+        let (_tmp, instance) = temp_instance();
+        install_plugin(&instance, "CoolMod", "Cool.esp");
+        save_profile(&instance, "Default", &[("CoolMod", true)]);
+
+        let _held = InstanceLock::acquire(&instance).expect("hold the lock");
+        let err = deploy_profile(&instance, "Default", &NullSink)
+            .expect_err("deploy must observe the held lock");
+        assert!(matches!(err, ApplyError::Busy));
+    }
+
+    #[test]
+    fn a_held_lock_makes_purge_busy() {
+        let (_tmp, instance) = temp_instance();
+
+        let _held = InstanceLock::acquire(&instance).expect("hold the lock");
+        let err = purge(&instance, &NullSink).expect_err("purge must observe the held lock");
+        assert!(matches!(err, ApplyError::Busy));
+    }
+
+    #[test]
+    fn an_orphaned_backup_dir_refuses_deploy() {
+        let (_tmp, instance) = temp_instance();
+        install_plugin(&instance, "CoolMod", "Cool.esp");
+        save_profile(&instance, "Default", &[("CoolMod", true)]);
+
+        // A leftover backup dir means a previous run never finished cleaning up.
+        let backup_root = instance.game_dir().join(".overseer-backup");
+        std::fs::create_dir_all(&backup_root).expect("plant orphan backup");
+
+        let err = deploy_profile(&instance, "Default", &NullSink)
+            .expect_err("deploy must refuse over an orphaned backup");
+        assert!(matches!(err, ApplyError::OrphanedBackup { .. }));
+    }
+
+    #[test]
+    fn a_reversal_that_cannot_finish_keeps_a_recovery_failed_journal() {
+        let (_tmp, instance) = temp_instance();
+        // A vanilla file gets backed up on deploy, so a backup dir lives alongside
+        // the deployment until purge restores it.
+        let data_file = deployed(&instance, "conflict.txt");
+        std::fs::create_dir_all(data_file.parent().expect("parent")).expect("mk Data");
+        std::fs::write(&data_file, "vanilla").expect("seed vanilla");
+        install_mod(&instance, "Overwriter", &[("conflict.txt", "modded")]);
+        save_profile(&instance, "Default", &[("Overwriter", true)]);
+
+        deploy_profile(&instance, "Default", &NullSink).expect("deploy");
+
+        // Plant a stray file no entry will claim, so the sweep at the end of
+        // reversal reports it as an unresolved residual backup.
+        let backup_root = instance.game_dir().join(".overseer-backup");
+        std::fs::write(backup_root.join("stray.bin"), b"junk").expect("plant stray");
+
+        let err = purge(&instance, &NullSink).expect_err("purge cannot fully resolve");
+        assert!(matches!(err, ApplyError::RecoveryFailed { .. }));
+
+        // The journal survives, flagged so the next entry point knows to retry.
+        assert!(Deployment::exists(&instance));
+        assert_eq!(
+            Deployment::load(&instance).expect("load").status,
+            Status::RecoveryFailed
         );
     }
 }
