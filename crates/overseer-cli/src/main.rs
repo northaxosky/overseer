@@ -3,6 +3,7 @@
 mod cli;
 mod commands;
 mod context;
+mod logging;
 mod ui;
 
 use anyhow::Result;
@@ -11,6 +12,8 @@ use clap::Parser;
 use cli::{Cli, Command};
 
 fn main() -> Result<()> {
+    logging::init();
+    tracing::info!("overseer-cli starting");
     match Cli::parse().command {
         Command::Demo => commands::demo::run(),
         Command::Deploy { target } => commands::deploy::deploy(target),

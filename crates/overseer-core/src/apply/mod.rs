@@ -19,6 +19,7 @@ pub fn deploy_profile(
     profile_name: &str,
     progress: &dyn ProgressSink,
 ) -> Result<Deployment, ApplyError> {
+    tracing::info!(profile = profile_name, "deploy_profile: start");
     let _lock = InstanceLock::acquire(instance)?;
     recover_if_needed(instance, progress)?;
 
@@ -62,11 +63,13 @@ pub fn deploy_profile(
     deployment.save(instance)?;
 
     if let Err(e) = deployer.deploy(&deployment.record, progress) {
+        tracing::warn!(error = %e, "deploy_profile: deploy failed; rolling back");
         let _ = reverse_and_finalize(instance, deployment, progress);
         return Err(e.into());
     }
 
     if let Err(e) = plugins::write_active_plugins(instance.game_dir(), &local_dir, &order.plugins) {
+        tracing::warn!(error = %e, "deploy_profile: writing Plugins.txt failed; rolling back");
         let _ = reverse_and_finalize(instance, deployment, progress);
         return Err(e.into());
     }
@@ -74,6 +77,11 @@ pub fn deploy_profile(
     // Second Write: InProgress -> Committed flip
     deployment.status = Status::Committed;
     deployment.save(instance)?;
+    tracing::info!(
+        profile = %deployment.profile,
+        files = deployment.record.entries.len(),
+        "deploy_profile: committed"
+    );
     Ok(deployment)
 }
 
@@ -83,6 +91,7 @@ pub fn purge(instance: &Instance, progress: &dyn ProgressSink) -> Result<(), App
     recover_if_needed(instance, progress)?;
 
     let deployment = Deployment::load(instance)?;
+    tracing::info!(profile = %deployment.profile, "purge: reversing live deployment");
     reverse_and_finalize(instance, deployment, progress)
 }
 
@@ -114,6 +123,11 @@ fn recover_if_needed(instance: &Instance, progress: &dyn ProgressSink) -> Result
     match deployment.status {
         Status::Committed => Ok(()),
         Status::InProgress | Status::RecoveryFailed => {
+            tracing::warn!(
+                status = ?deployment.status,
+                profile = %deployment.profile,
+                "recovery: interrupted deployment found; reversing"
+            );
             reverse_and_finalize(instance, deployment, progress)
         }
     }
@@ -133,8 +147,10 @@ fn reverse_and_finalize(
         plugins::restore_plugins_txt(&local_dir, deployment.plugins_txt_backup.as_deref());
 
     if report.is_fully_resolved() && plugins_restored.is_ok() {
+        tracing::info!("reversal: fully resolved; clearing journal");
         Deployment::remove(instance)
     } else {
+        tracing::warn!("reversal: incomplete; persisting RecoveryFailed");
         let path = Deployment::path(instance);
         let failed = Deployment {
             status: Status::RecoveryFailed,
