@@ -34,7 +34,7 @@ fn init(
         deployer: DeployerKind::default(),
     };
 
-    let instance = Instance::init(&path, config).with_context(|| format!("Initializing {path}"))?;
+    let instance = Instance::init(&path, config).with_context(|| format!("initializing {path}"))?;
     success(format!("Created instance at {}", instance.root));
     println!("  game:    {}", instance.game_dir());
     println!("  profile: {}", instance.config.default_profile);
@@ -43,7 +43,7 @@ fn init(
 
 fn show(path: Utf8PathBuf) -> Result<()> {
     let path = absolutize(&path)?;
-    let instance = Instance::load(&path).with_context(|| format!("Loading instance at {path}"))?;
+    let instance = Instance::load(&path).with_context(|| format!("loading instance at {path}"))?;
 
     heading(format!("Instance at {}", instance.root));
     println!("  game dir:        {}", instance.game_dir());
@@ -58,8 +58,8 @@ fn show(path: Utf8PathBuf) -> Result<()> {
     println!("  default profile: {}", instance.config.default_profile);
     println!("  deployer:        {}", instance.config.deployer);
 
-    let mods = instance.installed_mods().context("Listing mods")?;
-    let profiles = instance.profiles().context("Listing profiles")?;
+    let mods = instance.installed_mods().context("listing mods")?;
+    let profiles = instance.profiles().context("listing profiles")?;
     println!("  installed mods:  {}", mods.len());
     println!("  profiles:        {}", profiles.join(", "));
     Ok(())

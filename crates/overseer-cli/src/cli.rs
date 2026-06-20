@@ -10,6 +10,10 @@ use clap::{Args, Parser, Subcommand};
     about = "Overseer: a Fallout 4 mod manager written in Rust"
 )]
 pub struct Cli {
+    /// When to use colour in output
+    #[arg(long, default_value = "auto", global = true)]
+    pub color: crate::ui::ColorChoice,
+
     #[command(subcommand)]
     pub command: Command,
 }

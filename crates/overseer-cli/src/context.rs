@@ -16,7 +16,7 @@ pub fn absolutize(path: &Utf8Path) -> Result<Utf8PathBuf> {
 
 /// Open an existing instance by loading its `overseer.toml`
 pub fn open_instance(instance_dir: &Utf8Path) -> Result<Instance> {
-    Instance::load(instance_dir).with_context(|| format!("Opening instance at {instance_dir}"))
+    Instance::load(instance_dir).with_context(|| format!("opening instance at {instance_dir}"))
 }
 
 /// Load a profile and reconcile it against what's installed, saving only if it changed.

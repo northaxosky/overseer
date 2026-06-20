@@ -2,7 +2,7 @@
 
 use crate::cli::ProfileArgs;
 use crate::context::{absolutize, open_instance};
-use crate::ui::{CliProgress, check, heading, success};
+use crate::ui::{CliProgress, Role, check, heading, styled, success};
 use anyhow::{Context, Result};
 use camino::Utf8PathBuf;
 use overseer_core::apply;
@@ -12,7 +12,7 @@ pub fn deploy(target: ProfileArgs) -> Result<()> {
     heading(format!("Deploying profile `{}`", target.profile));
 
     let deployment = apply::deploy_profile(&instance, &target.profile, &CliProgress)
-        .with_context(|| format!("Deploying profile `{}`", target.profile))?;
+        .with_context(|| format!("deploying profile `{}`", target.profile))?;
 
     success(format!(
         "Deployed {} files to {}",
@@ -26,7 +26,7 @@ pub fn purge(instance_dir: Utf8PathBuf) -> Result<()> {
     let instance = open_instance(&absolutize(&instance_dir)?)?;
     heading(format!("Purging deployment for {}", instance.root));
 
-    apply::purge(&instance, &CliProgress).context("Purging deployment")?;
+    apply::purge(&instance, &CliProgress).context("purging deployment")?;
 
     success("Purged the live deployment");
     Ok(())
@@ -36,8 +36,8 @@ pub fn status(instance_dir: Utf8PathBuf) -> Result<()> {
     let instance = open_instance(&absolutize(&instance_dir)?)?;
     heading(format!("Status for {}", instance.root));
 
-    match apply::status(&instance).context("Reading deployment status")? {
-        None => println!("  No live deployment. Run `overseer deploy --instance <dir>`"),
+    match apply::status(&instance).context("reading deployment status")? {
+        None => println!("  No live deployment. Run `overseer deploy --instance <dir>`."),
         Some(status) => {
             let record = &status.deployment.record;
             println!("  profile:     {}", status.deployment.profile);
@@ -53,7 +53,10 @@ pub fn status(instance_dir: Utf8PathBuf) -> Result<()> {
 
             check("All deployed files present", status.verified.is_ok());
             for missing in &status.verified.missing {
-                println!("    missing: {missing}");
+                println!(
+                    "    {}",
+                    styled(Role::Warning, format!("missing: {missing}"))
+                );
             }
         }
     }

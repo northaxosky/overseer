@@ -71,7 +71,7 @@ pub fn run() -> Result<()> {
 
     println!();
     if all {
-        success("ALL CHECKS PASSED");
+        success("All checks passed");
         Ok(())
     } else {
         Err(anyhow!("some checks failed"))
