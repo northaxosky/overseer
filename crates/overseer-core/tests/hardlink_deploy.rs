@@ -1,7 +1,9 @@
 use std::fs;
 
 use camino::Utf8PathBuf;
-use overseer_core::deploy::{DeployPlan, Deployer, HardlinkDeployer, ModSource, NullSink};
+use overseer_core::deploy::{
+    DeployPlan, DeployRecord, Deployer, DeployerKind, HardlinkDeployer, ModSource, NullSink,
+};
 use tempfile::tempdir;
 
 fn write(path: &Utf8PathBuf, contents: &str) {
@@ -34,7 +36,10 @@ fn higher_priority_wins_files_are_hardlinks_and_purge_is_clean() {
     assert_eq!(plan.len(), 2, "two distinct destination paths");
 
     let deployer = HardlinkDeployer::new();
-    let manifest = deployer.deploy(&plan, &NullSink).unwrap();
+    let record =
+        DeployRecord::from_plan(&plan, base.join(".overseer-backup"), DeployerKind::HardLink)
+            .unwrap();
+    deployer.deploy(&record, &NullSink).unwrap();
 
     // Conflict resolution: the higher-priority mod B won the shared path.
     let shared = data.join("Textures/shared.dds");
@@ -49,10 +54,11 @@ fn higher_priority_wins_files_are_hardlinks_and_purge_is_clean() {
     fs::write(mod_b.join("Textures/shared.dds"), "B-edited").unwrap();
     assert_eq!(fs::read_to_string(&shared).unwrap(), "B-edited");
 
-    assert!(deployer.verify(&manifest).is_ok());
+    assert!(deployer.verify(&record).is_ok());
 
     // Purge removes every deployed file and the directories we created.
-    deployer.undeploy(&manifest, &NullSink).unwrap();
+    let report = deployer.undeploy(&record, &NullSink);
+    assert!(report.is_fully_resolved());
     assert!(!shared.exists());
     assert!(!data.join("Textures/only_a.dds").exists());
     assert!(!data.join("Textures").exists(), "created dir was removed");

@@ -16,8 +16,8 @@ pub fn deploy(target: ProfileArgs) -> Result<()> {
 
     success(format!(
         "Deployed {} files to {}",
-        deployment.manifest.files.len(),
-        deployment.manifest.target_root
+        deployment.record.entries.len(),
+        deployment.record.target_root
     ));
     Ok(())
 }
@@ -39,11 +39,11 @@ pub fn status(instance_dir: Utf8PathBuf) -> Result<()> {
     match apply::status(&instance).context("Reading deployment status")? {
         None => println!("  No live deployment. Run `overseer deploy --instance <dir>`"),
         Some(status) => {
-            let manifest = &status.deployment.manifest;
+            let record = &status.deployment.record;
             println!("  profile:     {}", status.deployment.profile);
-            println!("  deployer:    {}", manifest.deployer);
-            println!("  files:       {}", manifest.files.len());
-            println!("  target:      {}", manifest.target_root);
+            println!("  deployer:    {}", record.deployer);
+            println!("  files:       {}", record.entries.len());
+            println!("  target:      {}", record.target_root);
             let backup = if status.deployment.plugins_txt_backup.is_some() {
                 "Backed up"
             } else {

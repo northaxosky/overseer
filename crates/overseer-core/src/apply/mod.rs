@@ -6,7 +6,7 @@ mod state;
 pub use error::ApplyError;
 pub use state::Deployment;
 
-use crate::deploy::{DeployPlan, ProgressSink, VerifyReport, deployer_for};
+use crate::deploy::{DeployPlan, DeployRecord, ProgressSink, VerifyReport, deployer_for};
 use crate::instance::{Instance, Profile};
 use crate::plugins::{self, PluginLoadOrder};
 use camino::{Utf8Path, Utf8PathBuf};
@@ -31,21 +31,25 @@ pub fn deploy_profile(
     let plan = DeployPlan::from_mods(&data_dir, &sources)?;
 
     let deployer = deployer_for(instance.config.deployer);
-    let manifest = deployer.deploy(&plan, progress)?;
+    deployer.check_supported(&plan)?;
+
+    let backup_root = instance.game_dir().join(".overseer-backup");
+    let record = DeployRecord::from_plan(&plan, backup_root, instance.config.deployer)?;
+    deployer.deploy(&record, progress)?;
 
     let local_dir = resolve_local_dir(instance)?;
     std::fs::create_dir_all(&local_dir).map_err(|e| error::io_err(&local_dir, e))?;
     let plugins_txt_backup = plugins::read_plugins_txt(&local_dir)?;
 
     if let Err(e) = write_game_plugins(instance, &profile, &local_dir) {
-        let _ = deployer.undeploy(&manifest, progress);
+        let _ = deployer.undeploy(&record, progress);
         let _ = plugins::restore_plugins_txt(&local_dir, plugins_txt_backup.as_deref());
         return Err(e);
     }
 
     let deployment = Deployment {
         profile: profile.name,
-        manifest,
+        record,
         plugins_txt_backup,
     };
     deployment.save(instance)?;
@@ -55,12 +59,15 @@ pub fn deploy_profile(
 /// Reverses the instance's live deployment: remove the deployed files and clear the state
 pub fn purge(instance: &Instance, progress: &dyn ProgressSink) -> Result<(), ApplyError> {
     let deployment = Deployment::load(instance)?;
-    let deployer = deployer_for(deployment.manifest.deployer);
-    deployer.undeploy(&deployment.manifest, progress)?;
+    let deployer = deployer_for(deployment.record.deployer);
+    let report = deployer.undeploy(&deployment.record, progress);
 
     let local_dir = resolve_local_dir(instance)?;
     plugins::restore_plugins_txt(&local_dir, deployment.plugins_txt_backup.as_deref())?;
 
+    if let Some(err) = report.unresolved.into_iter().next() {
+        return Err(err.into());
+    }
     Deployment::remove(instance)
 }
 
@@ -76,7 +83,7 @@ pub fn status(instance: &Instance) -> Result<Option<DeploymentStatus>, ApplyErro
         return Ok(None);
     }
     let deployment = Deployment::load(instance)?;
-    let verified = deployer_for(deployment.manifest.deployer).verify(&deployment.manifest);
+    let verified = deployer_for(deployment.record.deployer).verify(&deployment.record);
     Ok(Some(DeploymentStatus {
         deployment,
         verified,
@@ -227,6 +234,34 @@ mod tests {
     }
 
     #[test]
+    fn deploy_backs_up_and_purge_restores_a_preexisting_data_file() {
+        let (_tmp, instance) = temp_instance();
+        // A vanilla file already in the game's Data/ that a mod will overwrite.
+        let data_file = deployed(&instance, "Textures/conflict.dds");
+        std::fs::create_dir_all(data_file.parent().expect("parent")).expect("mk Data");
+        std::fs::write(&data_file, "vanilla").expect("seed vanilla");
+
+        // A mod shipping the same file (non-plugin, so no load-order parsing).
+        install_mod(
+            &instance,
+            "Overwriter",
+            &[("Textures/conflict.dds", "modded")],
+        );
+        save_profile(&instance, "Default", &[("Overwriter", true)]);
+
+        deploy_profile(&instance, "Default", &NullSink).expect("deploy");
+        // The mod's version wins at the destination.
+        assert_eq!(std::fs::read_to_string(&data_file).expect("read"), "modded");
+
+        purge(&instance, &NullSink).expect("purge");
+        // The vanilla original is restored byte-for-byte.
+        assert_eq!(
+            std::fs::read_to_string(&data_file).expect("read"),
+            "vanilla"
+        );
+    }
+
+    #[test]
     fn higher_priority_mod_wins_conflicts() {
         let (_tmp, instance) = temp_instance();
         install_mod(&instance, "Winner", &[("shared.txt", "winner")]);
@@ -306,10 +341,10 @@ mod tests {
         assert!(
             report
                 .deployment
-                .manifest
-                .files
+                .record
+                .entries
                 .iter()
-                .any(|f| f.as_str() == "Cool.esp")
+                .any(|e| e.relative.as_str() == "Cool.esp")
         );
     }
 

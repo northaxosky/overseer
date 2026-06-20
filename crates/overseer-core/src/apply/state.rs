@@ -1,7 +1,7 @@
 //! Persisted record of an instance's single live deployment
 
 use super::error::{ApplyError, io_err};
-use crate::deploy::DeployManifest;
+use crate::deploy::DeployRecord;
 use crate::instance::Instance;
 use camino::Utf8PathBuf;
 use serde::{Deserialize, Serialize};
@@ -12,7 +12,7 @@ pub struct Deployment {
     /// Name of the profile that was deployed
     pub profile: String,
     /// What the file deploy wrote, so `purge` can remove them
-    pub manifest: DeployManifest,
+    pub record: DeployRecord,
     /// The user's original `Plugins.txt` bytes, if any
     #[serde(default)]
     pub plugins_txt_backup: Option<Vec<u8>>,

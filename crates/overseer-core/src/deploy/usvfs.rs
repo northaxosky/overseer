@@ -1,7 +1,8 @@
 //! User-space virtual file system deployment backend - not yet implemented
 
 use super::{
-    DeployError, DeployManifest, DeployPlan, Deployer, DeployerKind, ProgressSink, VerifyReport,
+    DeployError, DeployPlan, DeployRecord, Deployer, DeployerKind, ProgressSink, ReversalReport,
+    VerifyReport,
 };
 
 /// Stub for the user space virtual file system backend - not yet implemented
@@ -25,21 +26,17 @@ impl Deployer for UsvfsDeployer {
 
     fn deploy(
         &self,
-        _plan: &DeployPlan,
-        _progress: &dyn ProgressSink,
-    ) -> Result<DeployManifest, DeployError> {
-        todo!("USVFS deployment is not yet implemented")
-    }
-
-    fn undeploy(
-        &self,
-        _manifest: &DeployManifest,
+        _record: &DeployRecord,
         _progress: &dyn ProgressSink,
     ) -> Result<(), DeployError> {
         todo!("USVFS deployment is not yet implemented")
     }
 
-    fn verify(&self, _manifest: &DeployManifest) -> VerifyReport {
+    fn undeploy(&self, _record: &DeployRecord, _progress: &dyn ProgressSink) -> ReversalReport {
+        todo!("USVFS deployment is not yet implemented")
+    }
+
+    fn verify(&self, _record: &DeployRecord) -> VerifyReport {
         todo!("USVFS deployment is not yet implemented")
     }
 }

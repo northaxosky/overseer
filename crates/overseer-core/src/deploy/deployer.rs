@@ -1,28 +1,23 @@
 //! Deployment backend trait and types.
 
-use super::{DeployError, DeployManifest, DeployPlan, DeployerKind, ProgressSink, VerifyReport};
+use super::{
+    DeployError, DeployPlan, DeployRecord, DeployerKind, ProgressSink, ReversalReport, VerifyReport,
+};
 
 /// A mod deployment backend
 pub trait Deployer {
     fn kind(&self) -> DeployerKind;
 
-    /// Check whether this deployer can satisfy the plan. Called automatically by [`Deployer::deploy`]
+    /// Check whether this deployer can satisfy the plan
     fn check_supported(&self, plan: &DeployPlan) -> Result<(), DeployError>;
 
-    /// Deploy every file in the plan, returning a manifest describing what was written
-    fn deploy(
-        &self,
-        plan: &DeployPlan,
-        progress: &dyn ProgressSink,
-    ) -> Result<DeployManifest, DeployError>;
+    /// Deploy every entry in the record, backing up any pre-existing files beforehand
+    fn deploy(&self, record: &DeployRecord, progress: &dyn ProgressSink)
+    -> Result<(), DeployError>;
 
-    /// Undeploy every file in the plan
-    fn undeploy(
-        &self,
-        manifest: &DeployManifest,
-        progress: &dyn ProgressSink,
-    ) -> Result<(), DeployError>;
+    /// Reverse the deployment described by `record`, restoring target to its pre-deploy state
+    fn undeploy(&self, record: &DeployRecord, progress: &dyn ProgressSink) -> ReversalReport;
 
-    /// Check that every file recorded in the manifest is still present
-    fn verify(&self, manifest: &DeployManifest) -> VerifyReport;
+    /// Check that every entry recorded is still present on disk
+    fn verify(&self, record: &DeployRecord) -> VerifyReport;
 }

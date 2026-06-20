@@ -29,6 +29,9 @@ pub enum DeployError {
         #[source]
         source: std::io::Error,
     },
+
+    #[error("a backed-up file remains unresolved at `{path}`")]
+    ResidualBackup { path: Utf8PathBuf },
 }
 
 /// Attach the offending path to an [`std::io::Error`].

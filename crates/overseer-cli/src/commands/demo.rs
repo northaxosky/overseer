@@ -4,7 +4,9 @@ use std::fs;
 
 use anyhow::{Result, anyhow};
 use camino::{Utf8Path, Utf8PathBuf};
-use overseer_core::deploy::{DeployPlan, Deployer, HardlinkDeployer, ModSource};
+use overseer_core::deploy::{
+    DeployPlan, DeployRecord, Deployer, DeployerKind, HardlinkDeployer, ModSource,
+};
 
 use crate::ui::{CliProgress, check, heading, success};
 
@@ -32,9 +34,12 @@ pub fn run() -> Result<()> {
     ];
     let plan = DeployPlan::from_mods(&data, &mods)?;
     let deployer = HardlinkDeployer::new();
+    deployer.check_supported(&plan)?;
+    let record =
+        DeployRecord::from_plan(&plan, base.join(".overseer-backup"), DeployerKind::HardLink)?;
 
     heading(format!("Deploying to {data}"));
-    let manifest = deployer.deploy(&plan, &CliProgress)?;
+    deployer.deploy(&record, &CliProgress)?;
     println!();
 
     let shared = data.join("Textures/shared.dds");
@@ -44,10 +49,10 @@ pub fn run() -> Result<()> {
     fs::write(mod_b.join("Textures/shared.dds"), "B-edited")?;
     let link_ok = fs::read_to_string(&shared)? == "B-edited";
 
-    let verify_ok = deployer.verify(&manifest).is_ok();
+    let verify_ok = deployer.verify(&record).is_ok();
 
-    deployer.undeploy(&manifest, &CliProgress)?;
-    let purge_ok = !shared.exists() && !data.join("Textures").exists();
+    let reversed = deployer.undeploy(&record, &CliProgress).is_fully_resolved();
+    let purge_ok = reversed && !shared.exists() && !data.join("Textures").exists();
     let staging_ok = mod_b.join("Textures/shared.dds").exists();
 
     println!();
