@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/overseer-core", "crates/overseer-cli"]
+members = ["crates/overseer-core", "crates/overseer-cli", "crates/overseer-tui"]
 
 [workspace.package]
 version = "0.0.0"

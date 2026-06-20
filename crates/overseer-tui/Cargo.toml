@@ -1,0 +1,21 @@
+[package]
+name = "overseer-tui"
+description = "Terminal UI front end for the Overseer Fallout 4 mod manager."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "overseer-tui"
+path = "src/main.rs"
+
+[dependencies]
+overseer-core = { path = "../overseer-core" }
+anyhow.workspace = true
+camino.workspace = true
+ratatui = "0.30"
+tracing.workspace = true
+tracing-subscriber.workspace = true
+tracing-appender.workspace = true
