@@ -96,6 +96,7 @@ pub fn purge(instance: &Instance, progress: &dyn ProgressSink) -> Result<(), App
 }
 
 /// A snapshot of an instance's live deployment
+#[derive(Debug)]
 pub struct DeploymentStatus {
     pub deployment: Deployment,
     pub verified: VerifyReport,

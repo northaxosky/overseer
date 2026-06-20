@@ -1429,6 +1429,8 @@ name = "overseer-tui"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "camino",
+ "overseer-core",
  "overseer-frontend",
  "ratatui",
  "tracing",
