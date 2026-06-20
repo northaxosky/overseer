@@ -13,6 +13,13 @@ impl UsvfsDeployer {
     pub fn new() -> Self {
         Self
     }
+
+    /// Typed error every operation returns until implemented
+    fn unsupported(&self) -> DeployError {
+        DeployError::Unsupported {
+            deployer: DeployerKind::Usvfs,
+        }
+    }
 }
 
 impl Deployer for UsvfsDeployer {
@@ -21,7 +28,7 @@ impl Deployer for UsvfsDeployer {
     }
 
     fn check_supported(&self, _plan: &DeployPlan) -> Result<(), DeployError> {
-        todo!("USVFS deployment is not yet implemented")
+        Err(self.unsupported())
     }
 
     fn deploy(
@@ -29,14 +36,23 @@ impl Deployer for UsvfsDeployer {
         _record: &DeployRecord,
         _progress: &dyn ProgressSink,
     ) -> Result<(), DeployError> {
-        todo!("USVFS deployment is not yet implemented")
+        Err(self.unsupported())
     }
 
     fn undeploy(&self, _record: &DeployRecord, _progress: &dyn ProgressSink) -> ReversalReport {
-        todo!("USVFS deployment is not yet implemented")
+        ReversalReport {
+            unresolved: vec![self.unsupported()],
+        }
     }
 
-    fn verify(&self, _record: &DeployRecord) -> VerifyReport {
-        todo!("USVFS deployment is not yet implemented")
+    fn verify(&self, record: &DeployRecord) -> VerifyReport {
+        VerifyReport {
+            expected: record.entries.len(),
+            missing: record
+                .entries
+                .iter()
+                .map(|entry| entry.relative.clone())
+                .collect(),
+        }
     }
 }

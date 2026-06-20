@@ -1,11 +1,4 @@
-//! Console presentation: semantic styling roles, the CLI theme, the colour
-//! choice, and the output helpers (headings, success lines, list items, checks,
-//! progress sink).
-//!
-//! Style by *meaning*: a call site picks a [`Role`] and the theme maps it to a
-//! concrete style — no raw colours at call sites. The same role set will map to
-//! ratatui styles in the TUI, so the palette is defined once. See
-//! `.agents/conventions/output-style.md`.
+//! Console presentation: styling roles, CLI theme, colour choice, and output helpers
 
 use std::fmt::Display;
 
