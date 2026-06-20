@@ -11,6 +11,11 @@ use clap::Parser;
 use cli::{Cli, Command};
 
 fn main() -> Result<()> {
+    overseer_frontend::logging::init(overseer_frontend::logging::Config {
+        default_filter: "warn,overseer=info,overseer_core=info",
+        warn_on_error: true,
+    });
+    tracing::info!("overseer-cli starting");
     let cli = Cli::parse();
     ui::apply_color_choice(cli.color);
     match cli.command {

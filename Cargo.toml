@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/overseer-core", "crates/overseer-cli"]
+members = ["crates/overseer-core", "crates/overseer-cli", "crates/overseer-frontend", "crates/overseer-tui"]
 
 [workspace.package]
 version = "0.0.0"
@@ -24,3 +24,6 @@ esplugin = "6.1"
 toml = "0.8"
 libloadorder = "18.8"
 atomicwrites = "0.4"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+tracing-appender = "0.2"

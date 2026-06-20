@@ -1,0 +1,13 @@
+[package]
+name = "overseer-frontend"
+description = "Shared front-end support (logging, theming) for the Overseer Fallout 4 mod manager."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+camino.workspace = true
+tracing-subscriber.workspace = true
+tracing-appender.workspace = true
