@@ -14,6 +14,10 @@ already support a full Fallout 4 workflow: create an instance, install mods from
 manage a profile's mod list and plugin load order, and deploy/purge into the game's `Data/`
 directory — writing the real `Plugins.txt` via `libloadorder` and restoring it on purge.
 
+Deployment is **non-destructive and crash-safe**: any pre-existing files a mod would overwrite
+are backed up first and restored exactly on purge, and the apply is journaled as a transaction —
+so an interrupted run is rolled back on the next command instead of leaving `Data/` half-written.
+
 ## Workspace
 
 - `overseer-core`: UI-agnostic domain logic. Modules: `deploy` (the hardlink engine behind a
