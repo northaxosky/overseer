@@ -21,10 +21,18 @@ pub(crate) enum Focus {
     Plugins,
 }
 
+/// A popup floating over the main view
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Popup {
+    Help,
+    // Settings, ModActions, etc... later
+}
+
 /// The loaded snapshot the UI renders.
 #[derive(Debug)]
 pub(crate) struct App {
     pub(crate) should_quit: bool,
+    pub(crate) popup: Option<Popup>,
     pub(crate) focus: Focus,
     pub(crate) instance: Instance,
     pub(crate) profile: Profile,
@@ -52,6 +60,7 @@ impl App {
 
         Ok(Self {
             should_quit: false,
+            popup: None,
             focus: Focus::Mods,
             mods_state: initial_selection(profile.mods.len()),
             plugins_state: initial_selection(order.plugins.len()),
@@ -64,8 +73,16 @@ impl App {
         })
     }
 
-    /// Handle one key press. Input is read by the run loop in `main`
     pub(crate) fn handle_key(&mut self, key: KeyEvent) {
+        match self.popup {
+            None => self.handle_main_key(key),
+            // Help is currently non-interactive
+            Some(Popup::Help) => self.popup = None,
+        }
+    }
+
+    /// Handle one key press. Input is read by the run loop in `main`
+    pub(crate) fn handle_main_key(&mut self, key: KeyEvent) {
         if is_quit(key) {
             self.should_quit = true;
             return;
@@ -73,10 +90,13 @@ impl App {
         // Any key stroke clears the last message, toggle sets a fresh one
         self.message = None;
         match key.code {
+            KeyCode::Char('?') => self.popup = Some(Popup::Help),
             KeyCode::Char(' ') | KeyCode::Enter => self.toggle_selected(),
             KeyCode::Tab => self.toggle_focus(),
             KeyCode::Down | KeyCode::Char('j') => self.move_selection(1),
             KeyCode::Up | KeyCode::Char('k') => self.move_selection(-1),
+            KeyCode::Char('J') => self.reorder_selected(1),
+            KeyCode::Char('K') => self.reorder_selected(-1),
             _ => {}
         }
     }
@@ -111,6 +131,41 @@ impl App {
             Ok(()) => "Saved".to_owned(),
             Err(e) => format!("Error: {e}"),
         });
+    }
+
+    /// Move the selected mod up or down in priority
+    fn reorder_selected(&mut self, delta: isize) {
+        if !self.shift_selected_mod(delta) {
+            return;
+        }
+        self.message = Some(match self.profile.save(&self.instance) {
+            Ok(()) => "Saved".to_owned(),
+            Err(e) => format!("Error: {e}"),
+        });
+    }
+
+    /// Move the selected mod one step in priority
+    fn shift_selected_mod(&mut self, delta: isize) -> bool {
+        if self.focus != Focus::Mods {
+            return false;
+        }
+        let Some(i) = self.mods_state.selected() else {
+            return false;
+        };
+        let target = i as isize + delta;
+        if target < 0 || target >= self.profile.mods.len() as isize {
+            return false;
+        }
+        let name = self.profile.mods[i].name.clone();
+        let moved = if delta < 0 {
+            self.profile.move_up(&name).is_ok()
+        } else {
+            self.profile.move_down(&name).is_ok()
+        };
+        if moved {
+            self.mods_state.select(Some(target as usize));
+        }
+        moved
     }
 
     /// Flip the mod's `enabled` / plugin's `active`
@@ -175,6 +230,7 @@ impl App {
     pub(crate) fn sample() -> Self {
         App {
             should_quit: false,
+            popup: None,
             focus: Focus::Mods,
             instance: Instance::new("test-instance", "test-game"),
             message: None,
@@ -279,5 +335,41 @@ mod tests {
         assert!(app.order.plugins[0].active);
         assert!(app.flip_selected());
         assert!(!app.order.plugins[0].active);
+    }
+
+    #[test]
+    fn shift_moves_the_selected_mod_and_keeps_selection() {
+        let mut app = App::sample();
+        assert!(app.shift_selected_mod(1));
+        assert_eq!(app.profile.mods[1].name, "CoolMod");
+        assert_eq!(app.mods_state.selected(), Some(1));
+        assert!(app.shift_selected_mod(-1));
+        assert_eq!(app.profile.mods[0].name, "CoolMod");
+        assert_eq!(app.mods_state.selected(), Some(0));
+    }
+
+    #[test]
+    fn shift_is_a_noop_at_edges_and_in_the_plugins_pane() {
+        let mut app = App::sample();
+        assert!(!app.shift_selected_mod(-1)); // at the top
+        assert_eq!(app.mods_state.selected(), Some(0));
+        app.focus = Focus::Plugins;
+        assert!(!app.shift_selected_mod(1)); // unsupported pane
+    }
+
+    #[test]
+    fn question_mark_opens_help_and_any_key_closes_it() {
+        let mut app = App::sample();
+        assert_eq!(app.popup, None);
+        app.handle_key(KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE));
+        assert_eq!(app.popup, Some(Popup::Help));
+        let before = app.mods_state.selected();
+        app.handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
+        assert_eq!(app.popup, None, "any key closes help");
+        assert_eq!(
+            app.mods_state.selected(),
+            before,
+            "key swallowed by the popup"
+        );
     }
 }

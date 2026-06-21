@@ -10,13 +10,23 @@ use ratatui::{
     layout::{Alignment, Constraint, Layout, Rect},
     style::{Modifier, Style, Stylize},
     text::Line,
-    widgets::{Block, BorderType, List, ListItem, ListState, Paragraph},
+    widgets::{Block, BorderType, Clear, List, ListItem, ListState, Padding, Paragraph},
 };
 
-use crate::app::{App, Focus};
+use crate::app::{App, Focus, Popup};
 
-/// Draw the whole UI: header, the two panes, and the status footer.
+/// Draw the main view, plus any popup floating on top
 pub(crate) fn draw(app: &mut App, frame: &mut Frame) {
+    draw_main(app, frame);
+    if let Some(popup) = app.popup {
+        match popup {
+            Popup::Help => render_help(frame),
+        }
+    }
+}
+
+/// Draw the main UI: header, the two panes, and the status footer.
+pub(crate) fn draw_main(app: &mut App, frame: &mut Frame) {
     let rows = Layout::vertical([
         Constraint::Length(1), // header
         Constraint::Fill(1),   // body
@@ -80,9 +90,54 @@ pub(crate) fn draw(app: &mut App, frame: &mut Frame) {
         .unwrap_or_else(|| status_summary(&app.status));
     frame.render_widget(Paragraph::new(left), foot[0]);
     frame.render_widget(
-        Paragraph::new(" Space toggle · Tab switch · q quit ").alignment(Alignment::Right),
+        Paragraph::new(" ? help · q quit ").alignment(Alignment::Right),
         foot[1],
     );
+}
+
+/// Render `body` inside a centered, bordered popup titled `title`
+fn render_popup(frame: &mut Frame, title: &str, body: Vec<Line<'static>>, pct_x: u16, pct_y: u16) {
+    let block = Block::bordered()
+        .title(format!(" {title} "))
+        .padding(Padding::uniform(1));
+    let area = centered_rect(pct_x, pct_y, frame.area());
+    frame.render_widget(Clear, area);
+    frame.render_widget(Paragraph::new(body).block(block), area);
+}
+
+/// The help popup's contents
+fn render_help(frame: &mut Frame) {
+    let lines = vec![
+        Line::from("Navigation".bold()),
+        Line::from("  j / k   ↓ / ↑    move selection"),
+        Line::from("  Tab              switch pane"),
+        Line::from(""),
+        Line::from("Actions".bold()),
+        Line::from("  Space / Enter    toggle enabled/active"),
+        Line::from("  J / K            reorder mod (priority)"),
+        Line::from(""),
+        Line::from("  ?                toggle this help"),
+        Line::from("  q / Esc          quit"),
+        Line::from(""),
+        Line::from("press any key to close".dim()),
+    ];
+    render_popup(frame, "Help", lines, 60, 70);
+}
+
+/// A `Rect` centered in `area`, `pct_x`% wide and `pct_y`% tall
+fn centered_rect(pct_x: u16, pct_y: u16, area: Rect) -> Rect {
+    let rows = Layout::vertical([
+        Constraint::Percentage((100 - pct_y) / 2),
+        Constraint::Percentage(pct_y),
+        Constraint::Percentage((100 - pct_y) / 2),
+    ])
+    .split(area);
+    Layout::horizontal([
+        Constraint::Percentage((100 - pct_x) / 2),
+        Constraint::Percentage(pct_x),
+        Constraint::Percentage((100 - pct_x) / 2),
+    ])
+    .split(rows[1])[1]
 }
 
 /// The enabled/active checkbox marker.
@@ -160,14 +215,21 @@ mod tests {
     }
 
     #[test]
-    fn footer_shows_deployment_status_and_hints() {
+    fn footer_shows_status_and_help_hint() {
         let mut app = App::sample();
         let out = render(&mut app, 80, 12);
-        assert!(
-            out.contains("No live deployment"),
-            "footer shows deployment status"
-        );
-        assert!(out.contains("quit"), "footer shows key hints");
+        assert!(out.contains("No live deployment"), "status");
+        assert!(out.contains("help"), "footer offers help");
+        assert!(out.contains("quit"), "footer offers quit");
+    }
+
+    #[test]
+    fn help_popup_lists_keybinds_when_open() {
+        let mut app = App::sample();
+        app.popup = Some(Popup::Help);
+        let out = render(&mut app, 80, 24);
+        assert!(out.contains("Help"), "popup title");
+        assert!(out.contains("reorder"), "popup lists bindings");
     }
 
     #[test]
