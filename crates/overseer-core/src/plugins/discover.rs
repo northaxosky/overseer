@@ -11,6 +11,7 @@ pub fn discover_plugins(
 ) -> Result<Vec<PluginMeta>, PluginError> {
     let mut seen: Vec<String> = Vec::new();
     let mut plugins: Vec<PluginMeta> = Vec::new();
+    let game_id = instance.config.game.plugin_id();
 
     for entry in &profile.mods {
         if !entry.enabled {
@@ -27,7 +28,7 @@ pub fn discover_plugins(
                 continue;
             }
             seen.push(name.clone());
-            plugins.push(read_metadata(&name, &found)?);
+            plugins.push(read_metadata(game_id, &name, &found)?);
         }
     }
 

@@ -1,4 +1,4 @@
-//! The real game load order: writing Fallout 4's `Plugins.txt` via libloadorder
+//! The real game load order: writing the game's `Plugins.txt` via libloadorder
 
 use super::error::PluginError;
 use super::loadorder::PluginEntry;
@@ -7,15 +7,13 @@ use loadorder::{GameId, GameSettings};
 
 /// Write the game's real `Plugins.txt` to match `plugins` (load order + active flags)
 pub fn write_active_plugins(
+    game_id: GameId,
     game_dir: &Utf8Path,
     local_dir: &Utf8Path,
     plugins: &[PluginEntry],
 ) -> Result<(), PluginError> {
-    let settings = GameSettings::with_local_path(
-        GameId::Fallout4,
-        game_dir.as_std_path(),
-        local_dir.as_std_path(),
-    )?;
+    let settings =
+        GameSettings::with_local_path(game_id, game_dir.as_std_path(), local_dir.as_std_path())?;
     let mut load_order = settings.into_load_order();
     load_order.load()?;
 
@@ -32,7 +30,7 @@ pub fn write_active_plugins(
     Ok(())
 }
 
-/// The game's real `Plugins.txt` lives directly in the local data dir (Appdata\Local\Fallout4)
+/// The game's real `Plugins.txt` lives directly in the local data dir
 fn plugins_txt_path(local_dir: &Utf8Path) -> Utf8PathBuf {
     local_dir.join("Plugins.txt")
 }
@@ -99,6 +97,7 @@ mod tests {
         write_plugin(&data, "Ccc.esp", 0, &[]);
 
         write_active_plugins(
+            GameId::Fallout4,
             &game,
             &local,
             &[
@@ -122,6 +121,7 @@ mod tests {
         write_plugin(&data, "Mod.esp", 0, &["Base.esm"]);
 
         write_active_plugins(
+            GameId::Fallout4,
             &game,
             &local,
             &[entry("Base.esm", true), entry("Mod.esp", true)],
@@ -168,7 +168,8 @@ mod tests {
         }
         let plugins: Vec<PluginEntry> = names.iter().map(|n| entry(n, true)).collect();
 
-        let err = write_active_plugins(&game, &local, &plugins).expect_err("over the limit");
+        let err = write_active_plugins(GameId::Fallout4, &game, &local, &plugins)
+            .expect_err("over the limit");
         assert!(matches!(
             err,
             PluginError::GameState(loadorder::Error::TooManyActivePlugins { .. })

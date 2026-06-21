@@ -27,8 +27,12 @@ pub struct PluginMeta {
 }
 
 /// Read a plugin's metadata from its header
-pub fn read_metadata(name: &str, path: &Utf8Path) -> Result<PluginMeta, PluginError> {
-    let mut plugin = Plugin::new(GameId::Fallout4, path.as_std_path());
+pub fn read_metadata(
+    game_id: GameId,
+    name: &str,
+    path: &Utf8Path,
+) -> Result<PluginMeta, PluginError> {
+    let mut plugin = Plugin::new(game_id, path.as_std_path());
     plugin
         .parse_file(ParseOptions::header_only())
         .map_err(|source| PluginError::Parse {
@@ -85,7 +89,7 @@ mod tests {
     fn plain_esp_is_neither_master_nor_light() {
         let (_t, base) = temp();
         let path = write_plugin(&base, "Plain.esp", 0, &[]);
-        let meta = read_metadata("Plain.esp", &path).expect("parse");
+        let meta = read_metadata(GameId::Fallout4, "Plain.esp", &path).expect("parse");
         assert_eq!(meta.name, "Plain.esp");
         assert!(!meta.is_master);
         assert!(!meta.is_light);
@@ -96,7 +100,7 @@ mod tests {
     fn master_flag_marks_master() {
         let (_t, base) = temp();
         let path = write_plugin(&base, "Core.esp", FLAG_MASTER, &[]);
-        let meta = read_metadata("Core.esp", &path).expect("parse");
+        let meta = read_metadata(GameId::Fallout4, "Core.esp", &path).expect("parse");
         assert!(meta.is_master);
         assert!(!meta.is_light);
     }
@@ -106,7 +110,7 @@ mod tests {
         // The 0x200 light flag does not imply master.
         let (_t, base) = temp();
         let path = write_plugin(&base, "Patch.esp", FLAG_LIGHT, &[]);
-        let meta = read_metadata("Patch.esp", &path).expect("parse");
+        let meta = read_metadata(GameId::Fallout4, "Patch.esp", &path).expect("parse");
         assert!(meta.is_light);
         assert!(!meta.is_master);
     }
@@ -116,7 +120,7 @@ mod tests {
         // No flags set; the .esm extension alone marks it a master.
         let (_t, base) = temp();
         let path = write_plugin(&base, "Big.esm", 0, &[]);
-        let meta = read_metadata("Big.esm", &path).expect("parse");
+        let meta = read_metadata(GameId::Fallout4, "Big.esm", &path).expect("parse");
         assert!(meta.is_master);
         assert!(!meta.is_light);
     }
@@ -126,7 +130,7 @@ mod tests {
         // The .esl extension implies both the master and light flags.
         let (_t, base) = temp();
         let path = write_plugin(&base, "Small.esl", 0, &[]);
-        let meta = read_metadata("Small.esl", &path).expect("parse");
+        let meta = read_metadata(GameId::Fallout4, "Small.esl", &path).expect("parse");
         assert!(meta.is_master);
         assert!(meta.is_light);
     }
@@ -135,7 +139,7 @@ mod tests {
     fn reads_the_master_list_in_order() {
         let (_t, base) = temp();
         let path = write_plugin(&base, "Dependent.esp", 0, &["Fallout4.esm", "DLCCoast.esm"]);
-        let meta = read_metadata("Dependent.esp", &path).expect("parse");
+        let meta = read_metadata(GameId::Fallout4, "Dependent.esp", &path).expect("parse");
         assert_eq!(meta.masters, ["Fallout4.esm", "DLCCoast.esm"]);
     }
 
@@ -144,7 +148,7 @@ mod tests {
         let (_t, base) = temp();
         let path = base.join("Garbage.esp");
         std::fs::write(&path, b"not a plugin").expect("write");
-        let err = read_metadata("Garbage.esp", &path).expect_err("should fail");
+        let err = read_metadata(GameId::Fallout4, "Garbage.esp", &path).expect_err("should fail");
         assert!(matches!(err, PluginError::Parse { .. }));
     }
 }

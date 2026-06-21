@@ -68,7 +68,12 @@ pub fn deploy_profile(
         return Err(e.into());
     }
 
-    if let Err(e) = plugins::write_active_plugins(instance.game_dir(), &local_dir, &order.plugins) {
+    if let Err(e) = plugins::write_active_plugins(
+        instance.config.game.load_order_id(),
+        instance.game_dir(),
+        &local_dir,
+        &order.plugins,
+    ) {
         tracing::warn!(error = %e, "writing Plugins.txt failed; rolling back");
         let _ = reverse_and_finalize(instance, deployment, progress);
         return Err(e.into());
@@ -184,7 +189,7 @@ fn resolve_local_dir(instance: &Instance) -> Result<Utf8PathBuf, ApplyError> {
     }
 
     let base = std::env::var("LOCALAPPDATA").map_err(|_| ApplyError::NoLocalAppData)?;
-    Ok(Utf8PathBuf::from(base).join("Fallout4"))
+    Ok(Utf8PathBuf::from(base).join(instance.config.game.local_appdata_dir()))
 }
 
 // Dont start a deploy when the backup dir survives from a previous run

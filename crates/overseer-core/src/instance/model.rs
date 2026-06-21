@@ -1,13 +1,18 @@
 use super::error::{InstanceError, io_err};
 use crate::deploy::DeployerKind;
+use crate::game::GameKind;
 use camino::{Utf8Path, Utf8PathBuf};
 use serde::{Deserialize, Serialize};
 
 /// Persisted configuration for an instance, stored as `overseer.toml` at the instance root
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InstanceConfig {
-    /// The game install directory (contains `Fallout4.exe` & `Data/`)
+    /// The game install directory (contains the game exe & `Data/`)
     pub game_dir: Utf8PathBuf,
+
+    /// Which game this instance manages
+    #[serde(default)]
+    pub game: GameKind,
 
     /// Where the game's real `Plugins.txt` lives
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -46,6 +51,7 @@ impl Instance {
             root: root.into(),
             config: InstanceConfig {
                 game_dir: game_dir.into(),
+                game: GameKind::default(),
                 local_dir: None,
                 default_profile: default_profile(),
                 deployer: DeployerKind::default(),
@@ -246,9 +252,10 @@ mod tests {
         (dir, root.join("inst"))
     }
 
-    fn config(game: &str) -> InstanceConfig {
+    fn config(game_dir: &str) -> InstanceConfig {
         InstanceConfig {
-            game_dir: Utf8PathBuf::from(game),
+            game_dir: Utf8PathBuf::from(game_dir),
+            game: GameKind::default(),
             local_dir: None,
             default_profile: "Default".to_owned(),
             deployer: DeployerKind::default(),
@@ -271,6 +278,7 @@ mod tests {
         let (_tmp, root) = temp_root();
         let cfg = InstanceConfig {
             game_dir: Utf8PathBuf::from("D:/FO4"),
+            game: GameKind::SkyrimSE,
             local_dir: Some(Utf8PathBuf::from("C:/Users/Me/AppData/Local/Fallout4")),
             default_profile: "Survival".to_owned(),
             deployer: DeployerKind::Usvfs,
@@ -285,6 +293,19 @@ mod tests {
         );
         assert_eq!(loaded.config.default_profile, "Survival");
         assert_eq!(loaded.config.deployer, DeployerKind::Usvfs);
+        assert_eq!(loaded.config.game, GameKind::SkyrimSE);
+    }
+
+    #[test]
+    fn legacy_config_without_game_key_defaults_to_fallout4() {
+        // A pre-multi-game overseer.toml only had `game_dir`; serde defaults fill
+        // in the rest, and `game` must resolve to Fallout 4 so existing instances
+        // keep working untouched.
+        let cfg: InstanceConfig = toml::from_str("game_dir = \"D:/FO4\"\n").expect("legacy load");
+        assert_eq!(cfg.game, GameKind::Fallout4);
+        assert_eq!(cfg.default_profile, "Default");
+        assert_eq!(cfg.deployer, DeployerKind::default());
+        assert_eq!(cfg.local_dir, None);
     }
 
     #[test]

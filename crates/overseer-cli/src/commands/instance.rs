@@ -6,6 +6,7 @@ use crate::ui::{heading, success};
 use anyhow::{Context, Result};
 use camino::Utf8PathBuf;
 use overseer_core::deploy::DeployerKind;
+use overseer_core::game::GameKind;
 use overseer_core::instance::{Instance, InstanceConfig};
 
 pub fn run(command: InstanceCommand) -> Result<()> {
@@ -29,6 +30,7 @@ fn init(
     let path = absolutize(&path)?;
     let config = InstanceConfig {
         game_dir: absolutize(&game)?,
+        game: GameKind::default(),
         local_dir: local.map(|l| absolutize(&l)).transpose()?,
         default_profile: profile,
         deployer: DeployerKind::default(),

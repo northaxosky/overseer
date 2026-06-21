@@ -5,6 +5,7 @@
 
 pub mod apply;
 pub mod deploy;
+pub mod game;
 pub mod install;
 pub mod instance;
 pub mod plugins;
