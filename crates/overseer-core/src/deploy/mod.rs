@@ -5,6 +5,7 @@ mod error;
 mod hardlink;
 mod plan;
 mod progress;
+mod projfs;
 mod record;
 mod usvfs;
 
@@ -13,6 +14,7 @@ pub use error::DeployError;
 pub use hardlink::HardlinkDeployer;
 pub use plan::{DeployPlan, ModSource, PlannedFile};
 pub use progress::{NullSink, ProgressEvent, ProgressSink};
+pub use projfs::ProjFsDeployer;
 pub use record::{
     DeployEntry, DeployRecord, DeployerKind, ReversalReport, VerifyReport, deployer_for,
 };

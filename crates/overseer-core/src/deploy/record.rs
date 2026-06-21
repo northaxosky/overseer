@@ -1,7 +1,7 @@
 //! Plan-derived record of a deployment transaction, acts as the source for reversing it
 
 use super::error::io_err;
-use super::{DeployError, DeployPlan, Deployer, HardlinkDeployer, UsvfsDeployer};
+use super::{DeployError, DeployPlan, Deployer, HardlinkDeployer, ProjFsDeployer, UsvfsDeployer};
 use camino::{Utf8Path, Utf8PathBuf};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
@@ -14,6 +14,8 @@ pub enum DeployerKind {
     HardLink,
     /// TODO: User space virtual filesystem (MO2)
     Usvfs,
+    /// TODO: ProjFS
+    ProjFs,
 }
 
 impl std::fmt::Display for DeployerKind {
@@ -21,6 +23,7 @@ impl std::fmt::Display for DeployerKind {
         let name = match self {
             Self::HardLink => "HardLink Deployer",
             Self::Usvfs => "USVFS Deployer",
+            Self::ProjFs => "ProjFS Deployer",
         };
         f.write_str(name)
     }
@@ -31,6 +34,7 @@ pub fn deployer_for(kind: DeployerKind) -> Box<dyn Deployer> {
     match kind {
         DeployerKind::HardLink => Box::new(HardlinkDeployer::new()),
         DeployerKind::Usvfs => Box::new(UsvfsDeployer::new()),
+        DeployerKind::ProjFs => Box::new(ProjFsDeployer::new()),
     }
 }
 
