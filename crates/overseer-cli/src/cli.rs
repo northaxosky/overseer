@@ -2,6 +2,7 @@
 
 use camino::Utf8PathBuf;
 use clap::{Args, Parser, Subcommand};
+use overseer_core::game::GameKind;
 
 #[derive(Parser)]
 #[command(
@@ -147,9 +148,12 @@ pub enum InstanceCommand {
         /// Directory to create the instance in
         #[arg(long)]
         path: Utf8PathBuf,
-        /// Game install directory (contains Fallout4.exe and Data/)
+        /// Game to manage [possible values: fallout4, skyrimse, starfield]
+        #[arg(long, default_value = "fallout4")]
+        game: GameKind,
+        /// Game install directory (contains the game exe & Data/)
         #[arg(long)]
-        game: Utf8PathBuf,
+        game_dir: Utf8PathBuf,
         /// Where the real Plugins.txt lives (default: %LOCALAPPDATA%\Fallout4)
         #[arg(long)]
         local: Option<Utf8PathBuf>,

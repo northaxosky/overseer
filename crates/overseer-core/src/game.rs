@@ -2,6 +2,7 @@
 
 use loadorder::GameId;
 use serde::{Deserialize, Serialize};
+use std::str::FromStr;
 
 /// A game Overseer can manage
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -45,6 +46,24 @@ impl std::fmt::Display for GameKind {
             GameKind::Starfield => "Starfield",
         };
         f.write_str(name)
+    }
+}
+
+/// Returned when a string does not name a game Overseer supports
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+#[error("unknown game '{0}' (expected one of: fallout4, skyrimse, starfield)")]
+pub struct ParseGameKindError(String);
+
+impl FromStr for GameKind {
+    type Err = ParseGameKindError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_ascii_lowercase().as_str() {
+            "fallout4" | "fo4" => Ok(GameKind::Fallout4),
+            "skyrimse" | "sse" => Ok(GameKind::SkyrimSE),
+            "starfield" | "sf" => Ok(GameKind::Starfield),
+            _ => Err(ParseGameKindError(s.to_owned())),
+        }
     }
 }
 
@@ -120,5 +139,29 @@ mod tests {
 
         let back: Wrap = toml::from_str(&toml_str).expect("deserialize");
         assert_eq!(back.game, GameKind::Starfield);
+    }
+
+    #[test]
+    fn parses_canonical_names_case_insensitively() {
+        assert_eq!("fallout4".parse::<GameKind>().unwrap(), GameKind::Fallout4);
+        assert_eq!("SkyrimSE".parse::<GameKind>().unwrap(), GameKind::SkyrimSE);
+        assert_eq!(
+            "STARFIELD".parse::<GameKind>().unwrap(),
+            GameKind::Starfield
+        );
+    }
+
+    #[test]
+    fn parses_short_aliases() {
+        assert_eq!("fo4".parse::<GameKind>().unwrap(), GameKind::Fallout4);
+        assert_eq!("sse".parse::<GameKind>().unwrap(), GameKind::SkyrimSE);
+        assert_eq!("sf".parse::<GameKind>().unwrap(), GameKind::Starfield);
+    }
+
+    #[test]
+    fn rejects_unknown_game_with_a_helpful_message() {
+        let err = "morrowind".parse::<GameKind>().unwrap_err();
+        assert_eq!(err, ParseGameKindError("morrowind".to_owned()));
+        assert!(err.to_string().contains("morrowind"));
     }
 }

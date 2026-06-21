@@ -45,7 +45,7 @@ purges everything back to a clean state.
 
 ```
 # create an instance pointing at your game
-overseer instance init --path <instance-dir> --game "<FO4 install>"
+overseer instance init --path <instance-dir> --game-dir "<FO4 install>"
 
 # install a mod archive, then inspect the mod list and plugin order
 overseer install <mod.7z> --instance <instance-dir>

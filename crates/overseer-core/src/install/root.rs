@@ -1,7 +1,7 @@
 use super::error::{InstallError, io_err};
 use camino::{Utf8Path, Utf8PathBuf};
 
-/// Top-level directory names that mark a valid Fallout 4 data root.
+/// Top-level directory names that mark a valid Bethesda game data root.
 const DATA_DIRS: &[&str] = &[
     "textures",
     "meshes",
@@ -13,6 +13,8 @@ const DATA_DIRS: &[&str] = &[
     "interface",
     "strings",
     "f4se",
+    "skse",
+    "sfse",
     "mcm",
     "vis",
     "lodsettings",
@@ -22,7 +24,7 @@ const DATA_DIRS: &[&str] = &[
 ];
 
 /// File extensions that mark a valid data root (plugins and archives).
-const DATA_EXTS: &[&str] = &["esp", "esm", "esl", "ba2"];
+const DATA_EXTS: &[&str] = &["esp", "esm", "esl", "ba2", "bsa"];
 
 /// A top-level entry, reduced to what is really needed
 #[derive(Debug, Clone)]
