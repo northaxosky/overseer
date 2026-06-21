@@ -1,3 +1,5 @@
+//! NTFS hard-link deployment backend.
+
 use super::error::io_err;
 use super::{
     DeployError, DeployPlan, DeployRecord, Deployer, DeployerKind, ProgressEvent, ProgressSink,

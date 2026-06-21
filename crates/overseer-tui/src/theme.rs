@@ -19,6 +19,9 @@ pub(crate) fn selection_style() -> Style {
     Style::new().add_modifier(Modifier::REVERSED)
 }
 
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
 #[cfg(test)]
 mod tests {
     use super::*;

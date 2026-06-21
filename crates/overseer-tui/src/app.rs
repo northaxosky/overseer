@@ -9,11 +9,6 @@ use overseer_core::settings::Settings;
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::widgets::ListState;
 
-#[cfg(test)]
-use overseer_core::instance::ModListEntry;
-#[cfg(test)]
-use overseer_core::plugins::PluginEntry;
-
 /// Which pane has keyboard focus.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Focus {
@@ -324,7 +319,7 @@ fn is_quit(key: KeyEvent) -> bool {
 }
 
 /// A `ListState` selecting the first row when the list is non-empty.
-fn initial_selection(len: usize) -> ListState {
+pub(crate) fn initial_selection(len: usize) -> ListState {
     let mut state = ListState::default();
     if len > 0 {
         state.select(Some(0));
@@ -351,67 +346,9 @@ fn move_in_list(state: &mut ListState, len: usize, delta: isize) {
     state.select(Some(next));
 }
 
-#[cfg(test)]
-impl App {
-    /// A small in-memory fixture for tests (no disk access).
-    pub(crate) fn sample() -> Self {
-        Self {
-            should_quit: false,
-            popup: None,
-            focus: Focus::Mods,
-            message: None,
-            settings: Settings {
-                recent_instances: vec![
-                    Utf8Path::new("/alpha").to_owned(),
-                    Utf8Path::new("/beta").to_owned(),
-                ],
-            },
-            session: Session {
-                instance: Instance::new("test-instance", "test-game"),
-                profile: Profile {
-                    name: "Default".to_owned(),
-                    mods: vec![
-                        ModListEntry {
-                            name: "CoolMod".to_owned(),
-                            enabled: true,
-                            foreign: false,
-                        },
-                        ModListEntry {
-                            name: "OffMod".to_owned(),
-                            enabled: false,
-                            foreign: false,
-                        },
-                    ],
-                },
-                order: PluginLoadOrder {
-                    profile: "Default".to_owned(),
-                    plugins: vec![
-                        PluginEntry {
-                            name: "Cool.esm".to_owned(),
-                            active: true,
-                        },
-                        PluginEntry {
-                            name: "Cool.esp".to_owned(),
-                            active: false,
-                        },
-                    ],
-                },
-                discovered: vec![PluginMeta {
-                    name: "Cool.esm".to_owned(),
-                    is_master: true,
-                    is_light: false,
-                    masters: Vec::new(),
-                }],
-                status: None,
-            },
-            mods_state: initial_selection(2),
-            plugins_state: initial_selection(2),
-            settings_state: ListState::default(),
-            help_state: ListState::default(),
-        }
-    }
-}
-
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
 #[cfg(test)]
 mod tests {
     use super::*;

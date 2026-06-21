@@ -6,6 +6,9 @@ mod cli;
 mod theme;
 mod ui;
 
+#[cfg(test)]
+mod test_support;
+
 use anyhow::{Context, Result};
 use overseer_core::settings::Settings;
 use ratatui::DefaultTerminal;
