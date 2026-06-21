@@ -15,6 +15,6 @@ path = "src/main.rs"
 overseer-frontend = { path = "../overseer-frontend" }
 overseer-core = { path = "../overseer-core" }
 anyhow.workspace = true
-ratatui = "0.30"
+ratatui.workspace = true
 tracing.workspace = true
 camino.workspace = true

@@ -27,3 +27,5 @@ atomicwrites = "0.4"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 tracing-appender = "0.2"
+owo-colors = { version = "4.2.3", features = ["supports-colors"] }
+ratatui = "0.30"

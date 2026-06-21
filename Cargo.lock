@@ -1391,7 +1391,6 @@ dependencies = [
  "overseer-core",
  "overseer-frontend",
  "owo-colors",
- "serde_json",
  "tempfile",
  "tracing",
 ]

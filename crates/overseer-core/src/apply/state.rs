@@ -29,7 +29,7 @@ pub struct Deployment {
     /// What the file deploy wrote, so `purge` can remove them
     pub record: DeployRecord,
     /// The user's original `Plugins.txt` bytes, if any
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub plugins_txt_backup: Option<Vec<u8>>,
 }
 
