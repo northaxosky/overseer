@@ -95,7 +95,7 @@ impl Instance {
         }
         std::fs::create_dir_all(&root).map_err(|e| io_err(&root, e))?;
         let instance = Self { root, config };
-        instance.save_config()?;
+        instance.save()?;
         std::fs::create_dir_all(instance.mods_dir())
             .map_err(|e| io_err(&instance.mods_dir(), e))?;
         std::fs::create_dir_all(instance.profiles_dir())
@@ -104,7 +104,7 @@ impl Instance {
     }
 
     /// Write the current config to `overseer.toml`
-    pub fn save_config(&self) -> Result<(), InstanceError> {
+    pub fn save(&self) -> Result<(), InstanceError> {
         let path = Self::config_path(&self.root);
         let text =
             toml::to_string_pretty(&self.config).map_err(|source| InstanceError::ConfigWrite {

@@ -7,7 +7,7 @@ use anyhow::{Context, Result};
 use camino::Utf8PathBuf;
 use overseer_core::apply;
 
-pub fn deploy(target: ProfileArgs) -> Result<()> {
+pub fn deploy(target: &ProfileArgs) -> Result<()> {
     let instance = open_instance(&absolutize(&target.instance)?)?;
     heading(format!("Deploying profile `{}`", target.profile));
 

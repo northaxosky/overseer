@@ -5,7 +5,7 @@ mod lock;
 mod state;
 
 pub use error::ApplyError;
-pub use lock::InstanceLock;
+use lock::InstanceLock;
 pub use state::{Deployment, Status};
 
 use crate::deploy::{DeployPlan, DeployRecord, ProgressSink, VerifyReport, deployer_for};

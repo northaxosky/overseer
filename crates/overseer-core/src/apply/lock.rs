@@ -12,7 +12,7 @@ pub struct InstanceLock {
 
 impl InstanceLock {
     /// Try to take the instance lock without blocking. Returns [`ApplyError::Busy`]
-    pub fn acquire(instance: &Instance) -> Result<Self, ApplyError> {
+    pub(crate) fn acquire(instance: &Instance) -> Result<Self, ApplyError> {
         let dir = instance.state_dir();
         std::fs::create_dir_all(&dir).map_err(|e| io_err(&dir, e))?;
         let path = dir.join("overseer.lock");

@@ -6,6 +6,7 @@ use super::{
 
 /// A mod deployment backend
 pub trait Deployer {
+    /// Which backend this is (used for journaling and display).
     fn kind(&self) -> DeployerKind;
 
     /// Check whether this deployer can satisfy the plan

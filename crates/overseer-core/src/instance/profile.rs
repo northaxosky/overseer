@@ -110,11 +110,13 @@ impl Profile {
         Ok(&mut self.mods[idx])
     }
 
+    /// Mark a mod enabled in this profile's mod list.
     pub fn enable(&mut self, name: &str) -> Result<(), InstanceError> {
         self.entry_mut(name)?.enabled = true;
         Ok(())
     }
 
+    /// Mark a mod disabled in this profile's mod list.
     pub fn disable(&mut self, name: &str) -> Result<(), InstanceError> {
         self.entry_mut(name)?.enabled = false;
         Ok(())

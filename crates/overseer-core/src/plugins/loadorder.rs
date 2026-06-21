@@ -76,9 +76,11 @@ impl PluginLoadOrder {
         Ok(())
     }
 
+    /// Mark a plugin active in the load order.
     pub fn activate(&mut self, name: &str) -> Result<(), PluginError> {
         self.set_active(name, true)
     }
+    /// Mark a plugin inactive in the load order.
     pub fn deactivate(&mut self, name: &str) -> Result<(), PluginError> {
         self.set_active(name, false)
     }

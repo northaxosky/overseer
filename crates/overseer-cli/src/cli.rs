@@ -126,14 +126,14 @@ pub enum PluginCommand {
         target: ProfileArgs,
     },
     /// Activate a plugin
-    Enable {
+    Activate {
         /// Plugin file name (e.g. MyMod.esp)
         name: String,
         #[command(flatten)]
         target: ProfileArgs,
     },
     /// Deactivate a plugin
-    Disable {
+    Deactivate {
         /// Plugin file name (e.g. MyMod.esp)
         name: String,
         #[command(flatten)]

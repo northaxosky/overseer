@@ -5,7 +5,5 @@ mod error;
 mod installer;
 mod root;
 
-pub use archive::extract;
 pub use error::InstallError;
 pub use installer::install;
-pub use root::find_content_root;

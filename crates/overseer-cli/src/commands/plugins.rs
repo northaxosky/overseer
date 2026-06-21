@@ -1,4 +1,4 @@
-//! `overseer plugin ...` subcommands: list, enable (activate), disable (deactivate).
+//! `overseer plugin ...` subcommands: list, activate, deactivate.
 
 use anyhow::{Context, Result};
 use overseer_core::instance::Instance;
@@ -10,9 +10,9 @@ use crate::ui::{heading, list_item, success};
 
 pub fn run(command: PluginCommand) -> Result<()> {
     match command {
-        PluginCommand::List { target } => list(target),
-        PluginCommand::Enable { name, target } => set_active(target, &name, true),
-        PluginCommand::Disable { name, target } => set_active(target, &name, false),
+        PluginCommand::List { target } => list(&target),
+        PluginCommand::Activate { name, target } => set_active(&target, &name, true),
+        PluginCommand::Deactivate { name, target } => set_active(&target, &name, false),
     }
 }
 
@@ -28,7 +28,7 @@ fn synced(instance: &Instance, profile_name: &str) -> Result<(Vec<PluginMeta>, P
     Ok((discovered, order))
 }
 
-fn list(target: ProfileArgs) -> Result<()> {
+fn list(target: &ProfileArgs) -> Result<()> {
     let instance = open_instance(&target.instance)?;
     let (discovered, order) = synced(&instance, &target.profile)?;
 
@@ -52,7 +52,7 @@ fn list(target: ProfileArgs) -> Result<()> {
     Ok(())
 }
 
-fn set_active(target: ProfileArgs, plugin: &str, active: bool) -> Result<()> {
+fn set_active(target: &ProfileArgs, plugin: &str, active: bool) -> Result<()> {
     let instance = open_instance(&target.instance)?;
     let (_discovered, mut order) = synced(&instance, &target.profile)?;
 

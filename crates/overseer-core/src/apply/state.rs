@@ -35,17 +35,17 @@ pub struct Deployment {
 
 impl Deployment {
     /// Path to the state file for `instance`
-    pub fn path(instance: &Instance) -> Utf8PathBuf {
+    pub(crate) fn path(instance: &Instance) -> Utf8PathBuf {
         instance.state_dir().join("deployment.json")
     }
 
     /// Whether a deployment is currently recorded for `instance`
-    pub fn exists(instance: &Instance) -> bool {
+    pub(crate) fn exists(instance: &Instance) -> bool {
         Self::path(instance).exists()
     }
 
     /// Read the recorded deployment, or [`ApplyError::NotDeployed`] if there is none
-    pub fn load(instance: &Instance) -> Result<Self, ApplyError> {
+    pub(crate) fn load(instance: &Instance) -> Result<Self, ApplyError> {
         let path = Self::path(instance);
         let text = std::fs::read_to_string(&path).map_err(|source| {
             if source.kind() == std::io::ErrorKind::NotFound {
@@ -58,7 +58,7 @@ impl Deployment {
     }
 
     /// Write state file atomically
-    pub fn save(&self, instance: &Instance) -> Result<(), ApplyError> {
+    pub(crate) fn save(&self, instance: &Instance) -> Result<(), ApplyError> {
         let dir = instance.state_dir();
         std::fs::create_dir_all(&dir).map_err(|e| io_err(&dir, e))?;
         let path = Self::path(instance);
@@ -70,7 +70,7 @@ impl Deployment {
     }
 
     /// Delete the state file, marking the instance as no longer deployed
-    pub fn remove(instance: &Instance) -> Result<(), ApplyError> {
+    pub(crate) fn remove(instance: &Instance) -> Result<(), ApplyError> {
         let path = Self::path(instance);
         std::fs::remove_file(&path).map_err(|e| io_err(&path, e))
     }
