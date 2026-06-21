@@ -42,7 +42,9 @@ fn find_plugin_files(mod_dir: &Utf8Path) -> Result<Vec<camino::Utf8PathBuf>, Plu
         let entry = match entry {
             Ok(e) => e,
             // A mod folder that doesn't exist yet (no plugins)
-            Err(e) if e.io_error().map(|io| io.kind()) == Some(std::io::ErrorKind::NotFound) => {
+            Err(e)
+                if e.io_error().map(std::io::Error::kind) == Some(std::io::ErrorKind::NotFound) =>
+            {
                 return Ok(found);
             }
             Err(e) => {

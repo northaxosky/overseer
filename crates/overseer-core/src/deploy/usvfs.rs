@@ -15,7 +15,7 @@ impl UsvfsDeployer {
     }
 
     /// Typed error every operation returns until implemented
-    fn unsupported(&self) -> DeployError {
+    fn unsupported() -> DeployError {
         DeployError::Unsupported {
             deployer: DeployerKind::Usvfs,
         }
@@ -28,7 +28,7 @@ impl Deployer for UsvfsDeployer {
     }
 
     fn check_supported(&self, _plan: &DeployPlan) -> Result<(), DeployError> {
-        Err(self.unsupported())
+        Err(Self::unsupported())
     }
 
     fn deploy(
@@ -36,12 +36,12 @@ impl Deployer for UsvfsDeployer {
         _record: &DeployRecord,
         _progress: &dyn ProgressSink,
     ) -> Result<(), DeployError> {
-        Err(self.unsupported())
+        Err(Self::unsupported())
     }
 
     fn undeploy(&self, _record: &DeployRecord, _progress: &dyn ProgressSink) -> ReversalReport {
         ReversalReport {
-            unresolved: vec![self.unsupported()],
+            unresolved: vec![Self::unsupported()],
         }
     }
 

@@ -103,7 +103,7 @@ impl PluginLoadOrder {
                 self.plugins.push(PluginEntry {
                     name: m.name.clone(),
                     active: true,
-                })
+                });
             }
         }
 

@@ -6,7 +6,7 @@ use camino::Utf8PathBuf;
 /// Parse `overseer-tui <instance-dir> [--profile NAME]`.
 pub(crate) fn parse_args() -> Result<(Option<Utf8PathBuf>, String)> {
     let mut instance: Option<Utf8PathBuf> = None;
-    let mut profile = String::from("Default");
+    let mut profile = "Default".to_owned();
     let mut args = std::env::args().skip(1);
 
     while let Some(arg) = args.next() {

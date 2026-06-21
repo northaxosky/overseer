@@ -28,7 +28,7 @@ fn higher_priority_wins_files_are_hardlinks_and_purge_is_clean() {
     write(&mod_b.join("Textures/shared.dds"), "B-shared");
 
     let mods = [
-        ModSource::new("AlphaTextures", mod_a.clone()),
+        ModSource::new("AlphaTextures", mod_a),
         ModSource::new("BetterTextures", mod_b.clone()),
     ];
 

@@ -175,10 +175,10 @@ impl App {
         match key.code {
             KeyCode::Esc | KeyCode::Char('?') | KeyCode::Char('q') => self.popup = None,
             KeyCode::Down | KeyCode::Char('j') => {
-                move_in_list(&mut self.help_state, HELP_ENTRIES.len(), 1)
+                move_in_list(&mut self.help_state, HELP_ENTRIES.len(), 1);
             }
             KeyCode::Up | KeyCode::Char('k') => {
-                move_in_list(&mut self.help_state, HELP_ENTRIES.len(), -1)
+                move_in_list(&mut self.help_state, HELP_ENTRIES.len(), -1);
             }
             _ => {}
         }
@@ -353,7 +353,7 @@ fn move_in_list(state: &mut ListState, len: usize, delta: isize) {
 impl App {
     /// A small in-memory fixture for tests (no disk access).
     pub(crate) fn sample() -> Self {
-        App {
+        Self {
             should_quit: false,
             popup: None,
             focus: Focus::Mods,

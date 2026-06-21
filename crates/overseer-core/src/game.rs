@@ -17,9 +17,9 @@ impl GameKind {
     /// The LOOT stack's id, for load order rules (`libloadorder`)
     pub fn load_order_id(self) -> GameId {
         match self {
-            GameKind::Fallout4 => GameId::Fallout4,
-            GameKind::SkyrimSE => GameId::SkyrimSE,
-            GameKind::Starfield => GameId::Starfield,
+            Self::Fallout4 => GameId::Fallout4,
+            Self::SkyrimSE => GameId::SkyrimSE,
+            Self::Starfield => GameId::Starfield,
         }
     }
 
@@ -31,9 +31,9 @@ impl GameKind {
     /// Folder under `%LOCALAPPDATA%` where the game keeps `Plugins.txt`
     pub fn local_appdata_dir(self) -> &'static str {
         match self {
-            GameKind::Fallout4 => "Fallout4",
-            GameKind::SkyrimSE => "Skyrim Special Edition",
-            GameKind::Starfield => "Starfield",
+            Self::Fallout4 => "Fallout4",
+            Self::SkyrimSE => "Skyrim Special Edition",
+            Self::Starfield => "Starfield",
         }
     }
 }
@@ -41,9 +41,9 @@ impl GameKind {
 impl std::fmt::Display for GameKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let name = match self {
-            GameKind::Fallout4 => "Fallout 4",
-            GameKind::SkyrimSE => "Skyrim Special Edition",
-            GameKind::Starfield => "Starfield",
+            Self::Fallout4 => "Fallout 4",
+            Self::SkyrimSE => "Skyrim Special Edition",
+            Self::Starfield => "Starfield",
         };
         f.write_str(name)
     }
@@ -59,9 +59,9 @@ impl FromStr for GameKind {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_ascii_lowercase().as_str() {
-            "fallout4" | "fo4" => Ok(GameKind::Fallout4),
-            "skyrimse" | "sse" => Ok(GameKind::SkyrimSE),
-            "starfield" | "sf" => Ok(GameKind::Starfield),
+            "fallout4" | "fo4" => Ok(Self::Fallout4),
+            "skyrimse" | "sse" => Ok(Self::SkyrimSE),
+            "starfield" | "sf" => Ok(Self::Starfield),
             _ => Err(ParseGameKindError(s.to_owned())),
         }
     }

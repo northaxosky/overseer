@@ -29,7 +29,7 @@ pub fn run() -> Result<()> {
     println!("  [2] BetterTextures -> Textures/shared.dds\n");
 
     let mods = [
-        ModSource::new("AlphaTextures", mod_a.clone()),
+        ModSource::new("AlphaTextures", mod_a),
         ModSource::new("BetterTextures", mod_b.clone()),
     ];
     let plan = DeployPlan::from_mods(&data, &mods)?;

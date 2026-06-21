@@ -165,8 +165,7 @@ fn reverse_and_finalize(
         failed.save(instance)?;
         Err(plugins_restored
             .err()
-            .map(ApplyError::from)
-            .unwrap_or(ApplyError::RecoveryFailed { path }))
+            .map_or(ApplyError::RecoveryFailed { path }, ApplyError::from))
     }
 }
 

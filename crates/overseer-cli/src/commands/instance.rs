@@ -56,7 +56,7 @@ fn show(path: Utf8PathBuf) -> Result<()> {
                 instance.config.game.local_appdata_dir()
             )
         },
-        |p| p.to_string(),
+        std::string::ToString::to_string,
     );
     let mods = instance.installed_mods().context("listing mods")?;
     let profiles = instance.profiles().context("listing profiles")?;

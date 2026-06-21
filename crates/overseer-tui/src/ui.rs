@@ -107,7 +107,7 @@ pub(crate) fn draw_main(app: &mut App, frame: &mut Frame) {
     let left = app
         .message
         .clone()
-        .unwrap_or_else(|| status_summary(&app.session.status));
+        .unwrap_or_else(|| status_summary(app.session.status.as_ref()));
     frame.render_widget(Paragraph::new(left), foot[0]);
     frame.render_widget(
         Paragraph::new("s settings · ? help · q quit ").alignment(Alignment::Right),
@@ -199,7 +199,7 @@ fn is_master(discovered: &[PluginMeta], name: &str) -> bool {
 }
 
 /// One-line summary of the instance's live deployment, for the footer
-fn status_summary(status: &Option<DeploymentStatus>) -> String {
+fn status_summary(status: Option<&DeploymentStatus>) -> String {
     match status {
         None => "No live deployment".to_owned(),
         Some(s) => {
@@ -255,7 +255,7 @@ mod tests {
             .buffer()
             .content()
             .iter()
-            .map(|cell| cell.symbol())
+            .map(ratatui::buffer::Cell::symbol)
             .collect()
     }
 

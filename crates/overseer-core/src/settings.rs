@@ -94,7 +94,9 @@ impl Settings {
 
     /// The most recently opened instance, if any
     pub fn last_instance(&self) -> Option<&Utf8Path> {
-        self.recent_instances.first().map(|p| p.as_path())
+        self.recent_instances
+            .first()
+            .map(camino::Utf8PathBuf::as_path)
     }
 
     /// Record that `instance` was opened, move to front
@@ -106,7 +108,7 @@ impl Settings {
 
     /// Resolve which instance to open: explicit choice wins, or the most recent one does
     pub fn resolve_instance(&self, explicit: Option<Utf8PathBuf>) -> Option<Utf8PathBuf> {
-        explicit.or_else(|| self.last_instance().map(|p| p.to_owned()))
+        explicit.or_else(|| self.last_instance().map(std::borrow::ToOwned::to_owned))
     }
 }
 

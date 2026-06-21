@@ -19,8 +19,8 @@ pub enum DeployerKind {
 impl std::fmt::Display for DeployerKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let name = match self {
-            DeployerKind::HardLink => "HardLink Deployer",
-            DeployerKind::Usvfs => "USVFS Deployer",
+            Self::HardLink => "HardLink Deployer",
+            Self::Usvfs => "USVFS Deployer",
         };
         f.write_str(name)
     }
@@ -119,7 +119,7 @@ fn collect_missing_dirs(
         match abs.symlink_metadata() {
             Ok(_) => {}
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                created_dirs.push(current.clone())
+                created_dirs.push(current.clone());
             }
             Err(e) => return Err(io_err(&abs, e)),
         }

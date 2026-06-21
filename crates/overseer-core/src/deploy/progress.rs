@@ -25,6 +25,7 @@ pub trait ProgressSink {
 }
 
 /// A [`ProgressSink`] that discards everything
+#[derive(Debug, Default, Clone, Copy)]
 pub struct NullSink;
 
 impl ProgressSink for NullSink {

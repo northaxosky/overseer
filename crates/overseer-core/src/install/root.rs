@@ -90,7 +90,7 @@ fn read_entries(dir: &Utf8Path) -> Result<Vec<Entry>, InstallError> {
         let entry = entry.map_err(|e| io_err(dir, e))?;
         let is_dir = entry.file_type().map_err(|e| io_err(dir, e))?.is_dir();
         let name = entry.file_name().to_string_lossy().into_owned();
-        entries.push(Entry { name, is_dir })
+        entries.push(Entry { name, is_dir });
     }
     Ok(entries)
 }
