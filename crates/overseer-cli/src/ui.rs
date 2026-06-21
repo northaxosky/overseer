@@ -3,38 +3,16 @@
 use std::fmt::Display;
 
 use overseer_core::deploy::{ProgressEvent, ProgressSink};
+pub use overseer_frontend::style::Role;
 use owo_colors::{OwoColorize, Stream::Stdout, Style};
 
-/// A semantic styling role. Front ends map roles to concrete styles; the CLI
-/// theme lives in [`Role::style`].
-#[derive(Debug, Clone, Copy)]
-pub enum Role {
-    /// A section heading.
-    Heading,
-    /// A completed action, good result, or enabled item.
-    Success,
-    /// An error or a failed check.
-    Failure,
-    /// A caution: something missing or removed the user should notice.
-    Warning,
-    /// Secondary information: counts, hints, disabled items.
-    Muted,
-    /// A deployed / added entry.
-    Added,
-    /// A removed entry.
-    Removed,
-}
-
-impl Role {
-    /// The CLI (owo-colors) style for this role — the one place colours are chosen.
-    fn style(self) -> Style {
-        match self {
-            Role::Heading => Style::new().bold(),
-            Role::Success | Role::Added => Style::new().green().bold(),
-            Role::Failure => Style::new().red().bold(),
-            Role::Warning | Role::Removed => Style::new().yellow().bold(),
-            Role::Muted => Style::new().dimmed(),
-        }
+fn role_style(role: Role) -> Style {
+    match role {
+        Role::Heading => Style::new().bold(),
+        Role::Success | Role::Added => Style::new().green().bold(),
+        Role::Failure => Style::new().red().bold(),
+        Role::Warning | Role::Removed => Style::new().yellow().bold(),
+        Role::Muted => Style::new().dimmed(),
     }
 }
 
@@ -42,7 +20,7 @@ impl Role {
 pub fn styled(role: Role, value: impl Display) -> String {
     format!(
         "{}",
-        value.if_supports_color(Stdout, |t| t.style(role.style()))
+        value.if_supports_color(Stdout, |t| t.style(role_style(role)))
     )
 }
 

@@ -5,6 +5,7 @@
 //! role/style descriptor later.
 
 pub mod logging;
+pub mod style;
 
 use anyhow::{Ok, Result, anyhow};
 use camino::{Utf8Path, Utf8PathBuf};
