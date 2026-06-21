@@ -5,3 +5,16 @@
 //! role/style descriptor later.
 
 pub mod logging;
+
+use anyhow::{Ok, Result, anyhow};
+use camino::{Utf8Path, Utf8PathBuf};
+
+/// Resolve a possibly-relative path against the current working directory
+pub fn absolutize(path: &Utf8Path) -> Result<Utf8PathBuf> {
+    if path.is_absolute() {
+        return Ok(path.to_owned());
+    }
+    let cwd = std::env::current_dir()?;
+    let cwd = Utf8PathBuf::from_path_buf(cwd).map_err(|_| anyhow!("cwd is not valid UTF-8"))?;
+    Ok(cwd.join(path))
+}

@@ -1419,6 +1419,7 @@ dependencies = [
 name = "overseer-frontend"
 version = "0.0.0"
 dependencies = [
+ "anyhow",
  "camino",
  "tracing-appender",
  "tracing-subscriber",
