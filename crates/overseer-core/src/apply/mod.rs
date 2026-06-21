@@ -64,7 +64,9 @@ pub fn deploy_profile(
 
     if let Err(e) = deployer.deploy(&deployment.record, progress) {
         tracing::warn!(error = %e, "deploy failed; rolling back");
-        let _ = reverse_and_finalize(instance, deployment, progress);
+        if let Err(rb) = reverse_and_finalize(instance, deployment, progress) {
+            tracing::warn!(error = %rb, "rollback after deploy failure was incomplete");
+        }
         return Err(e.into());
     }
 
@@ -75,7 +77,9 @@ pub fn deploy_profile(
         &order.plugins,
     ) {
         tracing::warn!(error = %e, "writing Plugins.txt failed; rolling back");
-        let _ = reverse_and_finalize(instance, deployment, progress);
+        if let Err(rb) = reverse_and_finalize(instance, deployment, progress) {
+            tracing::warn!(error = %rb, "rollback after Plugins.txt failure was incomplete");
+        }
         return Err(e.into());
     }
 

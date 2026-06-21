@@ -1,4 +1,4 @@
-use camino::Utf8PathBuf;
+use camino::{Utf8Path, Utf8PathBuf};
 use thiserror::Error;
 
 /// Errors from reading or managing plugins
@@ -23,4 +23,11 @@ pub enum PluginError {
 
     #[error("writing the game load order: {0}")]
     GameState(#[from] loadorder::Error),
+}
+
+pub(crate) fn io_err(path: &Utf8Path, source: std::io::Error) -> PluginError {
+    PluginError::Io {
+        path: path.to_owned(),
+        source,
+    }
 }

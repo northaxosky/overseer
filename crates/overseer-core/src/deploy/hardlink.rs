@@ -111,6 +111,7 @@ impl Deployer for HardlinkDeployer {
         // Remove directories we created
         for relative in record.created_dirs.iter().rev() {
             let dir = record.target_root.join(relative);
+            // Best-effort: the dir may be non-empty (foreign files) or already gone.
             let _ = fs::remove_dir(&dir);
         }
 
@@ -191,6 +192,7 @@ fn sweep_backup_root(backup_root: &Utf8Path, unresolved: &mut Vec<DeployError>) 
 
     // cntents_first yields children before parents
     for dir in dirs {
+        // Best-effort: the dir may be non-empty (foreign files) or already gone.
         let _ = fs::remove_dir(&dir);
     }
 }

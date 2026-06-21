@@ -26,8 +26,19 @@ pub enum SettingsError {
         source: Box<toml::de::Error>,
     },
 
-    #[error("could not serialize some settings")]
-    Serialize(#[from] Box<toml::ser::Error>),
+    #[error("could not serialize settings for `{path}`")]
+    Serialize {
+        path: Utf8PathBuf,
+        #[source]
+        source: Box<toml::ser::Error>,
+    },
+}
+
+fn io_err(path: &Utf8Path, source: std::io::Error) -> SettingsError {
+    SettingsError::Io {
+        path: path.to_owned(),
+        source,
+    }
 }
 
 /// Persistent app level settings: The schema is intentionally open & every field has a default
@@ -61,10 +72,7 @@ impl Settings {
             Ok(text) => text,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Self::default()),
             Err(source) => {
-                return Err(SettingsError::Io {
-                    path: path.to_owned(),
-                    source,
-                });
+                return Err(io_err(path, source));
             }
         };
         toml::from_str(&text).map_err(|source| SettingsError::Parse {
@@ -75,21 +83,16 @@ impl Settings {
 
     /// Atomically write to a specific file, creating parent dirs
     pub fn save_to(&self, path: &Utf8Path) -> Result<(), SettingsError> {
-        let text =
-            toml::to_string_pretty(self).map_err(|e| SettingsError::Serialize(Box::new(e)))?;
+        let text = toml::to_string_pretty(self).map_err(|e| SettingsError::Serialize {
+            path: path.to_owned(),
+            source: Box::new(e),
+        })?;
         if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).map_err(|source| SettingsError::Io {
-                path: path.to_owned(),
-                source,
-            })?;
+            std::fs::create_dir_all(parent).map_err(|source| io_err(path, source))?;
         }
         let file = AtomicFile::new(path, OverwriteBehavior::AllowOverwrite);
-        file.write(|f| f.write_all(text.as_bytes())).map_err(
-            |e: atomicwrites::Error<std::io::Error>| SettingsError::Io {
-                path: path.to_owned(),
-                source: e.into(),
-            },
-        )
+        file.write(|f| f.write_all(text.as_bytes()))
+            .map_err(|e: atomicwrites::Error<std::io::Error>| io_err(path, e.into()))
     }
 
     /// The most recently opened instance, if any

@@ -1,6 +1,6 @@
 //! The real game load order: writing the game's `Plugins.txt` via libloadorder
 
-use super::error::PluginError;
+use super::error::{PluginError, io_err};
 use super::loadorder::PluginEntry;
 use camino::{Utf8Path, Utf8PathBuf};
 use loadorder::{GameId, GameSettings};
@@ -41,7 +41,7 @@ pub fn read_plugins_txt(local_dir: &Utf8Path) -> Result<Option<Vec<u8>>, PluginE
     match std::fs::read(&path) {
         Ok(bytes) => Ok(Some(bytes)),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(source) => Err(PluginError::Io { path, source }),
+        Err(source) => Err(io_err(&path, source)),
     }
 }
 
@@ -49,13 +49,11 @@ pub fn read_plugins_txt(local_dir: &Utf8Path) -> Result<Option<Vec<u8>>, PluginE
 pub fn restore_plugins_txt(local_dir: &Utf8Path, backup: Option<&[u8]>) -> Result<(), PluginError> {
     let path = plugins_txt_path(local_dir);
     match backup {
-        Some(bytes) => {
-            std::fs::write(&path, bytes).map_err(|source| PluginError::Io { path, source })
-        }
+        Some(bytes) => std::fs::write(&path, bytes).map_err(|source| io_err(&path, source)),
         None => match std::fs::remove_file(&path) {
             Ok(()) => Ok(()),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            Err(source) => Err(PluginError::Io { path, source }),
+            Err(source) => Err(io_err(&path, source)),
         },
     }
 }

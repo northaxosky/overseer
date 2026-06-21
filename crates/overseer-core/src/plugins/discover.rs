@@ -1,4 +1,4 @@
-use super::error::PluginError;
+use super::error::{PluginError, io_err};
 use super::metadata::{PluginMeta, is_plugin_file, read_metadata};
 use crate::instance::{Instance, Profile};
 use camino::Utf8Path;
@@ -48,18 +48,17 @@ fn find_plugin_files(mod_dir: &Utf8Path) -> Result<Vec<camino::Utf8PathBuf>, Plu
                 return Ok(found);
             }
             Err(e) => {
-                return Err(PluginError::Io {
-                    path: mod_dir.to_owned(),
-                    source: e.into(),
-                });
+                return Err(io_err(mod_dir, e.into()));
             }
         };
         if !entry.file_type().is_file() {
             continue;
         }
-        let path = Utf8Path::from_path(entry.path()).ok_or_else(|| PluginError::Io {
-            path: mod_dir.to_owned(),
-            source: std::io::Error::new(std::io::ErrorKind::InvalidData, "non-UTF-8 path"),
+        let path = Utf8Path::from_path(entry.path()).ok_or_else(|| {
+            io_err(
+                mod_dir,
+                std::io::Error::new(std::io::ErrorKind::InvalidData, "non-UTF-8 path"),
+            )
         })?;
         if let Some(name) = path.file_name()
             && is_plugin_file(name)

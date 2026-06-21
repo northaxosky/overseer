@@ -1,4 +1,4 @@
-use super::error::PluginError;
+use super::error::{PluginError, io_err};
 use super::metadata::PluginMeta;
 use crate::instance::Instance;
 
@@ -23,7 +23,7 @@ impl PluginLoadOrder {
         let text = match std::fs::read_to_string(&path) {
             Ok(text) => text,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
-            Err(source) => return Err(PluginError::Io { path, source }),
+            Err(source) => return Err(io_err(&path, source)),
         };
 
         Ok(Self {
@@ -35,10 +35,7 @@ impl PluginLoadOrder {
     /// Write the profile's `plugins.txt`, creating the profile dir if necessary
     pub fn save(&self, instance: &Instance) -> Result<(), PluginError> {
         let dir = instance.profile_dir(&self.profile);
-        std::fs::create_dir_all(&dir).map_err(|source| PluginError::Io {
-            path: dir.clone(),
-            source,
-        })?;
+        std::fs::create_dir_all(&dir).map_err(|source| io_err(&dir, source))?;
         let path = dir.join("plugins.txt");
         std::fs::write(&path, self.to_plugins_string())
             .map_err(|source| PluginError::Io { path, source })

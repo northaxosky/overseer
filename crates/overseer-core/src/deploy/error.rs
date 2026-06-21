@@ -13,11 +13,15 @@ pub enum DeployError {
     #[error("path is not valid UTF-8: {0}")]
     NonUtf8Path(String),
 
-    #[error("failed to walk a staging directory")]
-    Walk(#[source] walkdir::Error),
+    #[error("failed to walk staging directory `{path}`")]
+    Walk {
+        path: Utf8PathBuf,
+        #[source]
+        source: walkdir::Error,
+    },
 
     #[error(
-        "mods and target are on different volumes; hardlink deployment requires the same drive (source: `{source_path}`, target: `{target}`"
+        "mods and target are on different volumes; hardlink deployment requires the same drive (source: `{source_path}`, target: `{target}`)"
     )]
     CrossVolume {
         source_path: Utf8PathBuf,

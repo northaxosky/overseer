@@ -229,7 +229,9 @@ impl App {
                 self.plugins_state = initial_selection(self.session.order.plugins.len());
                 self.focus = Focus::Mods;
                 self.settings.record_opened(&dir);
-                let _ = self.settings.save();
+                if let Err(e) = self.settings.save() {
+                    tracing::warn!(error = %e, "could not save settings");
+                }
                 self.message = Some("Switched instance".to_owned());
             }
             Err(e) => self.message = Some(format!("Error: {e}")),

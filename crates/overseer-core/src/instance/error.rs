@@ -23,7 +23,7 @@ pub enum InstanceError {
     #[error("no Overseer instance at `{path}` (run `instance init` first)")]
     NotAnInstance { path: Utf8PathBuf },
 
-    #[error("an Overseer instance already exists at `path`")]
+    #[error("an Overseer instance already exists at `{path}`")]
     AlreadyAnInstance { path: Utf8PathBuf },
 
     #[error("failed to parse instance config `{path}`")]

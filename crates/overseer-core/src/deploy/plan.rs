@@ -59,7 +59,10 @@ impl DeployPlan {
             }
 
             for entry in WalkDir::new(&m.staging_dir) {
-                let entry = entry.map_err(DeployError::Walk)?;
+                let entry = entry.map_err(|source| DeployError::Walk {
+                    path: m.staging_dir.clone(),
+                    source,
+                })?;
                 if !entry.file_type().is_file() {
                     continue;
                 }
