@@ -26,15 +26,16 @@ pub(crate) fn draw(app: &mut App, frame: &mut Frame) {
 
     let header = Line::from(vec![
         " Overseer ".bold(),
-        format!(" · {} ", app.profile_name).dim(),
+        format!(" · {} ", app.profile.name).dim(),
     ]);
     frame.render_widget(Paragraph::new(header), rows[0]);
 
     let cols = Layout::horizontal([Constraint::Fill(1), Constraint::Fill(1)]).split(rows[1]);
 
     let mods_focused = app.focus == Focus::Mods;
-    let mods_title = format!(" mods — {} ({}) ", app.profile_name, app.mods.len());
+    let mods_title = format!(" mods — {} ({}) ", app.profile.name, app.profile.mods.len());
     let mods_items: Vec<ListItem<'static>> = app
+        .profile
         .mods
         .iter()
         .map(|m| ListItem::new(format!("{} {}", marker(m.enabled), m.name)))
@@ -49,8 +50,9 @@ pub(crate) fn draw(app: &mut App, frame: &mut Frame) {
     );
 
     let plugins_focused = app.focus == Focus::Plugins;
-    let plugins_title = format!(" plugins — {} ", app.plugins.len());
+    let plugins_title = format!(" plugins — {} ", app.order.plugins.len());
     let plugins_items: Vec<ListItem<'static>> = app
+        .order
         .plugins
         .iter()
         .map(|p| {
@@ -72,9 +74,13 @@ pub(crate) fn draw(app: &mut App, frame: &mut Frame) {
     );
 
     let foot = Layout::horizontal([Constraint::Fill(1), Constraint::Fill(1)]).split(rows[2]);
-    frame.render_widget(Paragraph::new(status_summary(&app.status)), foot[0]);
+    let left = app
+        .message
+        .clone()
+        .unwrap_or_else(|| status_summary(&app.status));
+    frame.render_widget(Paragraph::new(left), foot[0]);
     frame.render_widget(
-        Paragraph::new(" Tab: switch · j/k: move · q: quit ").alignment(Alignment::Right),
+        Paragraph::new(" Space toggle · Tab switch · q quit ").alignment(Alignment::Right),
         foot[1],
     );
 }
@@ -161,7 +167,15 @@ mod tests {
             out.contains("No live deployment"),
             "footer shows deployment status"
         );
-        assert!(out.contains("q: quit"), "footer shows key hints");
+        assert!(out.contains("quit"), "footer shows key hints");
+    }
+
+    #[test]
+    fn footer_prefers_a_message_over_status() {
+        let mut app = App::sample();
+        app.message = Some("Saved".to_owned());
+        let out = render(&mut app, 80, 12);
+        assert!(out.contains("Saved"), "footer shows the message");
     }
 
     #[test]
