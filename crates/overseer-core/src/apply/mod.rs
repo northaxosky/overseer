@@ -34,13 +34,13 @@ pub fn deploy_profile(
     profile.reconcile(instance)?;
     let sources = profile.deploy_sources(instance);
 
-    let data_dir = instance.game_dir().join("Data");
+    let data_dir = instance.config.game_dir.join("Data");
     let plan = DeployPlan::from_mods(&data_dir, &sources)?;
 
     let deployer = deployer_for(instance.config.deployer);
     deployer.check_supported(&plan)?;
 
-    let backup_root = instance.game_dir().join(".overseer-backup");
+    let backup_root = instance.config.game_dir.join(".overseer-backup");
     guard_no_orphaned_backup(&backup_root)?;
     let record = DeployRecord::from_plan(&plan, backup_root, instance.config.deployer)?;
 
@@ -70,7 +70,7 @@ pub fn deploy_profile(
 
     if let Err(e) = plugins::write_active_plugins(
         instance.config.game.load_order_id(),
-        instance.game_dir(),
+        &instance.config.game_dir,
         &local_dir,
         &order.plugins,
     ) {
@@ -257,7 +257,7 @@ mod tests {
 
     /// Absolute path of a file as it would land under the game's Data/ directory.
     fn deployed(instance: &Instance, rel: &str) -> Utf8PathBuf {
-        instance.game_dir().join("Data").join(rel)
+        instance.config.game_dir.join("Data").join(rel)
     }
 
     /// Rewrite the on-disk journal's status to mimic a crash at a given stage.
@@ -513,7 +513,7 @@ mod tests {
         save_profile(&instance, "Default", &[("CoolMod", true)]);
 
         // A leftover backup dir means a previous run never finished cleaning up.
-        let backup_root = instance.game_dir().join(".overseer-backup");
+        let backup_root = instance.config.game_dir.join(".overseer-backup");
         std::fs::create_dir_all(&backup_root).expect("plant orphan backup");
 
         let err = deploy_profile(&instance, "Default", &NullSink)
@@ -536,7 +536,7 @@ mod tests {
 
         // Plant a stray file no entry will claim, so the sweep at the end of
         // reversal reports it as an unresolved residual backup.
-        let backup_root = instance.game_dir().join(".overseer-backup");
+        let backup_root = instance.config.game_dir.join(".overseer-backup");
         std::fs::write(backup_root.join("stray.bin"), b"junk").expect("plant stray");
 
         let err = purge(&instance, &NullSink).expect_err("purge cannot fully resolve");

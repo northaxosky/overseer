@@ -114,10 +114,6 @@ impl Instance {
         std::fs::write(&path, text).map_err(|e| io_err(&path, e))
     }
 
-    pub fn game_dir(&self) -> &Utf8Path {
-        &self.config.game_dir
-    }
-
     pub fn mods_dir(&self) -> Utf8PathBuf {
         self.root.join("mods")
     }
@@ -270,7 +266,10 @@ mod tests {
         assert!(Instance::config_path(&root).exists());
         assert!(instance.mods_dir().is_dir());
         assert!(instance.profiles_dir().is_dir());
-        assert_eq!(instance.game_dir(), Utf8Path::new("C:/games/FO4"));
+        assert_eq!(
+            instance.config.game_dir.as_path(),
+            Utf8Path::new("C:/games/FO4")
+        );
     }
 
     #[test]
