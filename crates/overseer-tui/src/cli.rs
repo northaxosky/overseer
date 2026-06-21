@@ -4,7 +4,7 @@ use anyhow::{Context, Result, bail};
 use camino::Utf8PathBuf;
 
 /// Parse `overseer-tui <instance-dir> [--profile NAME]`.
-pub(crate) fn parse_args() -> Result<(Utf8PathBuf, String)> {
+pub(crate) fn parse_args() -> Result<(Option<Utf8PathBuf>, String)> {
     let mut instance: Option<Utf8PathBuf> = None;
     let mut profile = String::from("Default");
     let mut args = std::env::args().skip(1);
@@ -16,6 +16,5 @@ pub(crate) fn parse_args() -> Result<(Utf8PathBuf, String)> {
             _ => bail!("unexpected argument: {arg}"),
         }
     }
-    let instance = instance.context("usage: overseer-tui <instance-dir> [--profile NAME]")?;
     Ok((instance, profile))
 }

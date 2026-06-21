@@ -6,6 +6,7 @@ mod cli;
 mod ui;
 
 use anyhow::{Context, Result};
+use overseer_core::settings::Settings;
 use ratatui::DefaultTerminal;
 use ratatui::crossterm::event::{self, Event, KeyEventKind};
 
@@ -19,11 +20,21 @@ fn main() -> Result<()> {
     });
     tracing::info!("overseer-tui starting");
 
-    let (instance_dir, profile) = cli::parse_args()?;
+    let (explicit, profile) = cli::parse_args()?;
+    let mut settings = Settings::load();
+    let resolved = settings
+        .resolve_instance(explicit)
+        .context("no instance to open, pass `overseer-tui <instance-dir>` once to get started")?;
+    let instance_dir = overseer_frontend::absolutize(&resolved)?;
 
-    // Load before entering the alternate screen so a load error prints normally.
     let mut app = App::load(&instance_dir, &profile)
         .with_context(|| format!("loading instance at {instance_dir}"))?;
+
+    // Remember the instance so its re-used
+    settings.record_opened(&instance_dir);
+    if let Err(e) = settings.save() {
+        tracing::warn!(error = %e, "could not save settings");
+    }
 
     let mut terminal = ratatui::init();
     let result = run(&mut app, &mut terminal);
