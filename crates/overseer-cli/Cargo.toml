@@ -21,3 +21,7 @@ tracing.workspace = true
 owo-colors.workspace = true
 overseer-frontend = { path = "../overseer-frontend" }
 
+[dev-dependencies]
+assert_cmd.workspace = true
+predicates.workspace = true
+
