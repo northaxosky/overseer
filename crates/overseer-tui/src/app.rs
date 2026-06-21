@@ -5,6 +5,7 @@ use camino::Utf8Path;
 use overseer_core::apply::{self, DeploymentStatus};
 use overseer_core::instance::{Instance, Profile};
 use overseer_core::plugins::{PluginLoadOrder, PluginMeta, discover_plugins};
+use overseer_core::settings::Settings;
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::widgets::ListState;
 
@@ -25,27 +26,33 @@ pub(crate) enum Focus {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Popup {
     Help,
-    // Settings, ModActions, etc... later
+    Settings,
+    // ModActions, etc... later
 }
 
-/// The loaded snapshot the UI renders.
+/// Key bindings shown (and selectable) in the help popup: (keys, description).
+pub(crate) const HELP_ENTRIES: &[(&str, &str)] = &[
+    ("j / k   ↓ / ↑", "move selection"),
+    ("Tab", "switch pane"),
+    ("Space / Enter", "toggle enabled / active"),
+    ("J / K", "reorder mod (priority)"),
+    ("s", "open settings"),
+    ("?", "toggle this help"),
+    ("q / Esc", "quit"),
+];
+
+/// The loaded domain data for one instance — replaced wholesale on a switch.
 #[derive(Debug)]
-pub(crate) struct App {
-    pub(crate) should_quit: bool,
-    pub(crate) popup: Option<Popup>,
-    pub(crate) focus: Focus,
+pub(crate) struct Session {
     pub(crate) instance: Instance,
     pub(crate) profile: Profile,
     pub(crate) order: PluginLoadOrder,
     pub(crate) discovered: Vec<PluginMeta>,
     pub(crate) status: Option<DeploymentStatus>,
-    pub(crate) message: Option<String>,
-    pub(crate) mods_state: ListState,
-    pub(crate) plugins_state: ListState,
 }
 
-impl App {
-    /// Load an instance snapshot
+impl Session {
+    /// Load an instance's domain data. Reconciles in memory but never saves.
     pub(crate) fn load(instance_dir: &Utf8Path, profile_name: &str) -> Result<Self> {
         let instance = Instance::load(instance_dir.to_owned())?;
 
@@ -59,25 +66,64 @@ impl App {
         let status = apply::status(&instance)?;
 
         Ok(Self {
-            should_quit: false,
-            popup: None,
-            focus: Focus::Mods,
-            mods_state: initial_selection(profile.mods.len()),
-            plugins_state: initial_selection(order.plugins.len()),
             instance,
             profile,
             order,
             discovered,
             status,
+        })
+    }
+}
+
+/// Snapshot the UI renders: persistent UI state plus the current instance's [`Session`].
+#[derive(Debug)]
+pub(crate) struct App {
+    pub(crate) should_quit: bool,
+    pub(crate) popup: Option<Popup>,
+    pub(crate) focus: Focus,
+    pub(crate) message: Option<String>,
+    pub(crate) settings: Settings,
+    pub(crate) session: Session,
+    pub(crate) mods_state: ListState,
+    pub(crate) plugins_state: ListState,
+    pub(crate) settings_state: ListState,
+    pub(crate) help_state: ListState,
+}
+
+impl App {
+    /// Load an instance and remember it in settings.
+    pub(crate) fn load(
+        instance_dir: &Utf8Path,
+        profile_name: &str,
+        mut settings: Settings,
+    ) -> Result<Self> {
+        let session = Session::load(instance_dir, profile_name)?;
+
+        // Only a successful load is worth remembering.
+        settings.record_opened(instance_dir);
+        if let Err(e) = settings.save() {
+            tracing::warn!(error = %e, "could not save settings");
+        }
+
+        Ok(Self {
+            should_quit: false,
+            popup: None,
+            focus: Focus::Mods,
             message: None,
+            mods_state: initial_selection(session.profile.mods.len()),
+            plugins_state: initial_selection(session.order.plugins.len()),
+            settings_state: ListState::default(),
+            help_state: ListState::default(),
+            settings,
+            session,
         })
     }
 
     pub(crate) fn handle_key(&mut self, key: KeyEvent) {
         match self.popup {
             None => self.handle_main_key(key),
-            // Help is currently non-interactive
-            Some(Popup::Help) => self.popup = None,
+            Some(Popup::Settings) => self.handle_settings_key(key),
+            Some(Popup::Help) => self.handle_help_key(key),
         }
     }
 
@@ -90,15 +136,65 @@ impl App {
         // Any key stroke clears the last message, toggle sets a fresh one
         self.message = None;
         match key.code {
-            KeyCode::Char('?') => self.popup = Some(Popup::Help),
+            // Popup keys
+            KeyCode::Char('?') => self.open_help(),
+            KeyCode::Char('s') => self.open_settings(),
+
+            // Main view related controls
             KeyCode::Char(' ') | KeyCode::Enter => self.toggle_selected(),
             KeyCode::Tab => self.toggle_focus(),
-            KeyCode::Down | KeyCode::Char('j') => self.move_selection(1),
-            KeyCode::Up | KeyCode::Char('k') => self.move_selection(-1),
+            KeyCode::Down | KeyCode::Char('j') => self.move_main_selection(1),
+            KeyCode::Up | KeyCode::Char('k') => self.move_main_selection(-1),
             KeyCode::Char('J') => self.reorder_selected(1),
             KeyCode::Char('K') => self.reorder_selected(-1),
             _ => {}
         }
+    }
+
+    /// Handle key press in the settings pop up
+    fn handle_settings_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc | KeyCode::Char('q') => self.popup = None,
+            KeyCode::Down | KeyCode::Char('j') => move_in_list(
+                &mut self.settings_state,
+                self.settings.recent_instances.len(),
+                1,
+            ),
+            KeyCode::Up | KeyCode::Char('k') => move_in_list(
+                &mut self.settings_state,
+                self.settings.recent_instances.len(),
+                -1,
+            ),
+            KeyCode::Enter => self.switch_to_selected_instance(),
+            _ => {}
+        }
+    }
+
+    /// Handle a key press in the help popup
+    fn handle_help_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc | KeyCode::Char('?') | KeyCode::Char('q') => self.popup = None,
+            KeyCode::Down | KeyCode::Char('j') => {
+                move_in_list(&mut self.help_state, HELP_ENTRIES.len(), 1)
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                move_in_list(&mut self.help_state, HELP_ENTRIES.len(), -1)
+            }
+            _ => {}
+        }
+    }
+
+    /// Open the settings popup, selecting the current instance
+    fn open_settings(&mut self) {
+        let selected = (!self.settings.recent_instances.is_empty()).then_some(0);
+        self.settings_state.select(selected);
+        self.popup = Some(Popup::Settings);
+    }
+
+    /// Open the help popup at the top
+    fn open_help(&mut self) {
+        self.help_state.select(Some(0));
+        self.popup = Some(Popup::Help);
     }
 
     fn toggle_focus(&mut self) {
@@ -109,17 +205,36 @@ impl App {
     }
 
     /// Move the selection within the focused pane, clamped to its bounds.
-    fn move_selection(&mut self, delta: isize) {
+    fn move_main_selection(&mut self, delta: isize) {
         let (state, len) = match self.focus {
-            Focus::Mods => (&mut self.mods_state, self.profile.mods.len()),
-            Focus::Plugins => (&mut self.plugins_state, self.order.plugins.len()),
+            Focus::Mods => (&mut self.mods_state, self.session.profile.mods.len()),
+            Focus::Plugins => (&mut self.plugins_state, self.session.order.plugins.len()),
         };
-        if len == 0 {
+        move_in_list(state, len, delta);
+    }
+
+    /// Switch to the instance selected in the settings popup
+    fn switch_to_selected_instance(&mut self) {
+        let Some(i) = self.settings_state.selected() else {
             return;
+        };
+        let Some(dir) = self.settings.recent_instances.get(i).cloned() else {
+            return;
+        };
+        let profile_name = self.session.profile.name.clone();
+        match Session::load(&dir, &profile_name) {
+            Ok(session) => {
+                self.session = session;
+                self.mods_state = initial_selection(self.session.profile.mods.len());
+                self.plugins_state = initial_selection(self.session.order.plugins.len());
+                self.focus = Focus::Mods;
+                self.settings.record_opened(&dir);
+                let _ = self.settings.save();
+                self.message = Some("Switched instance".to_owned());
+            }
+            Err(e) => self.message = Some(format!("Error: {e}")),
         }
-        let current = state.selected().unwrap_or(0) as isize;
-        let next = (current + delta).clamp(0, len as isize - 1) as usize;
-        state.select(Some(next));
+        self.popup = None;
     }
 
     /// Toggle the selected item in the focused pane & report the outcome
@@ -138,7 +253,7 @@ impl App {
         if !self.shift_selected_mod(delta) {
             return;
         }
-        self.message = Some(match self.profile.save(&self.instance) {
+        self.message = Some(match self.session.profile.save(&self.session.instance) {
             Ok(()) => "Saved".to_owned(),
             Err(e) => format!("Error: {e}"),
         });
@@ -153,14 +268,14 @@ impl App {
             return false;
         };
         let target = i as isize + delta;
-        if target < 0 || target >= self.profile.mods.len() as isize {
+        if target < 0 || target >= self.session.profile.mods.len() as isize {
             return false;
         }
-        let name = self.profile.mods[i].name.clone();
+        let name = self.session.profile.mods[i].name.clone();
         let moved = if delta < 0 {
-            self.profile.move_up(&name).is_ok()
+            self.session.profile.move_up(&name).is_ok()
         } else {
-            self.profile.move_down(&name).is_ok()
+            self.session.profile.move_down(&name).is_ok()
         };
         if moved {
             self.mods_state.select(Some(target as usize));
@@ -173,14 +288,14 @@ impl App {
         match self.focus {
             Focus::Mods => {
                 if let Some(i) = self.mods_state.selected() {
-                    let m = &mut self.profile.mods[i];
+                    let m = &mut self.session.profile.mods[i];
                     m.enabled = !m.enabled;
                     return true;
                 }
             }
             Focus::Plugins => {
                 if let Some(i) = self.plugins_state.selected() {
-                    let p = &mut self.order.plugins[i];
+                    let p = &mut self.session.order.plugins[i];
                     p.active = !p.active;
                     return true;
                 }
@@ -191,11 +306,11 @@ impl App {
 
     /// Save the profile and load order, re-deriving plugins
     fn persist(&mut self) -> Result<()> {
-        self.profile.save(&self.instance)?;
-        self.discovered = discover_plugins(&self.instance, &self.profile)?;
-        self.order.reconcile(&self.discovered);
-        self.order.save(&self.instance)?;
-        clamp_selection(&mut self.plugins_state, self.order.plugins.len());
+        self.session.profile.save(&self.session.instance)?;
+        self.session.discovered = discover_plugins(&self.session.instance, &self.session.profile)?;
+        self.session.order.reconcile(&self.session.discovered);
+        self.session.order.save(&self.session.instance)?;
+        clamp_selection(&mut self.plugins_state, self.session.order.plugins.len());
         Ok(())
     }
 }
@@ -224,6 +339,16 @@ fn clamp_selection(state: &mut ListState, len: usize) {
     }
 }
 
+/// Move a list selection by `delta` clamped to `[0, len)`
+fn move_in_list(state: &mut ListState, len: usize, delta: isize) {
+    if len == 0 {
+        return;
+    }
+    let current = state.selected().unwrap_or(0) as isize;
+    let next = (current + delta).clamp(0, len as isize - 1) as usize;
+    state.select(Some(next));
+}
+
 #[cfg(test)]
 impl App {
     /// A small in-memory fixture for tests (no disk access).
@@ -232,45 +357,55 @@ impl App {
             should_quit: false,
             popup: None,
             focus: Focus::Mods,
-            instance: Instance::new("test-instance", "test-game"),
             message: None,
-            profile: Profile {
-                name: "Default".to_owned(),
-                mods: vec![
-                    ModListEntry {
-                        name: "CoolMod".to_owned(),
-                        enabled: true,
-                        foreign: false,
-                    },
-                    ModListEntry {
-                        name: "OffMod".to_owned(),
-                        enabled: false,
-                        foreign: false,
-                    },
+            settings: Settings {
+                recent_instances: vec![
+                    Utf8Path::new("/alpha").to_owned(),
+                    Utf8Path::new("/beta").to_owned(),
                 ],
             },
-            order: PluginLoadOrder {
-                profile: "Default".to_owned(),
-                plugins: vec![
-                    PluginEntry {
-                        name: "Cool.esm".to_owned(),
-                        active: true,
-                    },
-                    PluginEntry {
-                        name: "Cool.esp".to_owned(),
-                        active: false,
-                    },
-                ],
+            session: Session {
+                instance: Instance::new("test-instance", "test-game"),
+                profile: Profile {
+                    name: "Default".to_owned(),
+                    mods: vec![
+                        ModListEntry {
+                            name: "CoolMod".to_owned(),
+                            enabled: true,
+                            foreign: false,
+                        },
+                        ModListEntry {
+                            name: "OffMod".to_owned(),
+                            enabled: false,
+                            foreign: false,
+                        },
+                    ],
+                },
+                order: PluginLoadOrder {
+                    profile: "Default".to_owned(),
+                    plugins: vec![
+                        PluginEntry {
+                            name: "Cool.esm".to_owned(),
+                            active: true,
+                        },
+                        PluginEntry {
+                            name: "Cool.esp".to_owned(),
+                            active: false,
+                        },
+                    ],
+                },
+                discovered: vec![PluginMeta {
+                    name: "Cool.esm".to_owned(),
+                    is_master: true,
+                    is_light: false,
+                    masters: Vec::new(),
+                }],
+                status: None,
             },
-            discovered: vec![PluginMeta {
-                name: "Cool.esm".to_owned(),
-                is_master: true,
-                is_light: false,
-                masters: Vec::new(),
-            }],
             mods_state: initial_selection(2),
             plugins_state: initial_selection(2),
-            status: None,
+            settings_state: ListState::default(),
+            help_state: ListState::default(),
         }
     }
 }
@@ -293,11 +428,11 @@ mod tests {
     fn selection_moves_and_clamps_within_the_focused_pane() {
         let mut app = App::sample();
         assert_eq!(app.mods_state.selected(), Some(0));
-        app.move_selection(-1); // already at top → clamps
+        app.move_main_selection(-1); // already at top → clamps
         assert_eq!(app.mods_state.selected(), Some(0));
-        app.move_selection(1);
+        app.move_main_selection(1);
         assert_eq!(app.mods_state.selected(), Some(1));
-        app.move_selection(1); // at bottom (len 2) → clamps
+        app.move_main_selection(1); // at bottom (len 2) → clamps
         assert_eq!(app.mods_state.selected(), Some(1));
         // The plugins pane is independent and untouched while Mods is focused.
         assert_eq!(app.plugins_state.selected(), Some(0));
@@ -323,28 +458,28 @@ mod tests {
     #[test]
     fn flip_toggles_the_selected_mod() {
         let mut app = App::sample();
-        assert!(app.profile.mods[0].enabled);
+        assert!(app.session.profile.mods[0].enabled);
         assert!(app.flip_selected());
-        assert!(!app.profile.mods[0].enabled);
+        assert!(!app.session.profile.mods[0].enabled);
     }
 
     #[test]
     fn flip_toggles_the_selected_plugin() {
         let mut app = App::sample();
         app.focus = Focus::Plugins;
-        assert!(app.order.plugins[0].active);
+        assert!(app.session.order.plugins[0].active);
         assert!(app.flip_selected());
-        assert!(!app.order.plugins[0].active);
+        assert!(!app.session.order.plugins[0].active);
     }
 
     #[test]
     fn shift_moves_the_selected_mod_and_keeps_selection() {
         let mut app = App::sample();
         assert!(app.shift_selected_mod(1));
-        assert_eq!(app.profile.mods[1].name, "CoolMod");
+        assert_eq!(app.session.profile.mods[1].name, "CoolMod");
         assert_eq!(app.mods_state.selected(), Some(1));
         assert!(app.shift_selected_mod(-1));
-        assert_eq!(app.profile.mods[0].name, "CoolMod");
+        assert_eq!(app.session.profile.mods[0].name, "CoolMod");
         assert_eq!(app.mods_state.selected(), Some(0));
     }
 
@@ -358,18 +493,37 @@ mod tests {
     }
 
     #[test]
-    fn question_mark_opens_help_and_any_key_closes_it() {
+    fn help_popup_opens_navigates_and_closes() {
         let mut app = App::sample();
-        assert_eq!(app.popup, None);
         app.handle_key(KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE));
         assert_eq!(app.popup, Some(Popup::Help));
-        let before = app.mods_state.selected();
+        assert_eq!(app.help_state.selected(), Some(0));
         app.handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
-        assert_eq!(app.popup, None, "any key closes help");
         assert_eq!(
-            app.mods_state.selected(),
-            before,
-            "key swallowed by the popup"
+            app.help_state.selected(),
+            Some(1),
+            "j navigates within help"
         );
+        assert_eq!(
+            app.popup,
+            Some(Popup::Help),
+            "navigation does not close help"
+        );
+        app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        assert_eq!(app.popup, None, "Esc closes help");
+    }
+
+    #[test]
+    fn s_opens_settings_and_navigation_clamps() {
+        let mut app = App::sample();
+        app.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE));
+        assert_eq!(app.popup, Some(Popup::Settings));
+        assert_eq!(app.settings_state.selected(), Some(0));
+        app.handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
+        assert_eq!(app.settings_state.selected(), Some(1));
+        app.handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE)); // clamp
+        assert_eq!(app.settings_state.selected(), Some(1));
+        app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        assert_eq!(app.popup, None);
     }
 }

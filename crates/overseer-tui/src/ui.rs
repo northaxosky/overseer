@@ -20,12 +20,13 @@ pub(crate) fn draw(app: &mut App, frame: &mut Frame) {
     draw_main(app, frame);
     if let Some(popup) = app.popup {
         match popup {
-            Popup::Help => render_help(frame),
+            Popup::Help => render_help(app, frame),
+            Popup::Settings => render_settings(app, frame),
         }
     }
 }
 
-/// Draw the main UI: header, the two panes, and the status footer.
+/// Draw the main UI: header, the two panes, and the status footer
 pub(crate) fn draw_main(app: &mut App, frame: &mut Frame) {
     let rows = Layout::vertical([
         Constraint::Length(1), // header
@@ -36,15 +37,20 @@ pub(crate) fn draw_main(app: &mut App, frame: &mut Frame) {
 
     let header = Line::from(vec![
         " Overseer ".bold(),
-        format!(" · {} ", app.profile.name).dim(),
+        format!(" · {} ", app.session.profile.name).dim(),
     ]);
     frame.render_widget(Paragraph::new(header), rows[0]);
 
     let cols = Layout::horizontal([Constraint::Fill(1), Constraint::Fill(1)]).split(rows[1]);
 
     let mods_focused = app.focus == Focus::Mods;
-    let mods_title = format!(" mods — {} ({}) ", app.profile.name, app.profile.mods.len());
+    let mods_title = format!(
+        " mods — {} ({}) ",
+        app.session.profile.name,
+        app.session.profile.mods.len()
+    );
     let mods_items: Vec<ListItem<'static>> = app
+        .session
         .profile
         .mods
         .iter()
@@ -60,13 +66,14 @@ pub(crate) fn draw_main(app: &mut App, frame: &mut Frame) {
     );
 
     let plugins_focused = app.focus == Focus::Plugins;
-    let plugins_title = format!(" plugins — {} ", app.order.plugins.len());
+    let plugins_title = format!(" plugins — {} ", app.session.order.plugins.len());
     let plugins_items: Vec<ListItem<'static>> = app
+        .session
         .order
         .plugins
         .iter()
         .map(|p| {
-            let tag = if is_master(&app.discovered, &p.name) {
+            let tag = if is_master(&app.session.discovered, &p.name) {
                 " (master)"
             } else {
                 ""
@@ -87,41 +94,67 @@ pub(crate) fn draw_main(app: &mut App, frame: &mut Frame) {
     let left = app
         .message
         .clone()
-        .unwrap_or_else(|| status_summary(&app.status));
+        .unwrap_or_else(|| status_summary(&app.session.status));
     frame.render_widget(Paragraph::new(left), foot[0]);
     frame.render_widget(
-        Paragraph::new(" ? help · q quit ").alignment(Alignment::Right),
+        Paragraph::new("s settings · ? help · q quit ").alignment(Alignment::Right),
         foot[1],
     );
 }
 
-/// Render `body` inside a centered, bordered popup titled `title`
-fn render_popup(frame: &mut Frame, title: &str, body: Vec<Line<'static>>, pct_x: u16, pct_y: u16) {
+/// A centered, bordered popup wrapping a selectable list
+fn render_list_popup(
+    frame: &mut Frame,
+    title: &str,
+    items: Vec<ListItem<'static>>,
+    state: &mut ListState,
+    pct_x: u16,
+    pct_y: u16,
+) {
     let block = Block::bordered()
-        .title(format!(" {title} "))
+        .title(format!("  {title}  "))
         .padding(Padding::uniform(1));
+    let list = List::new(items)
+        .block(block)
+        .highlight_symbol("> ")
+        .highlight_style(Style::new().add_modifier(Modifier::REVERSED));
     let area = centered_rect(pct_x, pct_y, frame.area());
     frame.render_widget(Clear, area);
-    frame.render_widget(Paragraph::new(body).block(block), area);
+    frame.render_stateful_widget(list, area, state);
 }
 
-/// The help popup's contents
-fn render_help(frame: &mut Frame) {
-    let lines = vec![
-        Line::from("Navigation".bold()),
-        Line::from("  j / k   ↓ / ↑    move selection"),
-        Line::from("  Tab              switch pane"),
-        Line::from(""),
-        Line::from("Actions".bold()),
-        Line::from("  Space / Enter    toggle enabled/active"),
-        Line::from("  J / K            reorder mod (priority)"),
-        Line::from(""),
-        Line::from("  ?                toggle this help"),
-        Line::from("  q / Esc          quit"),
-        Line::from(""),
-        Line::from("press any key to close".dim()),
-    ];
-    render_popup(frame, "Help", lines, 60, 70);
+/// The help popup: a selectable list of keybindings
+fn render_help(app: &mut App, frame: &mut Frame) {
+    let items: Vec<ListItem<'static>> = crate::app::HELP_ENTRIES
+        .iter()
+        .map(|(keys, desc)| ListItem::new(format!("  {keys:<16}{desc}")))
+        .collect();
+    render_list_popup(
+        frame,
+        "Help (Esc: close)",
+        items,
+        &mut app.help_state,
+        70,
+        60,
+    );
+}
+
+/// The settings popup: A selectable list of recent instances to switch to
+fn render_settings(app: &mut App, frame: &mut Frame) {
+    let items: Vec<ListItem<'static>> = app
+        .settings
+        .recent_instances
+        .iter()
+        .map(|p| ListItem::new(p.to_string()))
+        .collect();
+    render_list_popup(
+        frame,
+        "Settings — recent instances (Enter: switch · Esc: close)",
+        items,
+        &mut app.settings_state,
+        70,
+        60,
+    );
 }
 
 /// A `Rect` centered in `area`, `pct_x`% wide and `pct_y`% tall
@@ -140,19 +173,19 @@ fn centered_rect(pct_x: u16, pct_y: u16, area: Rect) -> Rect {
     .split(rows[1])[1]
 }
 
-/// The enabled/active checkbox marker.
+/// The enabled/active checkbox marker
 fn marker(on: bool) -> &'static str {
     if on { "[x]" } else { "[ ]" }
 }
 
-/// Whether a plugin name is a master, per discovered metadata.
+/// Whether a plugin name is a master, per discovered metadata
 fn is_master(discovered: &[PluginMeta], name: &str) -> bool {
     discovered
         .iter()
         .any(|m| m.is_master && m.name.eq_ignore_ascii_case(name))
 }
 
-/// One-line summary of the instance's live deployment, for the footer.
+/// One-line summary of the instance's live deployment, for the footer
 fn status_summary(status: &Option<DeploymentStatus>) -> String {
     match status {
         None => "No live deployment".to_owned(),
@@ -171,8 +204,7 @@ fn status_summary(status: &Option<DeploymentStatus>) -> String {
     }
 }
 
-/// Render one selectable list pane. Takes the data and its selection state as
-/// separate (disjoint) borrows so the borrow checker is happy.
+/// Render one selectable list pane
 fn render_pane(
     frame: &mut Frame,
     area: Rect,
@@ -247,5 +279,15 @@ mod tests {
         assert!(out.contains("CoolMod"), "mods pane lists mods");
         assert!(out.contains("Cool.esp"), "plugins pane lists plugins");
         assert!(out.contains("(master)"), "master plugins are tagged");
+    }
+
+    #[test]
+    fn settings_popup_lists_recent_instances() {
+        let mut app = App::sample();
+        app.popup = Some(Popup::Settings);
+        app.settings_state.select(Some(0));
+        let out = render(&mut app, 80, 24);
+        assert!(out.contains("Settings"), "popup title");
+        assert!(out.contains("alpha"), "lists a recent instance");
     }
 }
