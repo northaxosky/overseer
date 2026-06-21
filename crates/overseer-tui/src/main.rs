@@ -3,6 +3,7 @@
 
 mod app;
 mod cli;
+mod theme;
 mod ui;
 
 use anyhow::{Context, Result};

@@ -5,15 +5,16 @@
 
 use overseer_core::apply::DeploymentStatus;
 use overseer_core::plugins::PluginMeta;
+use overseer_frontend::style::Role;
 use ratatui::{
     Frame,
     layout::{Alignment, Constraint, Layout, Rect},
-    style::{Modifier, Style, Stylize},
-    text::Line,
+    text::{Line, Span},
     widgets::{Block, BorderType, Clear, List, ListItem, ListState, Padding, Paragraph},
 };
 
 use crate::app::{App, Focus, Popup};
+use crate::theme;
 
 /// Draw the main view, plus any popup floating on top
 pub(crate) fn draw(app: &mut App, frame: &mut Frame) {
@@ -36,8 +37,11 @@ pub(crate) fn draw_main(app: &mut App, frame: &mut Frame) {
     .split(frame.area());
 
     let header = Line::from(vec![
-        " Overseer ".bold(),
-        format!(" · {} ", app.session.profile.name).dim(),
+        Span::styled(" Overseer ", theme::style(Role::Heading)),
+        Span::styled(
+            format!(" · {} ", app.session.profile.name),
+            theme::style(Role::Muted),
+        ),
     ]);
     frame.render_widget(Paragraph::new(header), rows[0]);
 
@@ -54,7 +58,14 @@ pub(crate) fn draw_main(app: &mut App, frame: &mut Frame) {
         .profile
         .mods
         .iter()
-        .map(|m| ListItem::new(format!("{} {}", marker(m.enabled), m.name)))
+        .map(|m| {
+            let role = if m.enabled {
+                Role::Success
+            } else {
+                Role::Muted
+            };
+            ListItem::new(format!("{} {}", marker(m.enabled), m.name)).style(theme::style(role))
+        })
         .collect();
     render_pane(
         frame,
@@ -78,7 +89,9 @@ pub(crate) fn draw_main(app: &mut App, frame: &mut Frame) {
             } else {
                 ""
             };
+            let role = if p.active { Role::Success } else { Role::Muted };
             ListItem::new(format!("{} {}{}", marker(p.active), p.name, tag))
+                .style(theme::style(role))
         })
         .collect();
     render_pane(
@@ -117,7 +130,7 @@ fn render_list_popup(
     let list = List::new(items)
         .block(block)
         .highlight_symbol("> ")
-        .highlight_style(Style::new().add_modifier(Modifier::REVERSED));
+        .highlight_style(theme::selection_style());
     let area = centered_rect(pct_x, pct_y, frame.area());
     frame.render_widget(Clear, area);
     frame.render_stateful_widget(list, area, state);
@@ -224,7 +237,7 @@ fn render_pane(
     if focused {
         list = list
             .highlight_symbol("> ")
-            .highlight_style(Style::new().add_modifier(Modifier::REVERSED));
+            .highlight_style(theme::selection_style());
     }
     frame.render_stateful_widget(list, area, state);
 }
