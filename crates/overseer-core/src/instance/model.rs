@@ -135,6 +135,8 @@ impl Instance {
             .map_err(|e| io_err(&instance.mods_dir(), e))?;
         std::fs::create_dir_all(instance.profiles_dir())
             .map_err(|e| io_err(&instance.profiles_dir(), e))?;
+        std::fs::create_dir_all(instance.overwrite_dir())
+            .map_err(|e| io_err(&instance.overwrite_dir(), e))?;
         Ok(instance)
     }
 
@@ -163,6 +165,10 @@ impl Instance {
 
     pub fn state_dir(&self) -> Utf8PathBuf {
         self.root.join("state")
+    }
+
+    pub fn overwrite_dir(&self) -> Utf8PathBuf {
+        self.root.join("overwrite")
     }
 
     /// Installed mods: the immediate subdirectories of `mods/`, sorted by name

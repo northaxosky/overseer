@@ -4,13 +4,16 @@ use super::error::{self, ApplyError};
 use super::lock::InstanceLock;
 use super::state::{Deployment, Status};
 
-use crate::deploy::{DeployPlan, DeployRecord, ProgressSink, VerifyReport, deployer_for};
+use crate::deploy::{
+    DeployError, DeployPlan, DeployRecord, ModSource, ProgressSink, VerifyReport, deployer_for,
+};
 use crate::instance::{Instance, Profile};
 use crate::plugins::{self, PluginLoadOrder};
 use camino::{Utf8Path, Utf8PathBuf};
+use std::collections::BTreeSet;
+use walkdir::WalkDir;
 
-/// Deploy a profile's enabled mods into the instance's game directory: `Data/` for
-/// ordinary content, and the game root for any mod's `Root/` content.
+/// Deploy a profile's enabled mods into the instance's game directory
 pub fn deploy_profile(
     instance: &Instance,
     profile_name: &str,
@@ -29,7 +32,12 @@ pub fn deploy_profile(
 
     let mut profile = Profile::load(instance, profile_name)?;
     profile.reconcile(instance)?;
-    let sources = profile.deploy_sources(instance);
+    let mut sources = profile.deploy_sources(instance);
+
+    // Overwrite folder is the highest priority "mod": It wins every conflict
+    let overwrite = instance.overwrite_dir();
+    std::fs::create_dir_all(&overwrite).map_err(|e| error::io_err(&overwrite, e))?;
+    sources.push(ModSource::new("Overwrite", &overwrite));
 
     let plan = DeployPlan::from_rooted_mods(&instance.config.game_dir, &sources)?;
 
@@ -90,14 +98,94 @@ pub fn deploy_profile(
     Ok(deployment)
 }
 
-/// Reverses the instance's live deployment: remove the deployed files and clear the state
+/// Reverses the instance's live deployment: capture runtime-generated files into the
+/// overwrite folder, remove the deployed files, and clear the state.
 pub fn purge(instance: &Instance, progress: &dyn ProgressSink) -> Result<(), ApplyError> {
     let _lock = InstanceLock::acquire(instance)?;
     recover_if_needed(instance, progress)?;
 
     let deployment = Deployment::load(instance)?;
     tracing::info!(profile = %deployment.profile, "purging live deployment");
+    capture_overwrite(instance, &deployment.record)?;
     reverse_and_finalize(instance, deployment, progress)
+}
+
+/// Before tearing down, move files that appeared in directories our deploy created
+/// — i.e. generated at runtime, not part of the record — into the instance's overwrite
+/// folder, so they survive the purge and re-deploy next time.
+///
+/// We only sweep directories the deployment itself created (`record.created_dirs`): such
+/// a directory did not exist before deploy, so any file in it that we did not deploy must
+/// have been generated during the session. (Files dropped into pre-existing game
+/// directories can't be told from vanilla without a baseline, so they're left alone.)
+fn capture_overwrite(instance: &Instance, record: &DeployRecord) -> Result<(), ApplyError> {
+    let overwrite = instance.overwrite_dir();
+    // Game-relative paths we deployed, lowercased, so we never capture our own files.
+    let ours: BTreeSet<String> = record
+        .entries
+        .iter()
+        .map(|e| e.relative.as_str().to_lowercase())
+        .collect();
+
+    for created in &record.created_dirs {
+        let dir = record.target_root.join(created);
+        if !dir.exists() {
+            continue;
+        }
+        for entry in WalkDir::new(&dir) {
+            let entry = entry.map_err(|e| {
+                let io = e
+                    .into_io_error()
+                    .unwrap_or_else(|| std::io::Error::other("walk capture dir"));
+                error::io_err(&dir, io)
+            })?;
+            if !entry.file_type().is_file() {
+                continue;
+            }
+
+            let abs = Utf8Path::from_path(entry.path())
+                .ok_or_else(|| DeployError::NonUtf8Path(entry.path().display().to_string()))?;
+            let relative = abs
+                .strip_prefix(&record.target_root)
+                .expect("walked file is under the target root");
+            if ours.contains(&relative.as_str().to_lowercase()) {
+                continue; // one of our deployed files; the reversal handles it
+            }
+
+            capture_move(abs, &overwrite.join(overwrite_staging_path(relative)))?;
+        }
+    }
+    Ok(())
+}
+
+/// Inverse of the deploy mapping: turn a deployed (game-relative) path back into its
+/// overwrite *staging* layout. `Data/<X>` was staged as `<X>`; game-root content was
+/// staged under `Root/<X>`.
+fn overwrite_staging_path(game_relative: &Utf8Path) -> Utf8PathBuf {
+    let mut components = game_relative.components();
+    if components
+        .next()
+        .is_some_and(|c| c.as_str().eq_ignore_ascii_case("Data"))
+    {
+        let under_data = components.as_path();
+        if !under_data.as_str().is_empty() {
+            return under_data.to_owned();
+        }
+    }
+    Utf8Path::new("Root").join(game_relative)
+}
+
+/// Move a captured file into the overwrite folder, creating parents. Falls back to
+/// copy-then-remove when a rename can't cross volumes.
+fn capture_move(from: &Utf8Path, to: &Utf8Path) -> Result<(), ApplyError> {
+    if let Some(parent) = to.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| error::io_err(parent, e))?;
+    }
+    if std::fs::rename(from, to).is_err() {
+        std::fs::copy(from, to).map_err(|e| error::io_err(to, e))?;
+        std::fs::remove_file(from).map_err(|e| error::io_err(from, e))?;
+    }
+    Ok(())
 }
 
 /// A snapshot of an instance's live deployment
@@ -403,6 +491,117 @@ mod tests {
         purge(&instance, &NullSink).expect("purge");
         // The vanilla original next to the exe is restored byte-for-byte.
         assert_eq!(std::fs::read_to_string(&root_dll).expect("read"), "vanilla");
+    }
+
+    #[test]
+    fn purge_captures_a_generated_file_from_a_mod_created_dir() {
+        let (_tmp, instance) = temp_instance();
+        // A mod whose file forces creating Data/F4SE/Plugins/.
+        install_mod(
+            &instance,
+            "Buffout",
+            &[("F4SE/Plugins/Buffout4.dll", "plugin")],
+        );
+        save_profile(&instance, "Default", &[("Buffout", true)]);
+        deploy_profile(&instance, "Default", &NullSink).expect("deploy");
+
+        // The game writes a crash log next to the plugin during play.
+        let generated = instance
+            .config
+            .game_dir
+            .join("Data/F4SE/Plugins/Buffout4.log");
+        std::fs::write(&generated, "crashlog").expect("simulate runtime write");
+
+        purge(&instance, &NullSink).expect("purge");
+
+        // Captured into overwrite/ in staging layout (the Data/ prefix is stripped)...
+        let captured = instance.overwrite_dir().join("F4SE/Plugins/Buffout4.log");
+        assert_eq!(
+            std::fs::read_to_string(&captured).expect("captured file"),
+            "crashlog"
+        );
+        // ...and gone from the game dir, which is left clean.
+        assert!(
+            !generated.exists(),
+            "generated file moved out of the game dir"
+        );
+        assert!(
+            !instance.config.game_dir.join("Data/F4SE").exists(),
+            "emptied created dirs are removed"
+        );
+    }
+
+    #[test]
+    fn purge_leaves_generated_files_in_preexisting_dirs() {
+        let (_tmp, instance) = temp_instance();
+        // Data/ already exists, like a real (vanilla) game install.
+        std::fs::create_dir_all(instance.config.game_dir.join("Data")).expect("vanilla Data");
+        install_mod(&instance, "Tex", &[("Textures/x.dds", "pix")]);
+        save_profile(&instance, "Default", &[("Tex", true)]);
+        deploy_profile(&instance, "Default", &NullSink).expect("deploy");
+
+        // A tool writes a log directly into the pre-existing Data/ root.
+        let loose = instance.config.game_dir.join("Data/loose.log");
+        std::fs::write(&loose, "log").expect("write");
+
+        purge(&instance, &NullSink).expect("purge");
+
+        // We can't tell it from vanilla (Data/ pre-existed), so it's left in place.
+        assert!(
+            loose.exists(),
+            "generated file in a pre-existing dir is left alone"
+        );
+        assert!(!instance.overwrite_dir().join("loose.log").exists());
+    }
+
+    #[test]
+    fn captured_files_redeploy_into_the_game_dir() {
+        let (_tmp, instance) = temp_instance();
+        install_mod(
+            &instance,
+            "Buffout",
+            &[("F4SE/Plugins/Buffout4.dll", "plugin")],
+        );
+        save_profile(&instance, "Default", &[("Buffout", true)]);
+        deploy_profile(&instance, "Default", &NullSink).expect("deploy 1");
+
+        let generated = instance
+            .config
+            .game_dir
+            .join("Data/F4SE/Plugins/Buffout4.log");
+        std::fs::write(&generated, "crashlog").expect("write");
+        purge(&instance, &NullSink).expect("purge 1");
+        assert!(!generated.exists());
+
+        // Re-deploy: the captured file comes back to the same game-dir location.
+        deploy_profile(&instance, "Default", &NullSink).expect("deploy 2");
+        assert_eq!(
+            std::fs::read_to_string(&generated).expect("redeployed"),
+            "crashlog"
+        );
+    }
+
+    #[test]
+    fn purge_captures_a_generated_file_in_a_mod_created_root_dir() {
+        let (_tmp, instance) = temp_instance();
+        // A Root mod that introduces enbseries/ in the game root.
+        install_mod(&instance, "ENB", &[("Root/enbseries/enbseries.ini", "cfg")]);
+        save_profile(&instance, "Default", &[("ENB", true)]);
+        deploy_profile(&instance, "Default", &NullSink).expect("deploy");
+
+        // ENB writes a cache file into enbseries/ during play.
+        let generated = instance.config.game_dir.join("enbseries/cache.bin");
+        std::fs::write(&generated, "cache").expect("write");
+
+        purge(&instance, &NullSink).expect("purge");
+
+        // Captured under Root/ so it re-deploys to the game root next time.
+        let captured = instance.overwrite_dir().join("Root/enbseries/cache.bin");
+        assert_eq!(
+            std::fs::read_to_string(&captured).expect("captured"),
+            "cache"
+        );
+        assert!(!generated.exists());
     }
 
     #[test]
