@@ -1,6 +1,6 @@
 //! Loose files in the deployed `Data` tree: high-confidence mistakes worth flagging.
 
-use super::Check;
+use super::{Check, under};
 use crate::context::{DataFile, GameContext};
 use crate::finding::{Finding, Severity};
 use camino::Utf8Path;
@@ -104,16 +104,6 @@ fn in_skipped_folder(path: &Utf8Path) -> bool {
             let name = c.as_str();
             name.starts_with('.') || IGNORE_FOLDERS.iter().any(|s| name.eq_ignore_ascii_case(s))
         })
-    })
-}
-
-/// True if `path`'s leading components match `prefix`
-fn under(path: &Utf8Path, prefix: &[&str]) -> bool {
-    let mut components = path.components();
-    prefix.iter().all(|d| {
-        components
-            .next()
-            .is_some_and(|c| c.as_str().eq_ignore_ascii_case(d))
     })
 }
 

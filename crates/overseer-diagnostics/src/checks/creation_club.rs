@@ -30,7 +30,7 @@ impl Check for CreationClub {
                 check: self.id(),
                 severity: Severity::Info,
                 title: format!(
-                    "{file} lists {} Creation Club plugin{}",
+                    "`{file}` lists {} Creation Club plugin{}",
                     entries.len(),
                     if entries.len() == 1 { "" } else { "s" }
                 ),
