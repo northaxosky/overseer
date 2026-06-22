@@ -98,8 +98,7 @@ pub fn deploy_profile(
     Ok(deployment)
 }
 
-/// Reverses the instance's live deployment: capture runtime-generated files into the
-/// overwrite folder, remove the deployed files, and clear the state.
+/// Reverses the instance's live deployment
 pub fn purge(instance: &Instance, progress: &dyn ProgressSink) -> Result<(), ApplyError> {
     let _lock = InstanceLock::acquire(instance)?;
     recover_if_needed(instance, progress)?;
@@ -111,13 +110,6 @@ pub fn purge(instance: &Instance, progress: &dyn ProgressSink) -> Result<(), App
 }
 
 /// Before tearing down, move files that appeared in directories our deploy created
-/// — i.e. generated at runtime, not part of the record — into the instance's overwrite
-/// folder, so they survive the purge and re-deploy next time.
-///
-/// We only sweep directories the deployment itself created (`record.created_dirs`): such
-/// a directory did not exist before deploy, so any file in it that we did not deploy must
-/// have been generated during the session. (Files dropped into pre-existing game
-/// directories can't be told from vanilla without a baseline, so they're left alone.)
 fn capture_overwrite(instance: &Instance, record: &DeployRecord) -> Result<(), ApplyError> {
     let overwrite = instance.overwrite_dir();
     // Game-relative paths we deployed, lowercased, so we never capture our own files.
@@ -158,9 +150,7 @@ fn capture_overwrite(instance: &Instance, record: &DeployRecord) -> Result<(), A
     Ok(())
 }
 
-/// Inverse of the deploy mapping: turn a deployed (game-relative) path back into its
-/// overwrite *staging* layout. `Data/<X>` was staged as `<X>`; game-root content was
-/// staged under `Root/<X>`.
+/// Inverse of the deploy mapping: turn a deployed (game-relative) path back into its overwrite *staging* layout
 fn overwrite_staging_path(game_relative: &Utf8Path) -> Utf8PathBuf {
     let mut components = game_relative.components();
     if components
@@ -175,8 +165,7 @@ fn overwrite_staging_path(game_relative: &Utf8Path) -> Utf8PathBuf {
     Utf8Path::new("Root").join(game_relative)
 }
 
-/// Move a captured file into the overwrite folder, creating parents. Falls back to
-/// copy-then-remove when a rename can't cross volumes.
+/// Move a captured file into the overwrite folder, creating parents
 fn capture_move(from: &Utf8Path, to: &Utf8Path) -> Result<(), ApplyError> {
     if let Some(parent) = to.parent() {
         std::fs::create_dir_all(parent).map_err(|e| error::io_err(parent, e))?;
