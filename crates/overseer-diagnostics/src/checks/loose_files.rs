@@ -1,64 +1,28 @@
-//! Loose files in the deployed `Data` tree: junk, misplaced, wrong formats
+//! Loose files in the deployed `Data` tree: high-confidence mistakes worth flagging.
+//!
+//! Deliberately narrow — it reports only files that are almost certainly a mistake
+//! (clutter, a misplaced DLL, a source texture/audio format the game can't load) and
+//! stays silent on everything else, including harmless files the game simply ignores.
 
 use super::Check;
 use crate::context::{DataFile, GameContext};
 use crate::finding::{Finding, Severity};
 use camino::Utf8Path;
-use std::collections::BTreeSet;
 
-/// Tool output folders that arent game data but we ignore
+/// Tool-output folders that aren't game data, so we leave their contents alone
 const IGNORE_FOLDERS: &[&str] = &["bodyslide", "fo4edit", "robco_patcher", "source"];
 
-/// What Fallout 4 loads from a top-level `Data/` folder
-enum Rule {
-    /// Recognized but not judged (F4SE/MCM, or folders we dont model)
-    Any,
-    /// The engine loads exactly these extensions from this folder
-    Loads(&'static [&'static str]),
-}
-
-/// What Fallout 4 loads from `folder` (`None` is the `Data/` root)
-fn folder_rule(folder: Option<&str>) -> Rule {
-    let Some(folder) = folder else {
-        return Rule::Loads(&["esp", "esm", "esl", "ba2"]);
-    };
-
-    match folder {
-        "textures" => Rule::Loads(&["dds"]),
-        "meshes" => Rule::Loads(&["nif", "hkx", "tri", "bto", "btr"]),
-        "materials" => Rule::Loads(&["bgsm", "bgem"]),
-        "sound" => Rule::Loads(&["fuz", "wav", "xwm", "lip"]),
-        "music" => Rule::Loads(&["wav", "xwm"]),
-        "interface" => Rule::Loads(&["swf", "gfx", "dds", "txt"]),
-        "strings" => Rule::Loads(&["strings", "dlstrings", "ilstrings"]),
-        "scripts" => Rule::Loads(&["pex"]),
-        "vis" => Rule::Loads(&["uvd"]),
-        "lodsettings" => Rule::Loads(&["lod", "txt"]),
-        "video" => Rule::Loads(&["bik", "bk2"]),
-        _ => Rule::Any,
-    }
-}
-
-/// Formats that are a known wrong form of an expected one
-fn proper_formats(ext: &str) -> Option<&'static [&'static str]> {
+/// A source/intermediate format Fallout 4 never loads, mapped to the form it should be in.
+/// Texture sources want `.dds`; audio sources want `.wav` (or `.xwm`/`.fuz`).
+fn wrong_format(ext: &str) -> Option<&'static str> {
     match ext {
-        "bmp" | "jpeg" | "jpg" | "png" | "psd" | "tga" => Some(&["dds"]),
-        "mp3" => Some(&["wav", "xwm"]),
+        "bmp" | "jpeg" | "jpg" | "png" | "psd" | "tga" => Some("dds"),
+        "mp3" => Some("wav"),
         _ => None,
     }
 }
 
-/// What we make of one deployed file
-enum Verdict {
-    /// Fallout 4 loads it, nothing to report
-    Asset,
-    /// A high-confidence problem worth a warning
-    Problem(Finding),
-    /// The game wont load it (source/docs/leftovers)
-    WontLoad,
-}
-
-/// Flags deployed files that shouldn't be there
+/// Flags deployed files that are almost certainly a mistake
 pub struct LooseFiles;
 
 impl Check for LooseFiles {
@@ -67,33 +31,11 @@ impl Check for LooseFiles {
     }
 
     fn run(&self, ctx: &GameContext) -> Vec<Finding> {
-        // Every deployed data path, lowercased
-        let present: BTreeSet<String> = ctx
+        let mut findings: Vec<Finding> = ctx
             .data_files
             .iter()
-            .map(|f| f.path.as_str().to_lowercase())
+            .filter_map(|f| self.inspect(f))
             .collect();
-
-        let mut findings = Vec::new();
-        let mut wont_load = 0usize;
-
-        for file in &ctx.data_files {
-            match self.inspect(file, &present) {
-                Verdict::Asset => {}
-                Verdict::Problem(finding) => findings.push(finding),
-                Verdict::WontLoad => wont_load += 1,
-            }
-        }
-
-        if wont_load > 0 {
-            let s = if wont_load == 1 { "" } else { "s" };
-            findings.push(Finding {
-                check: self.id(),
-                severity: Severity::Info,
-                title: format!("{wont_load} file{s} Fallout 4 won't load"),
-                detail: Some("Source, docs, or leftovers: harmless, but safe to remove".to_owned()),
-            });
-        }
 
         if findings.is_empty() {
             findings.push(Finding {
@@ -108,82 +50,45 @@ impl Check for LooseFiles {
 }
 
 impl LooseFiles {
-    /// Classify one deployed `Data/` file
-    fn inspect(&self, file: &DataFile, present: &BTreeSet<String>) -> Verdict {
+    /// Flag one deployed `Data/` file if it's a confident mistake, otherwise `None`
+    fn inspect(&self, file: &DataFile) -> Option<Finding> {
         let path = file.path.as_path();
 
-        // Skip tool output and hidden subtrees
+        // Leave tool output and hidden subtrees alone
         if in_skipped_folder(path) {
-            return Verdict::Asset;
+            return None;
         }
 
         let name = path.file_name().unwrap_or_default();
         if name.starts_with('.') {
-            return Verdict::Problem(self.warn(
+            return Some(self.warn(
                 file,
                 "is a hidden metadata file",
                 "Delete it: the game and mod managers ignore dotfiles",
             ));
         }
 
-        // The only DLL the game cares about is an F4SE plugin from `F4SE/Plugins/`
-        if has_ext(path, "dll") {
-            return if under(path, &["f4se", "plugins"]) {
-                Verdict::Asset
-            } else {
-                Verdict::Problem(self.warn(
-                    file,
-                    "is a DLL outside `F4SE/Plugins/`",
-                    "Script-extender plugins load only from `F4SE/Plugins/`",
-                ))
-            };
+        let ext = path.extension()?;
+
+        // The only DLL the game loads is an F4SE plugin from `F4SE/Plugins/`
+        if ext.eq_ignore_ascii_case("dll") && !under(path, &["f4se", "plugins"]) {
+            return Some(self.warn(
+                file,
+                "is a DLL outside `F4SE/Plugins/`",
+                "Script-extender plugins load only from `F4SE/Plugins/`",
+            ));
         }
 
-        let Some(ext) = path.extension() else {
-            return Verdict::WontLoad;
-        };
-
-        match folder_rule(top_folder(path).as_deref()) {
-            Rule::Any => Verdict::Asset,
-            Rule::Loads(formats) if formats.iter().any(|f| ext.eq_ignore_ascii_case(f)) => {
-                Verdict::Asset
-            }
-            Rule::Loads(_) => match self.wrong_format(file, ext, present) {
-                Some(finding) => Verdict::Problem(finding),
-                None => Verdict::WontLoad,
-            },
+        // A source texture/audio format the game can't load, anywhere in the tree
+        if let Some(proper) = wrong_format(&ext.to_lowercase()) {
+            return Some(self.warn(
+                file,
+                &format!("is a `.{ext}` the game won't load"),
+                &format!("Convert to `.{proper}` or remove it"),
+            ));
         }
-    }
 
-    /// A warning for a wrong format file
-    fn wrong_format(
-        &self,
-        file: &DataFile,
-        ext: &str,
-        present: &BTreeSet<String>,
-    ) -> Option<Finding> {
-        let proper = proper_formats(&ext.to_lowercase())?;
-        let folder = top_folder(file.path.as_path()).unwrap_or_default();
-        let detail = if proper
-            .iter()
-            .any(|e| sibling_exists(&file.path, e, present))
-        {
-            format!(
-                "A matching `.{}` already exists: delete this one",
-                proper[0]
-            )
-        } else {
-            format!("Convert to `.{}` or remove it", proper[0])
-        };
-        Some(Finding {
-            check: self.id(),
-            severity: Severity::Warning,
-            title: format!(
-                "`{}` doesn't belong in `{folder}` (from `{}`)",
-                file.path, file.mod_name
-            ),
-            detail: Some(detail),
-        })
+        None
     }
 
     /// A warning naming the offending file and its mod
@@ -207,21 +112,6 @@ fn in_skipped_folder(path: &Utf8Path) -> bool {
     })
 }
 
-/// The lowercased top level folder of a `Data/`-relative path, or `None` at the root
-fn top_folder(path: &Utf8Path) -> Option<String> {
-    let parent = path.parent()?;
-    if parent.as_str().is_empty() {
-        return None;
-    }
-    path.components().next().map(|c| c.as_str().to_lowercase())
-}
-
-/// True if `path`'s extension equals `ext`
-fn has_ext(path: &Utf8Path, ext: &str) -> bool {
-    path.extension()
-        .is_some_and(|e| e.eq_ignore_ascii_case(ext))
-}
-
 /// True if `path`'s leading components match `prefix`
 fn under(path: &Utf8Path, prefix: &[&str]) -> bool {
     let mut components = path.components();
@@ -232,11 +122,6 @@ fn under(path: &Utf8Path, prefix: &[&str]) -> bool {
     })
 }
 
-/// true if a sibling file with the same stem but `ext` is among the deployed files
-fn sibling_exists(path: &Utf8Path, ext: &str, present: &BTreeSet<String>) -> bool {
-    present.contains(&path.with_extension(ext).as_str().to_lowercase())
-}
-
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -244,6 +129,7 @@ fn sibling_exists(path: &Utf8Path, ext: &str, present: &BTreeSet<String>) -> boo
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeSet;
 
     fn df(path: &str) -> DataFile {
         DataFile {
@@ -274,6 +160,15 @@ mod tests {
         warnings.pop().unwrap()
     }
 
+    /// Assert the files produce no warnings (only the clean-bill Info line).
+    fn assert_no_warnings(files: Vec<DataFile>) {
+        let findings = run(files);
+        assert!(
+            findings.iter().all(|f| f.severity == Severity::Info),
+            "expected no warnings, got: {findings:?}"
+        );
+    }
+
     #[test]
     fn recognized_assets_report_nothing() {
         let findings = run(vec![
@@ -302,8 +197,7 @@ mod tests {
 
     #[test]
     fn a_dll_inside_f4se_plugins_is_an_asset() {
-        let findings = run(vec![df("F4SE/Plugins/buffout4.dll")]);
-        assert!(findings.iter().all(|f| f.severity == Severity::Info));
+        assert_no_warnings(vec![df("F4SE/Plugins/buffout4.dll")]);
     }
 
     #[test]
@@ -319,48 +213,34 @@ mod tests {
     }
 
     #[test]
-    fn a_wrong_format_next_to_the_right_one_suggests_deleting() {
-        let warning = only_warning(vec![df("textures/armor.png"), df("textures/armor.dds")]);
+    fn a_wrong_audio_format_suggests_converting() {
+        let warning = only_warning(vec![df("sound/voice.mp3")]);
         assert!(
             warning
                 .detail
                 .as_deref()
                 .unwrap()
-                .contains("already exists")
+                .contains("Convert to `.wav`")
         );
     }
 
     #[test]
-    fn a_valid_format_in_the_wrong_folder_is_not_flagged() {
-        // `.nif` is real, but not loaded from textures/ — informational, not a warning.
-        let findings = run(vec![df("textures/model.nif")]);
-        assert!(findings.iter().all(|f| f.severity == Severity::Info));
-        assert!(findings.iter().any(|f| f.title.contains("won't load")));
+    fn a_source_format_is_flagged_regardless_of_folder() {
+        // Folder-independent: a `.png` won't load anywhere, so flag it even outside textures/.
+        let warning = only_warning(vec![df("meshes/preview.png")]);
+        assert!(warning.title.contains("won't load"));
     }
 
     #[test]
-    fn source_and_doc_files_are_summarized_not_flagged() {
-        let findings = run(vec![df("scripts/quest.psc"), df("meshes/armor.max")]);
-        assert!(findings.iter().all(|f| f.severity == Severity::Info));
-        let summary = findings
-            .iter()
-            .find(|f| f.title.contains("won't load"))
-            .unwrap();
-        assert!(summary.title.contains("2 files"));
+    fn a_valid_format_in_the_wrong_folder_is_left_alone() {
+        // We flag only confident mistakes; a real asset in an odd folder isn't one.
+        assert_no_warnings(vec![df("textures/model.nif")]);
     }
 
     #[test]
-    fn the_wont_load_summary_is_singular_for_one_file() {
-        let findings = run(vec![df("readme.txt")]);
-        let summary = findings
-            .iter()
-            .find(|f| f.title.contains("won't load"))
-            .unwrap();
-        assert!(
-            summary.title.contains("1 file Fallout"),
-            "got: {}",
-            summary.title
-        );
+    fn source_and_doc_files_are_left_alone() {
+        // Files the game ignores but that do no harm are not reported.
+        assert_no_warnings(vec![df("scripts/quest.psc"), df("readme.txt")]);
     }
 
     #[test]
@@ -386,8 +266,7 @@ mod tests {
 
     #[test]
     fn matching_is_case_insensitive() {
-        let findings = run(vec![df("TEXTURES/Armor.DDS"), df("F4SE/PLUGINS/Tool.DLL")]);
-        assert!(findings.iter().all(|f| f.severity == Severity::Info));
+        assert_no_warnings(vec![df("TEXTURES/Armor.DDS"), df("F4SE/PLUGINS/Tool.DLL")]);
     }
 
     #[test]
