@@ -72,6 +72,21 @@ pub enum Command {
         #[arg(long)]
         instance: Utf8PathBuf,
     },
+
+    /// Launch the game, its script extender, or a configured tool
+    Launch {
+        /// Target name (omit to list the available targets)
+        name: Option<String>,
+        /// Instance directory (contains mods/ and profiles/)
+        #[arg(long)]
+        instance: Utf8PathBuf,
+    },
+
+    /// Manage an instance's launch targets (executables)
+    Exe {
+        #[command(subcommand)]
+        command: ExeCommand,
+    },
 }
 
 /// Arguments shared by every profile-scoped subcommand.
@@ -166,5 +181,38 @@ pub enum InstanceCommand {
         /// The instance directory
         #[arg(long)]
         path: Utf8PathBuf,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum ExeCommand {
+    /// List the instance's configured launch targets
+    List {
+        /// Instance directory (contains mods/ and profiles/)
+        #[arg(long)]
+        instance: Utf8PathBuf,
+    },
+    /// Add a launch target (an external tool, e.g. FO4Edit)
+    Add {
+        /// Display name and lookup key (e.g. FO4Edit)
+        #[arg(long)]
+        name: String,
+        /// Path to the executable
+        #[arg(long)]
+        path: Utf8PathBuf,
+        /// An argument to pass when launching (repeat for multiple)
+        #[arg(long = "arg", allow_hyphen_values = true)]
+        args: Vec<String>,
+        /// Instance directory (contains mods/ and profiles/)
+        #[arg(long)]
+        instance: Utf8PathBuf,
+    },
+    /// Remove a launch target by name
+    Remove {
+        /// The target's name
+        name: String,
+        /// Instance directory (contains mods/ and profiles/)
+        #[arg(long)]
+        instance: Utf8PathBuf,
     },
 }

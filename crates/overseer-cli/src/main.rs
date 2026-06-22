@@ -31,5 +31,7 @@ fn main() -> Result<()> {
         Command::Plugin { command } => commands::plugins::run(command),
         Command::Instance { command } => commands::instance::run(command),
         Command::Status { instance } => commands::deploy::status(instance),
+        Command::Launch { name, instance } => commands::launch::run(name, instance),
+        Command::Exe { command } => commands::exe::run(command),
     }
 }

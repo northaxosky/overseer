@@ -2,7 +2,9 @@
 
 pub mod demo;
 pub mod deploy;
+pub mod exe;
 pub mod install;
 pub mod instance;
+pub mod launch;
 pub mod mods;
 pub mod plugins;

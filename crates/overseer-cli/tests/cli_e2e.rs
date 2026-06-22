@@ -110,3 +110,105 @@ fn an_invalid_game_is_rejected() {
     .failure()
     .stderr(predicate::str::contains("unknown game"));
 }
+
+#[test]
+fn exe_and_launch_manage_and_list_targets() {
+    let tmp = TempDir::new().unwrap();
+    let root = tmp.path();
+    let inst = root.join("inst");
+    let inst_s = inst.to_str().unwrap();
+
+    // init seeds `game` + `script-extender` as ordinary launch targets.
+    overseer(&[
+        "instance",
+        "init",
+        "--path",
+        inst_s,
+        "--game-dir",
+        root.join("game").to_str().unwrap(),
+    ])
+    .success()
+    .stdout(predicate::str::contains("targets:").and(predicate::str::contains("script-extender")));
+
+    // Bare `launch` lists the available targets.
+    overseer(&["launch", "--instance", inst_s])
+        .success()
+        .stdout(predicate::str::contains("game").and(predicate::str::contains("script-extender")));
+
+    // Add a real on-disk tool with an argument.
+    let tool = root.join("FO4Edit.exe");
+    std::fs::write(&tool, "").unwrap();
+    overseer(&[
+        "exe",
+        "add",
+        "--name",
+        "FO4Edit",
+        "--path",
+        tool.to_str().unwrap(),
+        "--arg",
+        "-FO4",
+        "--instance",
+        inst_s,
+    ])
+    .success()
+    .stdout(predicate::str::contains("Added launch target `FO4Edit`"));
+
+    // `exe list` shows it as installed, with its argument.
+    overseer(&["exe", "list", "--instance", inst_s])
+        .success()
+        .stdout(
+            predicate::str::contains("FO4Edit")
+                .and(predicate::str::contains("installed"))
+                .and(predicate::str::contains("-FO4")),
+        );
+
+    // Adding the same name again is rejected.
+    overseer(&[
+        "exe",
+        "add",
+        "--name",
+        "FO4Edit",
+        "--path",
+        tool.to_str().unwrap(),
+        "--instance",
+        inst_s,
+    ])
+    .failure()
+    .stderr(predicate::str::contains("already exists"));
+
+    // Removing it drops it from the list (the seeded targets remain).
+    overseer(&["exe", "remove", "FO4Edit", "--instance", inst_s])
+        .success()
+        .stdout(predicate::str::contains("Removed launch target `FO4Edit`"));
+    overseer(&["exe", "list", "--instance", inst_s])
+        .success()
+        .stdout(predicate::str::contains("FO4Edit").not());
+}
+
+#[test]
+fn launch_reports_missing_and_unknown_targets() {
+    let tmp = TempDir::new().unwrap();
+    let root = tmp.path();
+    let inst = root.join("inst");
+    let inst_s = inst.to_str().unwrap();
+
+    overseer(&[
+        "instance",
+        "init",
+        "--path",
+        inst_s,
+        "--game-dir",
+        root.join("game").to_str().unwrap(),
+    ])
+    .success();
+
+    // `game` is seeded, but its executable isn't on disk.
+    overseer(&["launch", "game", "--instance", inst_s])
+        .failure()
+        .stderr(predicate::str::contains("not present"));
+
+    // An unknown target name is rejected.
+    overseer(&["launch", "bogus", "--instance", inst_s])
+        .failure()
+        .stderr(predicate::str::contains("no launch target named `bogus`"));
+}

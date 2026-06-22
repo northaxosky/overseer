@@ -30,12 +30,15 @@ fn init(
     profile: String,
 ) -> Result<()> {
     let path = absolutize(&path)?;
+    let game_dir = absolutize(&game_dir)?;
+    let executables = InstanceConfig::default_executables(game, &game_dir);
     let config = InstanceConfig {
-        game_dir: absolutize(&game_dir)?,
+        game_dir,
         game,
         local_dir: local.map(|l| absolutize(&l)).transpose()?,
         default_profile: profile,
         deployer: DeployerKind::default(),
+        executables,
     };
 
     let instance = Instance::init(&path, config).with_context(|| format!("initializing {path}"))?;
@@ -43,6 +46,13 @@ fn init(
     println!("  game:     {}", instance.config.game);
     println!("  game dir: {}", instance.config.game_dir);
     println!("  profile:  {}", instance.config.default_profile);
+    let targets: Vec<&str> = instance
+        .config
+        .executables
+        .iter()
+        .map(|e| e.name.as_str())
+        .collect();
+    println!("  targets:  {}", targets.join(", "));
     Ok(())
 }
 
