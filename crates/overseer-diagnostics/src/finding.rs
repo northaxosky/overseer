@@ -20,6 +20,6 @@ pub struct Finding {
     pub severity: Severity,
     /// One-line summary of the finding
     pub title: String,
-    /// Longer explanation / guidance on the finding
-    pub detail: String,
+    /// Longer explanation / guidance, shown by the CLI for warnings and errors
+    pub detail: Option<String>,
 }

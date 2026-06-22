@@ -35,20 +35,21 @@ pub fn discover_plugins(
     Ok(plugins)
 }
 
-/// Plugin files directly inside a mod's staging dir.
-fn find_plugin_files(mod_dir: &Utf8Path) -> Result<Vec<camino::Utf8PathBuf>, PluginError> {
+/// Plugin files (`.esp`/`.esm`/`.esl`) directly inside a directory's top level.
+/// A directory that doesn't exist yields an empty list rather than an error.
+pub fn find_plugin_files(dir: &Utf8Path) -> Result<Vec<camino::Utf8PathBuf>, PluginError> {
     let mut found = Vec::new();
-    for entry in WalkDir::new(mod_dir).min_depth(1).max_depth(1) {
+    for entry in WalkDir::new(dir).min_depth(1).max_depth(1) {
         let entry = match entry {
             Ok(e) => e,
-            // A mod folder that doesn't exist yet (no plugins)
+            // A directory that doesn't exist yet (no plugins)
             Err(e)
                 if e.io_error().map(std::io::Error::kind) == Some(std::io::ErrorKind::NotFound) =>
             {
                 return Ok(found);
             }
             Err(e) => {
-                return Err(io_err(mod_dir, e.into()));
+                return Err(io_err(dir, e.into()));
             }
         };
         if !entry.file_type().is_file() {
@@ -56,7 +57,7 @@ fn find_plugin_files(mod_dir: &Utf8Path) -> Result<Vec<camino::Utf8PathBuf>, Plu
         }
         let path = Utf8Path::from_path(entry.path()).ok_or_else(|| {
             io_err(
-                mod_dir,
+                dir,
                 std::io::Error::new(std::io::ErrorKind::InvalidData, "non-UTF-8 path"),
             )
         })?;

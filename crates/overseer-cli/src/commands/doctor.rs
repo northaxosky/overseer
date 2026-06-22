@@ -29,10 +29,9 @@ fn print_finding(finding: &Finding) {
         Severity::Error => (Role::Failure, "✗"),
     };
     let marker = styled(role, glyph);
-    if finding.severity == Severity::Info {
-        println!("  {marker}  {}", finding.title);
-    } else {
-        println!("  {marker}  {} — {}", finding.title, finding.detail);
+    match &finding.detail {
+        Some(detail) => println!("  {marker}  {} — {}", finding.title, detail),
+        None => println!("  {marker}  {}", finding.title),
     }
 }
 

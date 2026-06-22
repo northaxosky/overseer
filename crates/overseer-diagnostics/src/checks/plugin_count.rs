@@ -20,26 +20,31 @@ impl Check for PluginCount {
         let light = ctx.active_plugins.iter().filter(|p| p.is_light).count();
         let full = ctx.active_plugins.len() - light;
         vec![
-            count_finding("Full (ESM/ESP)", full, MAX_FULL),
-            count_finding("Light (ESL)", light, MAX_LIGHT),
+            self.count_finding("Full (ESM/ESP)", full, MAX_FULL),
+            self.count_finding("Light (ESL)", light, MAX_LIGHT),
         ]
     }
 }
 
-/// One finding for a plugin tier: error over the limit, warn within ~5%, else info
-fn count_finding(label: &str, count: usize, limit: usize) -> Finding {
-    let (severity, note) = if count > limit {
-        (Severity::Error, "Over the limit — the game won't start")
-    } else if count >= limit - limit / 20 {
-        (Severity::Warning, "Approaching the limit")
-    } else {
-        (Severity::Info, "Within limits")
-    };
-    Finding {
-        check: "plugin-count",
-        severity,
-        title: format!("{label} plugins: {count} / {limit}"),
-        detail: note.to_owned(),
+impl PluginCount {
+    /// One finding for a plugin tier: error over the limit, warn within ~5%, else info
+    fn count_finding(&self, label: &str, count: usize, limit: usize) -> Finding {
+        let (severity, detail) = if count > limit {
+            (
+                Severity::Error,
+                Some("Over the limit — the game won't start"),
+            )
+        } else if count >= limit - limit / 20 {
+            (Severity::Warning, Some("Approaching the limit"))
+        } else {
+            (Severity::Info, None)
+        };
+        Finding {
+            check: self.id(),
+            severity,
+            title: format!("{label} plugins: {count} / {limit}"),
+            detail: detail.map(String::from),
+        }
     }
 }
 
@@ -51,6 +56,7 @@ fn count_finding(label: &str, count: usize, limit: usize) -> Finding {
 mod tests {
     use super::*;
     use overseer_core::plugins::PluginMeta;
+    use std::collections::BTreeSet;
 
     fn plugin(is_light: bool) -> PluginMeta {
         PluginMeta {
@@ -64,7 +70,10 @@ mod tests {
     fn ctx(full: usize, light: usize) -> GameContext {
         let mut active_plugins = vec![plugin(false); full];
         active_plugins.extend(vec![plugin(true); light]);
-        GameContext { active_plugins }
+        GameContext {
+            active_plugins,
+            present_plugins: BTreeSet::new(),
+        }
     }
 
     #[test]
