@@ -9,6 +9,7 @@ rust-version.workspace = true
 
 [dependencies]
 overseer-core = { path = "../overseer-core" }
+camino.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]

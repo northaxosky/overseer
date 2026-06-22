@@ -1,6 +1,8 @@
 //! Facts about the setup, gathered once and shared by every check
 
 use crate::error::DiagnosticError;
+use camino::{Utf8Path, Utf8PathBuf};
+use overseer_core::deploy::DeployPlan;
 use overseer_core::instance::{Instance, Profile};
 use overseer_core::plugins::{PluginLoadOrder, PluginMeta, discover_plugins, find_plugin_files};
 use std::collections::BTreeSet;
@@ -11,6 +13,16 @@ pub struct GameContext {
     pub active_plugins: Vec<PluginMeta>,
     /// Lowercased names of every plugin present when the game loads
     pub present_plugins: BTreeSet<String>,
+    /// The files this profile would deploy under the game's `Data/` folder
+    pub data_files: Vec<DataFile>,
+}
+
+/// A file that will deploy under the game's `Data/` folder, and the mod it came from
+pub struct DataFile {
+    /// Path relative to `Data/` (e.g. `textures/foo.dds`)
+    pub path: Utf8PathBuf,
+    /// The mod that owns this file (the conflict winner)
+    pub mod_name: String,
 }
 
 impl GameContext {
@@ -38,9 +50,36 @@ impl GameContext {
                 .collect();
         present_plugins.extend(active_plugins.iter().map(|p| p.name.to_lowercase()));
 
+        // The files this profile would actually deploy, conflict-resolved. Root/ content
+        // deploys to the game root rather than Data/, so it's dropped here.
+        let sources = profile.deploy_sources(instance);
+        let plan = DeployPlan::from_rooted_mods(&instance.config.game_dir, &sources)?;
+        let data_files = plan
+            .files()
+            .iter()
+            .filter_map(|f| {
+                strip_data_prefix(&f.relative).map(|path| DataFile {
+                    path,
+                    mod_name: f.winner.clone(),
+                })
+            })
+            .collect();
+
         Ok(Self {
             active_plugins,
             present_plugins,
+            data_files,
         })
+    }
+}
+
+/// Keep only deploy paths under `Data/`, returning the path relative to `Data/`
+fn strip_data_prefix(relative: &Utf8Path) -> Option<Utf8PathBuf> {
+    let mut components = relative.components();
+    match components.next() {
+        Some(first) if first.as_str().eq_ignore_ascii_case("Data") => {
+            Some(components.as_path().to_owned())
+        }
+        _ => None,
     }
 }

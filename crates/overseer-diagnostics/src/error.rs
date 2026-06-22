@@ -1,5 +1,6 @@
 //! Errors from gathering context for diagnostics
 
+use overseer_core::deploy::DeployError;
 use overseer_core::instance::InstanceError;
 use overseer_core::plugins::PluginError;
 use thiserror::Error;
@@ -12,4 +13,7 @@ pub enum DiagnosticError {
 
     #[error(transparent)]
     Plugin(#[from] PluginError),
+
+    #[error(transparent)]
+    Deploy(#[from] DeployError),
 }

@@ -1,11 +1,13 @@
 //! The setup health checks: the `Check` trait and every check that implements it
 
+mod loose_files;
 mod missing_masters;
 mod plugin_count;
 
 use crate::context::GameContext;
 use crate::finding::Finding;
 
+pub use loose_files::LooseFiles;
 pub use missing_masters::MissingMasters;
 pub use plugin_count::PluginCount;
 
@@ -20,5 +22,9 @@ pub trait Check {
 
 /// Every check that runs, in display order
 pub fn all() -> Vec<Box<dyn Check>> {
-    vec![Box::new(PluginCount), Box::new(MissingMasters)]
+    vec![
+        Box::new(PluginCount),
+        Box::new(MissingMasters),
+        Box::new(LooseFiles),
+    ]
 }

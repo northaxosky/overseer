@@ -76,6 +76,7 @@ mod tests {
         GameContext {
             active_plugins: active,
             present_plugins: present.iter().map(|p| p.to_lowercase()).collect(),
+            data_files: Vec::new(),
         }
     }
 

@@ -1468,6 +1468,7 @@ dependencies = [
 name = "overseer-diagnostics"
 version = "0.0.0"
 dependencies = [
+ "camino",
  "overseer-core",
  "tempfile",
  "thiserror 2.0.18",

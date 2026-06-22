@@ -73,6 +73,7 @@ mod tests {
         GameContext {
             active_plugins,
             present_plugins: BTreeSet::new(),
+            data_files: Vec::new(),
         }
     }
 
