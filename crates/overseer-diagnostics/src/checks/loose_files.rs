@@ -1,8 +1,4 @@
 //! Loose files in the deployed `Data` tree: high-confidence mistakes worth flagging.
-//!
-//! Deliberately narrow — it reports only files that are almost certainly a mistake
-//! (clutter, a misplaced DLL, a source texture/audio format the game can't load) and
-//! stays silent on everything else, including harmless files the game simply ignores.
 
 use super::Check;
 use crate::context::{DataFile, GameContext};
@@ -13,7 +9,6 @@ use camino::Utf8Path;
 const IGNORE_FOLDERS: &[&str] = &["bodyslide", "fo4edit", "robco_patcher", "source"];
 
 /// A source/intermediate format Fallout 4 never loads, mapped to the form it should be in.
-/// Texture sources want `.dds`; audio sources want `.wav` (or `.xwm`/`.fuz`).
 fn wrong_format(ext: &str) -> Option<&'static str> {
     match ext {
         "bmp" | "jpeg" | "jpg" | "png" | "psd" | "tga" => Some("dds"),
@@ -143,6 +138,7 @@ mod tests {
             active_plugins: Vec::new(),
             present_plugins: BTreeSet::new(),
             data_files: files,
+            ccc: crate::context::CccStatus::NotApplicable,
         }
     }
 

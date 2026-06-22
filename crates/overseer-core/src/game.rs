@@ -54,6 +54,15 @@ impl GameKind {
             Self::Starfield => "Starfield",
         }
     }
+
+    /// The Creation Club load-order manifest in the game root, if the game uses one
+    pub fn ccc_file(self) -> Option<&'static str> {
+        match self {
+            Self::Fallout4 => Some("Fallout4.ccc"),
+            Self::SkyrimSE => Some("Skyrim.ccc"),
+            Self::Starfield => None,
+        }
+    }
 }
 
 impl std::fmt::Display for GameKind {
@@ -158,6 +167,13 @@ mod tests {
             "Skyrim Special Edition"
         );
         assert_eq!(GameKind::Starfield.local_appdata_dir(), "Starfield");
+    }
+
+    #[test]
+    fn ccc_files_match_the_games() {
+        assert_eq!(GameKind::Fallout4.ccc_file(), Some("Fallout4.ccc"));
+        assert_eq!(GameKind::SkyrimSE.ccc_file(), Some("Skyrim.ccc"));
+        assert_eq!(GameKind::Starfield.ccc_file(), None);
     }
 
     #[test]

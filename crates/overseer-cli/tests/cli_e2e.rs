@@ -219,13 +219,18 @@ fn doctor_reports_a_clean_fresh_instance() {
     let inst = tmp.path().join("inst");
     let inst_s = inst.to_str().unwrap();
 
+    let game = tmp.path().join("game");
+    std::fs::create_dir_all(&game).unwrap();
+    // A complete install ships its Creation Club manifest in the game root.
+    std::fs::write(game.join("Fallout4.ccc"), "ccBGSFO4001-PipBoy(Black).esl\n").unwrap();
+
     overseer(&[
         "instance",
         "init",
         "--path",
         inst_s,
         "--game-dir",
-        tmp.path().join("game").to_str().unwrap(),
+        game.to_str().unwrap(),
     ])
     .success();
 

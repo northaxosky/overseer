@@ -77,6 +77,7 @@ mod tests {
             active_plugins: active,
             present_plugins: present.iter().map(|p| p.to_lowercase()).collect(),
             data_files: Vec::new(),
+            ccc: crate::context::CccStatus::NotApplicable,
         }
     }
 

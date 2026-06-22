@@ -1,5 +1,6 @@
 //! The setup health checks: the `Check` trait and every check that implements it
 
+mod creation_club;
 mod loose_files;
 mod missing_masters;
 mod plugin_count;
@@ -7,6 +8,7 @@ mod plugin_count;
 use crate::context::GameContext;
 use crate::finding::Finding;
 
+pub use creation_club::CreationClub;
 pub use loose_files::LooseFiles;
 pub use missing_masters::MissingMasters;
 pub use plugin_count::PluginCount;
@@ -26,5 +28,6 @@ pub fn all() -> Vec<Box<dyn Check>> {
         Box::new(PluginCount),
         Box::new(MissingMasters),
         Box::new(LooseFiles),
+        Box::new(CreationClub),
     ]
 }

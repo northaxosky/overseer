@@ -15,6 +15,8 @@ pub struct GameContext {
     pub present_plugins: BTreeSet<String>,
     /// The files this profile would deploy under the game's `Data/` folder
     pub data_files: Vec<DataFile>,
+    /// The state of the game's Creation Club manifest
+    pub ccc: CccStatus,
 }
 
 /// A file that will deploy under the game's `Data/` folder, and the mod it came from
@@ -23,6 +25,19 @@ pub struct DataFile {
     pub path: Utf8PathBuf,
     /// The mod that owns this file (the conflict winner)
     pub mod_name: String,
+}
+
+/// The state of the game's Creation Club manifest (e.g. `Fallout4.ccc`)
+pub enum CccStatus {
+    /// This game has no Creation Club manifest
+    NotApplicable,
+    /// The named manifest should exist in the game folder but doesn't
+    Missing { file: &'static str },
+    /// The manifest lists these Creation Club plugin filenames, in load order
+    Present {
+        file: &'static str,
+        entries: Vec<String>,
+    },
 }
 
 impl GameContext {
@@ -69,7 +84,29 @@ impl GameContext {
             active_plugins,
             present_plugins,
             data_files,
+            ccc: read_ccc(instance),
         })
+    }
+}
+
+/// Read the game's Creation Club manifest, if the game has one. A read error (including
+/// a missing file) is reported as [`CccStatus::Missing`] rather than failing the run.
+fn read_ccc(instance: &Instance) -> CccStatus {
+    let Some(file) = instance.config.game.ccc_file() else {
+        return CccStatus::NotApplicable;
+    };
+    let path = instance.config.game_dir.join(file);
+    match std::fs::read_to_string(&path) {
+        Ok(text) => CccStatus::Present {
+            file,
+            entries: text
+                .lines()
+                .map(str::trim)
+                .filter(|line| !line.is_empty())
+                .map(str::to_owned)
+                .collect(),
+        },
+        Err(_) => CccStatus::Missing { file },
     }
 }
 

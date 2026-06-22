@@ -1,0 +1,108 @@
+//! The game's Creation Club load-order manifest (`Fallout4.ccc`)
+
+use super::Check;
+use crate::context::{CccStatus, GameContext};
+use crate::finding::{Finding, Severity};
+
+/// Reports on the game's CC manifest
+pub struct CreationClub;
+
+impl Check for CreationClub {
+    fn id(&self) -> &'static str {
+        "creation-club"
+    }
+
+    fn run(&self, ctx: &GameContext) -> Vec<Finding> {
+        let finding = match &ctx.ccc {
+            CccStatus::NotApplicable => return Vec::new(),
+
+            CccStatus::Missing { file } => Finding {
+                check: self.id(),
+                severity: Severity::Warning,
+                title: format!("`{file}` is missing from the game folder"),
+                detail: Some(
+                    "The install may be incomplete; Creation Club content won't load in order"
+                        .to_owned(),
+                ),
+            },
+
+            CccStatus::Present { file, entries } => Finding {
+                check: self.id(),
+                severity: Severity::Info,
+                title: format!(
+                    "{file} lists {} Creation Club plugin{}",
+                    entries.len(),
+                    if entries.len() == 1 { "" } else { "s" }
+                ),
+                detail: None,
+            },
+        };
+        vec![finding]
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::BTreeSet;
+
+    fn ctx(ccc: CccStatus) -> GameContext {
+        GameContext {
+            active_plugins: Vec::new(),
+            present_plugins: BTreeSet::new(),
+            data_files: Vec::new(),
+            ccc,
+        }
+    }
+
+    fn present(entries: &[&str]) -> CccStatus {
+        CccStatus::Present {
+            file: "Fallout4.ccc",
+            entries: entries.iter().map(|e| (*e).to_owned()).collect(),
+        }
+    }
+
+    #[test]
+    fn a_game_without_a_manifest_is_silent() {
+        assert!(CreationClub.run(&ctx(CccStatus::NotApplicable)).is_empty());
+    }
+
+    #[test]
+    fn a_missing_manifest_warns() {
+        let findings = CreationClub.run(&ctx(CccStatus::Missing {
+            file: "Fallout4.ccc",
+        }));
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].severity, Severity::Warning);
+        assert!(findings[0].title.contains("Fallout4.ccc"));
+        assert!(findings[0].title.contains("missing"));
+    }
+
+    #[test]
+    fn a_present_manifest_reports_its_count() {
+        let findings = CreationClub.run(&ctx(present(&["ccA.esl", "ccB.esl"])));
+        assert_eq!(findings[0].severity, Severity::Info);
+        assert!(findings[0].title.contains("2 Creation Club plugins"));
+    }
+
+    #[test]
+    fn a_single_entry_is_singular() {
+        let findings = CreationClub.run(&ctx(present(&["ccA.esl"])));
+        assert!(
+            findings[0].title.ends_with("Creation Club plugin"),
+            "got: {}",
+            findings[0].title
+        );
+    }
+
+    #[test]
+    fn an_empty_manifest_reports_zero() {
+        let findings = CreationClub.run(&ctx(present(&[])));
+        assert_eq!(findings[0].severity, Severity::Info);
+        assert!(findings[0].title.contains("0 Creation Club plugins"));
+    }
+}
