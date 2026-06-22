@@ -212,3 +212,29 @@ fn launch_reports_missing_and_unknown_targets() {
         .failure()
         .stderr(predicate::str::contains("no launch target named `bogus`"));
 }
+
+#[test]
+fn doctor_reports_a_clean_fresh_instance() {
+    let tmp = TempDir::new().unwrap();
+    let inst = tmp.path().join("inst");
+    let inst_s = inst.to_str().unwrap();
+
+    overseer(&[
+        "instance",
+        "init",
+        "--path",
+        inst_s,
+        "--game-dir",
+        tmp.path().join("game").to_str().unwrap(),
+    ])
+    .success();
+
+    // A fresh instance has no plugins, so every count is within limits.
+    overseer(&["doctor", "--instance", inst_s])
+        .success()
+        .stdout(
+            predicate::str::contains("Diagnostics: Default")
+                .and(predicate::str::contains("0 / 254"))
+                .and(predicate::str::contains("No problems found.")),
+        );
+}

@@ -33,5 +33,6 @@ fn main() -> Result<()> {
         Command::Status { instance } => commands::deploy::status(instance),
         Command::Launch { name, instance } => commands::launch::run(name, instance),
         Command::Exe { command } => commands::exe::run(command),
+        Command::Doctor { target } => commands::doctor::run(&target),
     }
 }

@@ -2,6 +2,7 @@
 
 pub mod demo;
 pub mod deploy;
+pub mod doctor;
 pub mod exe;
 pub mod install;
 pub mod instance;

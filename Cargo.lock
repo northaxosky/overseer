@@ -1437,6 +1437,7 @@ dependencies = [
  "camino",
  "clap",
  "overseer-core",
+ "overseer-diagnostics",
  "overseer-frontend",
  "owo-colors",
  "predicates",
@@ -1461,6 +1462,14 @@ dependencies = [
  "tracing",
  "walkdir",
  "zip",
+]
+
+[[package]]
+name = "overseer-diagnostics"
+version = "0.0.0"
+dependencies = [
+ "overseer-core",
+ "thiserror 2.0.18",
 ]
 
 [[package]]

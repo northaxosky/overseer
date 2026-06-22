@@ -87,6 +87,12 @@ pub enum Command {
         #[command(subcommand)]
         command: ExeCommand,
     },
+
+    /// Run setup health checks and report any problems
+    Doctor {
+        #[command(flatten)]
+        target: ProfileArgs,
+    },
 }
 
 /// Arguments shared by every profile-scoped subcommand.

@@ -1,0 +1,12 @@
+[package]
+name = "overseer-diagnostics"
+description = "Setup health checks and diagnostics for the Overseer Fallout 4 mod manager."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+overseer-core = { path = "../overseer-core" }
+thiserror.workspace = true
