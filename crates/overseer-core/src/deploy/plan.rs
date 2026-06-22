@@ -40,9 +40,8 @@ pub struct DeployPlan {
 
 impl DeployPlan {
     /// Build a plan from an ordered list of mods. When two mods provide the same
-    /// relative path, the higher priority one wins.
-    ///
-    /// Path comparison is case-insensitive, just like the game filesystem
+    /// relative path, the higher-priority (later) one wins. Path comparison is
+    /// case-insensitive, like the game filesystem.
     pub fn from_mods(
         target_root: impl Into<Utf8PathBuf>,
         mods: &[ModSource],
@@ -53,11 +52,10 @@ impl DeployPlan {
         for m in mods {
             if !m.staging_dir.is_dir() {
                 return Err(DeployError::MissingStaging {
-                    mod_name: (m.name.clone()),
-                    path: (m.staging_dir.clone()),
+                    mod_name: m.name.clone(),
+                    path: m.staging_dir.clone(),
                 });
             }
-
             for entry in WalkDir::new(&m.staging_dir) {
                 let entry = entry.map_err(|source| DeployError::Walk {
                     path: m.staging_dir.clone(),
@@ -92,6 +90,23 @@ impl DeployPlan {
         })
     }
 
+    /// Build a plan rooted at the game directory, honouring the `Root/` convention:
+    /// a mod's top-level `Root/` folder deploys to the game root, everything else
+    /// under `Data/`.
+    pub fn from_rooted_mods(
+        game_dir: impl Into<Utf8PathBuf>,
+        mods: &[ModSource],
+    ) -> Result<Self, DeployError> {
+        // Plan as usual (target = the game dir), then rewrite each file's relative
+        // path to its real destination: strip a leading `Root/`, or prefix `Data/`.
+        let mut plan = Self::from_mods(game_dir, mods)?;
+        for file in &mut plan.files {
+            let dest = map_root_relative(&file.winner, &file.relative)?;
+            file.relative = dest;
+        }
+        Ok(plan)
+    }
+
     pub fn files(&self) -> &[PlannedFile] {
         &self.files
     }
@@ -103,6 +118,33 @@ impl DeployPlan {
     pub fn is_empty(&self) -> bool {
         self.files.is_empty()
     }
+}
+
+/// Map a staged file's path to its deploy destination, relative to the game root
+fn map_root_relative(mod_name: &str, relative: &Utf8Path) -> Result<Utf8PathBuf, DeployError> {
+    let mut components = relative.components();
+    let under_root = match components.next() {
+        Some(first) if first.as_str().eq_ignore_ascii_case("Root") => components.as_path(),
+        _ => return Ok(Utf8Path::new("Data").join(relative)),
+    };
+
+    // A top level file literally named "Root"
+    if under_root.as_str().is_empty() {
+        return Ok(Utf8Path::new("Data").join(relative));
+    }
+
+    if under_root
+        .components()
+        .next()
+        .is_some_and(|c| c.as_str().eq_ignore_ascii_case("Data"))
+    {
+        return Err(DeployError::RootDataConflict {
+            name: mod_name.to_owned(),
+            path: relative.to_owned(),
+        });
+    }
+
+    Ok(under_root.to_owned())
 }
 
 // ---------------------------------------------------------------------------
@@ -309,5 +351,80 @@ mod tests {
 
         let plan = DeployPlan::from_mods(&data, &[ModSource::new("A", &m)]).expect("plan");
         assert_eq!(plan.target_root, data);
+    }
+
+    // --- root deployment (from_rooted_mods) ---
+
+    #[test]
+    fn rooted_plan_targets_the_game_dir_and_prefixes_data_content() {
+        let (_tmp, base) = temp();
+        let m = base.join("mods/M");
+        write(&m.join("Textures/x.dds"), "x");
+        let game = base.join("Game");
+
+        let plan = DeployPlan::from_rooted_mods(&game, &[ModSource::new("M", &m)]).expect("plan");
+        assert_eq!(plan.target_root, game);
+        assert_eq!(plan.len(), 1);
+        assert_eq!(
+            plan.files()[0].relative,
+            Utf8Path::new("Data").join("Textures").join("x.dds")
+        );
+    }
+
+    #[test]
+    fn rooted_plan_sends_root_content_to_the_game_root() {
+        let (_tmp, base) = temp();
+        let m = base.join("mods/M");
+        write(&m.join("Root/f4se_loader.exe"), "exe");
+        write(&m.join("Root/enbseries/enb.ini"), "ini");
+        let game = base.join("Game");
+
+        let plan = DeployPlan::from_rooted_mods(&game, &[ModSource::new("M", &m)]).expect("plan");
+        let relatives: Vec<&Utf8Path> = plan.files().iter().map(|f| f.relative.as_path()).collect();
+        // The loose loader lands directly in the game root...
+        assert!(relatives.contains(&Utf8Path::new("f4se_loader.exe")));
+        // ...and subfolders under Root/ are preserved verbatim.
+        assert!(relatives.contains(&Utf8Path::new("enbseries").join("enb.ini").as_path()));
+    }
+
+    #[test]
+    fn rooted_plan_root_marker_is_case_insensitive() {
+        let (_tmp, base) = temp();
+        let m = base.join("mods/M");
+        write(&m.join("root/dxgi.dll"), "dll");
+        let game = base.join("Game");
+
+        let plan = DeployPlan::from_rooted_mods(&game, &[ModSource::new("M", &m)]).expect("plan");
+        assert_eq!(plan.files()[0].relative, Utf8Path::new("dxgi.dll"));
+    }
+
+    #[test]
+    fn rooted_plan_rejects_a_data_folder_nested_in_root() {
+        let (_tmp, base) = temp();
+        let m = base.join("mods/M");
+        write(&m.join("Root/Data/Sneaky.esp"), "esp");
+        let game = base.join("Game");
+
+        let err = DeployPlan::from_rooted_mods(&game, &[ModSource::new("M", &m)])
+            .expect_err("Root/Data must be rejected");
+        match err {
+            DeployError::RootDataConflict { name, .. } => assert_eq!(name, "M"),
+            other => panic!("expected RootDataConflict, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rooted_plan_keeps_same_named_root_and_data_files_separate() {
+        let (_tmp, base) = temp();
+        let m = base.join("mods/M");
+        write(&m.join("Root/x.dll"), "root-side");
+        write(&m.join("x.dll"), "data-side");
+        let game = base.join("Game");
+
+        let plan = DeployPlan::from_rooted_mods(&game, &[ModSource::new("M", &m)]).expect("plan");
+        assert_eq!(plan.len(), 2, "the two x.dll target different roots");
+        let relatives: Vec<&Utf8Path> = plan.files().iter().map(|f| f.relative.as_path()).collect();
+        assert!(relatives.contains(&Utf8Path::new("x.dll")));
+        assert!(relatives.contains(&Utf8Path::new("Data").join("x.dll").as_path()));
     }
 }

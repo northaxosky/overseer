@@ -47,6 +47,11 @@ pub enum DeployError {
         #[source]
         source: std::io::Error,
     },
+
+    #[error(
+        "mod `{name}` nests a `Data` folder inside `Root` (`{path}`); Root & Data must be separate"
+    )]
+    RootDataConflict { name: String, path: Utf8PathBuf },
 }
 
 /// Attach the offending path to an [`std::io::Error`].

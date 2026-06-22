@@ -54,7 +54,7 @@ pub fn find_content_root(extracted: &Utf8Path) -> Result<Utf8PathBuf, InstallErr
     }
 }
 
-/// Decide whether a directory's entries already for ma data root or we should descend
+/// Decide whether a directory's entries already data root or we should descend
 fn classify(entries: &[Entry]) -> Step {
     if entries.iter().any(is_indicator) {
         return Step::Here;
@@ -73,10 +73,11 @@ fn classify(entries: &[Entry]) -> Step {
     Step::Here
 }
 
-/// Does this entry signal a valid FO4 data root (a known folder or plugin/archive file)
+/// Determines if this entry signal a valid content root
 fn is_indicator(entry: &Entry) -> bool {
     if entry.is_dir {
-        DATA_DIRS.iter().any(|d| entry.name.eq_ignore_ascii_case(d))
+        entry.name.eq_ignore_ascii_case("root")
+            || DATA_DIRS.iter().any(|d| entry.name.eq_ignore_ascii_case(d))
     } else {
         Utf8Path::new(&entry.name)
             .extension()
@@ -240,5 +241,26 @@ mod tests {
         let (_t, base) = temp();
         touch(&base.join("Wrapper/Textures/armor/a.dds"));
         assert_eq!(find_content_root(&base).unwrap(), base.join("Wrapper"));
+    }
+
+    #[test]
+    fn top_level_root_folder_is_a_content_root() {
+        // A `Root/` deploy folder marks the content root, so it is never stripped.
+        assert_eq!(classify(&[dir("Root")]), Step::Here);
+        assert_eq!(classify(&[dir("ROOT")]), Step::Here);
+    }
+
+    #[test]
+    fn root_only_mod_keeps_its_root_folder() {
+        let (_t, base) = temp();
+        touch(&base.join("Root/f4se_loader.exe"));
+        assert_eq!(find_content_root(&base).unwrap(), base);
+    }
+
+    #[test]
+    fn wrapped_root_only_mod_strips_only_the_wrapper() {
+        let (_t, base) = temp();
+        touch(&base.join("MyMod/Root/dxgi.dll"));
+        assert_eq!(find_content_root(&base).unwrap(), base.join("MyMod"));
     }
 }

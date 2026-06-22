@@ -9,7 +9,8 @@ use crate::instance::{Instance, Profile};
 use crate::plugins::{self, PluginLoadOrder};
 use camino::{Utf8Path, Utf8PathBuf};
 
-/// Deploy a profile's enabled mods into the instance's game `Data/` dir
+/// Deploy a profile's enabled mods into the instance's game directory: `Data/` for
+/// ordinary content, and the game root for any mod's `Root/` content.
 pub fn deploy_profile(
     instance: &Instance,
     profile_name: &str,
@@ -30,8 +31,7 @@ pub fn deploy_profile(
     profile.reconcile(instance)?;
     let sources = profile.deploy_sources(instance);
 
-    let data_dir = instance.config.game_dir.join("Data");
-    let plan = DeployPlan::from_mods(&data_dir, &sources)?;
+    let plan = DeployPlan::from_rooted_mods(&instance.config.game_dir, &sources)?;
 
     let deployer = deployer_for(instance.config.deployer);
     deployer.check_supported(&plan)?;
@@ -355,6 +355,57 @@ mod tests {
     }
 
     #[test]
+    fn deploy_routes_root_content_to_the_game_root_and_purge_restores() {
+        let (_tmp, instance) = temp_instance();
+        // A mod with Root/ content (-> game root) and ordinary Data content (-> Data/).
+        install_mod(
+            &instance,
+            "ScriptExtender",
+            &[
+                ("Root/f4se_loader.exe", "loader"),
+                ("Scripts/Quest.pex", "script"),
+            ],
+        );
+        save_profile(&instance, "Default", &[("ScriptExtender", true)]);
+
+        deploy_profile(&instance, "Default", &NullSink).expect("deploy");
+
+        let root_exe = instance.config.game_dir.join("f4se_loader.exe");
+        let data_file = deployed(&instance, "Scripts/Quest.pex");
+        assert_eq!(
+            std::fs::read_to_string(&root_exe).expect("root file"),
+            "loader"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&data_file).expect("data file"),
+            "script"
+        );
+
+        purge(&instance, &NullSink).expect("purge");
+        assert!(!root_exe.exists(), "root file removed on purge");
+        assert!(!data_file.exists(), "data file removed on purge");
+    }
+
+    #[test]
+    fn deploy_backs_up_and_purge_restores_a_preexisting_root_file() {
+        let (_tmp, instance) = temp_instance();
+        // A vanilla DLL already sitting next to the game exe that a mod overwrites.
+        std::fs::create_dir_all(&instance.config.game_dir).expect("mk game dir");
+        let root_dll = instance.config.game_dir.join("dxgi.dll");
+        std::fs::write(&root_dll, "vanilla").expect("seed vanilla");
+
+        install_mod(&instance, "ReShade", &[("Root/dxgi.dll", "modded")]);
+        save_profile(&instance, "Default", &[("ReShade", true)]);
+
+        deploy_profile(&instance, "Default", &NullSink).expect("deploy");
+        assert_eq!(std::fs::read_to_string(&root_dll).expect("read"), "modded");
+
+        purge(&instance, &NullSink).expect("purge");
+        // The vanilla original next to the exe is restored byte-for-byte.
+        assert_eq!(std::fs::read_to_string(&root_dll).expect("read"), "vanilla");
+    }
+
+    #[test]
     fn higher_priority_mod_wins_conflicts() {
         let (_tmp, instance) = temp_instance();
         install_mod(&instance, "Winner", &[("shared.txt", "winner")]);
@@ -437,7 +488,7 @@ mod tests {
                 .record
                 .entries
                 .iter()
-                .any(|e| e.relative.as_str() == "Cool.esp")
+                .any(|e| e.relative == Utf8Path::new("Data").join("Cool.esp"))
         );
     }
 
@@ -458,7 +509,7 @@ mod tests {
                 .verified
                 .missing
                 .iter()
-                .any(|f| f.as_str() == "Cool.esp")
+                .any(|f| *f == Utf8Path::new("Data").join("Cool.esp"))
         );
     }
 
