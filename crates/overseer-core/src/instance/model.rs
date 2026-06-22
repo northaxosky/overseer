@@ -25,6 +25,10 @@ pub struct InstanceConfig {
     /// Which deployment backend this instance uses
     #[serde(default)]
     pub deployer: DeployerKind,
+
+    /// User configured launch targets
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub executables: Vec<Executable>,
 }
 
 fn default_profile() -> String {
@@ -44,6 +48,36 @@ pub struct InstalledMod {
     pub name: String,
 }
 
+/// A user configured launch target: An external tool or other way to run game
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Executable {
+    /// Display name and lookup key (eg "FO4Edit")
+    pub name: String,
+    /// Path to the executable
+    pub path: Utf8PathBuf,
+    /// Arguments passed on the command line
+    #[serde(default)]
+    pub args: Vec<String>,
+}
+
+impl InstanceConfig {
+    /// The launch targets seeded into a fresh instance: game and script extender
+    pub fn default_executables(game: GameKind, game_dir: &Utf8Path) -> Vec<Executable> {
+        vec![
+            Executable {
+                name: "game".to_owned(),
+                path: game_dir.join(game.executable()),
+                args: Vec::new(),
+            },
+            Executable {
+                name: "script-extender".to_owned(),
+                path: game_dir.join(game.script_extender_loader()),
+                args: Vec::new(),
+            },
+        ]
+    }
+}
+
 impl Instance {
     /// Construct an in-memory instance with a default config for the given game directory
     pub fn new(root: impl Into<Utf8PathBuf>, game_dir: impl Into<Utf8PathBuf>) -> Self {
@@ -55,6 +89,7 @@ impl Instance {
                 local_dir: None,
                 default_profile: default_profile(),
                 deployer: DeployerKind::default(),
+                executables: Vec::new(),
             },
         }
     }
@@ -255,6 +290,7 @@ mod tests {
             local_dir: None,
             default_profile: "Default".to_owned(),
             deployer: DeployerKind::default(),
+            executables: Vec::new(),
         }
     }
 
@@ -281,6 +317,11 @@ mod tests {
             local_dir: Some(Utf8PathBuf::from("C:/Users/Me/AppData/Local/Fallout4")),
             default_profile: "Survival".to_owned(),
             deployer: DeployerKind::Usvfs,
+            executables: vec![Executable {
+                name: "xEdit".to_owned(),
+                path: Utf8PathBuf::from("C:/Tools/xEdit.exe"),
+                args: vec!["-FO4".to_owned()],
+            }],
         };
         Instance::init(&root, cfg).expect("init");
 
@@ -293,6 +334,26 @@ mod tests {
         assert_eq!(loaded.config.default_profile, "Survival");
         assert_eq!(loaded.config.deployer, DeployerKind::Usvfs);
         assert_eq!(loaded.config.game, GameKind::SkyrimSE);
+        assert_eq!(loaded.config.executables.len(), 1);
+        assert_eq!(loaded.config.executables[0].name, "xEdit");
+        assert_eq!(loaded.config.executables[0].args, ["-FO4"]);
+    }
+
+    #[test]
+    fn default_executables_seed_the_game_and_script_extender() {
+        let exes =
+            InstanceConfig::default_executables(GameKind::SkyrimSE, Utf8Path::new("D:/SkyrimSE"));
+
+        assert_eq!(exes.len(), 2);
+        assert_eq!(exes[0].name, "game");
+        assert_eq!(exes[0].path, Utf8PathBuf::from("D:/SkyrimSE/SkyrimSE.exe"));
+        assert!(exes[0].args.is_empty());
+        assert_eq!(exes[1].name, "script-extender");
+        assert_eq!(
+            exes[1].path,
+            Utf8PathBuf::from("D:/SkyrimSE/skse64_loader.exe")
+        );
+        assert!(exes[1].args.is_empty());
     }
 
     #[test]
@@ -305,6 +366,7 @@ mod tests {
         assert_eq!(cfg.default_profile, "Default");
         assert_eq!(cfg.deployer, DeployerKind::default());
         assert_eq!(cfg.local_dir, None);
+        assert!(cfg.executables.is_empty());
     }
 
     #[test]

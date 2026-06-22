@@ -9,7 +9,7 @@ mod projfs;
 mod record;
 mod usvfs;
 
-pub use deployer::Deployer;
+pub use deployer::{Deployer, LaunchTarget};
 pub use error::DeployError;
 pub use hardlink::HardlinkDeployer;
 pub use plan::{DeployPlan, ModSource, PlannedFile};

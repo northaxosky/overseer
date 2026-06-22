@@ -3,6 +3,15 @@
 use super::{
     DeployError, DeployPlan, DeployRecord, DeployerKind, ProgressSink, ReversalReport, VerifyReport,
 };
+use camino::Utf8PathBuf;
+
+/// A fully resolved thing to run: program, arguments, and directory
+#[derive(Debug, Clone)]
+pub struct LaunchTarget {
+    pub program: Utf8PathBuf,
+    pub args: Vec<String>,
+    pub working_dir: Utf8PathBuf,
+}
 
 /// A mod deployment backend
 pub trait Deployer {
@@ -21,4 +30,7 @@ pub trait Deployer {
 
     /// Check that every entry recorded is still present on disk
     fn verify(&self, record: &DeployRecord) -> VerifyReport;
+
+    /// Run `target` with the instance's mods visible to it
+    fn launch(&self, target: &LaunchTarget) -> Result<(), DeployError>;
 }

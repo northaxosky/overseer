@@ -28,6 +28,24 @@ impl GameKind {
         self.load_order_id().to_esplugin_id()
     }
 
+    /// The game's main executable, found in the install root
+    pub fn executable(self) -> &'static str {
+        match self {
+            Self::Fallout4 => "Fallout4.exe",
+            Self::SkyrimSE => "SkyrimSE.exe",
+            Self::Starfield => "Starfield.exe",
+        }
+    }
+
+    /// The script extender loader (F4SE, SKSE64, SFSE)
+    pub fn script_extender_loader(self) -> &'static str {
+        match self {
+            Self::Fallout4 => "f4se_loader.exe",
+            Self::SkyrimSE => "skse64_loader.exe",
+            Self::Starfield => "sfse_loader.exe",
+        }
+    }
+
     /// Folder under `%LOCALAPPDATA%` where the game keeps `Plugins.txt`
     pub fn local_appdata_dir(self) -> &'static str {
         match self {
@@ -78,6 +96,26 @@ mod tests {
     #[test]
     fn default_is_fallout4() {
         assert_eq!(GameKind::default(), GameKind::Fallout4);
+    }
+
+    #[test]
+    fn executables_and_loaders_per_game() {
+        assert_eq!(GameKind::Fallout4.executable(), "Fallout4.exe");
+        assert_eq!(GameKind::SkyrimSE.executable(), "SkyrimSE.exe");
+        assert_eq!(GameKind::Starfield.executable(), "Starfield.exe");
+
+        assert_eq!(
+            GameKind::Fallout4.script_extender_loader(),
+            "f4se_loader.exe"
+        );
+        assert_eq!(
+            GameKind::SkyrimSE.script_extender_loader(),
+            "skse64_loader.exe"
+        );
+        assert_eq!(
+            GameKind::Starfield.script_extender_loader(),
+            "sfse_loader.exe"
+        );
     }
 
     #[test]

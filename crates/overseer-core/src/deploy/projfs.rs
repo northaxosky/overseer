@@ -55,4 +55,8 @@ impl Deployer for ProjFsDeployer {
                 .collect(),
         }
     }
+
+    fn launch(&self, _target: &super::deployer::LaunchTarget) -> Result<(), DeployError> {
+        Err(Self::unsupported())
+    }
 }

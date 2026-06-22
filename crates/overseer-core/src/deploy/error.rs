@@ -40,6 +40,13 @@ pub enum DeployError {
 
     #[error("the {deployer} backend is not implemented")]
     Unsupported { deployer: DeployerKind },
+
+    #[error("failed to launch `{program}")]
+    Launch {
+        program: Utf8PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
 }
 
 /// Attach the offending path to an [`std::io::Error`].

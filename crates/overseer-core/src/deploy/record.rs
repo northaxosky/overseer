@@ -181,6 +181,25 @@ mod tests {
     }
 
     #[test]
+    fn vfs_stub_launch_is_unsupported() {
+        use crate::deploy::LaunchTarget;
+        let target = LaunchTarget {
+            program: Utf8PathBuf::from("x.exe"),
+            args: vec![],
+            working_dir: Utf8PathBuf::from("."),
+        };
+        for kind in [DeployerKind::Usvfs, DeployerKind::ProjFs] {
+            let err = deployer_for(kind)
+                .launch(&target)
+                .expect_err("stub launch must be unsupported");
+            assert!(
+                matches!(err, DeployError::Unsupported { deployer } if deployer == kind),
+                "{kind:?} should report its own kind"
+            );
+        }
+    }
+
+    #[test]
     fn verify_report_is_ok_only_when_nothing_missing() {
         let ok = VerifyReport {
             expected: 3,

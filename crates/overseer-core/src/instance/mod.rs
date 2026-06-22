@@ -5,5 +5,5 @@ mod model;
 mod profile;
 
 pub use error::InstanceError;
-pub use model::{InstalledMod, Instance, InstanceConfig};
+pub use model::{Executable, InstalledMod, Instance, InstanceConfig};
 pub use profile::{ModListEntry, Profile};

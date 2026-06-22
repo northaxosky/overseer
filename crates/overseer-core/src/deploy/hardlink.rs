@@ -1,5 +1,7 @@
 //! NTFS hard-link deployment backend.
 
+use crate::deploy::deployer::LaunchTarget;
+
 use super::error::io_err;
 use super::{
     DeployError, DeployPlan, DeployRecord, Deployer, DeployerKind, ProgressEvent, ProgressSink,
@@ -137,6 +139,18 @@ impl Deployer for HardlinkDeployer {
             missing,
         }
     }
+
+    fn launch(&self, target: &LaunchTarget) -> Result<(), DeployError> {
+        std::process::Command::new(target.program.as_std_path())
+            .current_dir(target.working_dir.as_std_path())
+            .args(&target.args)
+            .spawn()
+            .map_err(|source| DeployError::Launch {
+                program: target.program.clone(),
+                source,
+            })?;
+        Ok(())
+    }
 }
 
 /// Whether two paths live on the same volume
@@ -237,6 +251,36 @@ mod tests {
             fs::create_dir_all(parent).expect("create parents");
         }
         fs::write(path, contents).expect("write file");
+    }
+
+    #[test]
+    fn launch_reports_a_missing_executable() {
+        let target = LaunchTarget {
+            program: Utf8PathBuf::from("definitely/missing/tool.exe"),
+            args: vec![],
+            working_dir: Utf8PathBuf::from("."),
+        };
+        let err = HardlinkDeployer::new()
+            .launch(&target)
+            .expect_err("a missing program must error");
+        assert!(matches!(err, DeployError::Launch { .. }));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn launch_spawns_an_executable() {
+        // cmd.exe is on every Windows runner; `/c exit` returns immediately.
+        let (_tmp, base) = temp();
+        let cmd =
+            std::env::var("COMSPEC").unwrap_or_else(|_| r"C:\Windows\System32\cmd.exe".to_owned());
+        let target = LaunchTarget {
+            program: Utf8PathBuf::from(cmd),
+            args: vec!["/c".to_owned(), "exit".to_owned()],
+            working_dir: base,
+        };
+        HardlinkDeployer::new()
+            .launch(&target)
+            .expect("spawning a real exe should succeed");
     }
 
     /// A one-file plan: stage `rel` in a mod under `base`, targeting `base/Data`.
