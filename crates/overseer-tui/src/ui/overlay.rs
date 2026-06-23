@@ -1,65 +1,56 @@
-//! The popup overlays: the help and settings lists.
+//! The tabbed overlay frame: the bordered box and the tab bar.
 
+use overseer_frontend::style::Role;
 use ratatui::{
     Frame,
-    widgets::{Block, Clear, List, ListItem, ListState, Padding},
+    layout::{Constraint, Layout, Rect},
+    widgets::{Block, BorderType, Clear, Padding, Paragraph, Tabs},
 };
 
-use super::centered_rect;
-use crate::app::App;
+use super::{centered_rect, doctor, help, settings};
+use crate::app::{App, Popup};
 use crate::theme;
 
-/// A centered, bordered popup wrapping a selectable list
-fn render_list_popup(
-    frame: &mut Frame,
-    title: &str,
-    items: Vec<ListItem<'static>>,
-    state: &mut ListState,
-    pct_x: u16,
-    pct_y: u16,
-) {
-    let block = Block::bordered()
-        .title(format!("  {title}  "))
-        .padding(Padding::uniform(1));
-    let list = List::new(items)
-        .block(block)
-        .highlight_symbol("> ")
-        .highlight_style(theme::selection_style());
-    let area = centered_rect(pct_x, pct_y, frame.area());
+/// Draw the tabbed overlay: a bordered frame with a tab bar and the active tab's body
+pub(super) fn render_overlay(app: &mut App, tab: Popup, frame: &mut Frame) {
+    let area = centered_rect(80, 70, frame.area());
     frame.render_widget(Clear, area);
-    frame.render_stateful_widget(list, area, state);
+
+    let block = Block::bordered()
+        .border_type(BorderType::Double)
+        .title("  Overseer  ")
+        .padding(Padding::horizontal(1));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    let rows = Layout::vertical([
+        Constraint::Length(1), // tab bar
+        Constraint::Length(1), // spacer
+        Constraint::Fill(1),   // body
+        Constraint::Length(1), // hint
+    ])
+    .split(inner);
+
+    render_tab_bar(tab, frame, rows[0]);
+
+    match tab {
+        Popup::Help => help::render_help_body(app, frame, rows[2]),
+        Popup::Settings => settings::render_settings_body(app, frame, rows[2]),
+        Popup::Doctor => doctor::render_doctor_body(app, frame, rows[2]),
+    }
+
+    let hint =
+        Paragraph::new(" Tab / Shift+Tab  switch · Esc  close ").style(theme::style(Role::Muted));
+    frame.render_widget(hint, rows[3]);
 }
 
-/// The help popup: a selectable list of keybindings
-pub(super) fn render_help(app: &mut App, frame: &mut Frame) {
-    let items: Vec<ListItem<'static>> = crate::app::HELP_ENTRIES
-        .iter()
-        .map(|(keys, desc)| ListItem::new(format!("  {keys:<16}{desc}")))
-        .collect();
-    render_list_popup(
-        frame,
-        "Help (Esc: close)",
-        items,
-        &mut app.help_state,
-        70,
-        60,
-    );
-}
-
-/// The settings popup: A selectable list of recent instances to switch to
-pub(super) fn render_settings(app: &mut App, frame: &mut Frame) {
-    let items: Vec<ListItem<'static>> = app
-        .settings
-        .recent_instances
-        .iter()
-        .map(|p| ListItem::new(p.to_string()))
-        .collect();
-    render_list_popup(
-        frame,
-        "Settings — recent instances (Enter: switch · Esc: close)",
-        items,
-        &mut app.settings_state,
-        70,
-        60,
-    );
+/// The tab bar across the top of the overlay, highlighting the active tab
+fn render_tab_bar(active: Popup, frame: &mut Frame, area: Rect) {
+    let labels: Vec<&'static str> = Popup::TABS.iter().map(|t| t.label()).collect();
+    let tabs = Tabs::new(labels)
+        .select(active.index())
+        .style(theme::style(Role::Muted))
+        .highlight_style(theme::style(Role::Heading))
+        .divider("·");
+    frame.render_widget(tabs, area);
 }

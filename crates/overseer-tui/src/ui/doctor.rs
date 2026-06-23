@@ -4,59 +4,67 @@ use overseer_diagnostics::{Finding, Report, Severity};
 use overseer_frontend::style::Role;
 use ratatui::{
     Frame,
-    layout::{Constraint, Layout},
+    layout::{Constraint, Layout, Rect},
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Wrap},
+    widgets::{Block, Borders, ListItem, Paragraph, Wrap},
 };
 
-use super::centered_rect;
+use super::render_overlay_list;
 use crate::app::App;
 use crate::theme;
 
-/// The diagnostics popup: a scrollable findings list with a detail pane for the selection
-pub(super) fn render_doctor(app: &mut App, frame: &mut Frame) {
-    let area = centered_rect(80, 70, frame.area());
-    frame.render_widget(Clear, area);
-
+/// The doctor body: a severity summary, the findings list, and a detail pane
+pub(super) fn render_doctor_body(app: &mut App, frame: &mut Frame, area: Rect) {
     let report = app.report.as_ref();
-    let block = Block::bordered().title(format!(
-        "  {}  ",
-        doctor_title(report, &app.session.profile.name)
-    ));
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
+    let rows = Layout::vertical([
+        Constraint::Length(1), // summary
+        Constraint::Fill(1),   // findings
+        Constraint::Length(7), // detail
+    ])
+    .split(area);
 
-    let rows = Layout::vertical([Constraint::Fill(1), Constraint::Length(7)]).split(inner);
+    frame.render_widget(
+        Paragraph::new(doctor_summary_line(report, &app.session.profile.name)),
+        rows[0],
+    );
 
     let items: Vec<ListItem<'static>> = report
         .map(|r| r.findings.iter().map(finding_item).collect())
         .unwrap_or_default();
-    let list = List::new(items)
-        .highlight_symbol("> ")
-        .highlight_style(theme::selection_style());
-    frame.render_stateful_widget(list, rows[0], &mut app.doctor_state);
+    render_overlay_list(frame, rows[1], items, &mut app.doctor_state);
 
     let detail = selected_detail(report, app.doctor_state.selected());
     let detail_pane = Paragraph::new(detail)
         .wrap(Wrap { trim: true })
         .block(Block::new().borders(Borders::TOP).title(" detail "));
-    frame.render_widget(detail_pane, rows[1]);
+    frame.render_widget(detail_pane, rows[2]);
 }
 
-/// The doctor popup's border title: the profile plus a one-line severity summary
-fn doctor_title(report: Option<&Report>, profile: &str) -> String {
+/// A one line severity summary for the doctor body's header
+fn doctor_summary_line(report: Option<&Report>, profile: &str) -> Line<'static> {
     let Some(report) = report else {
-        return format!("Diagnostics — {profile}");
+        return Line::raw(format!(" {profile}"));
     };
     let count = |s| report.findings.iter().filter(|f| f.severity == s).count();
     let (warnings, errors) = (count(Severity::Warning), count(Severity::Error));
     if warnings == 0 && errors == 0 {
-        return format!("Diagnostics — {profile} · all clear");
+        return Line::styled(
+            format!(" {profile} · all clear"),
+            theme::style(Role::Success),
+        );
     }
-    format!(
-        "Diagnostics — {profile} · {}, {}",
-        plural(warnings, "warning"),
-        plural(errors, "error")
+    let role = if errors > 0 {
+        Role::Failure
+    } else {
+        Role::Warning
+    };
+    Line::styled(
+        format!(
+            " {profile} · {}, {}",
+            plural(warnings, "warning"),
+            plural(errors, "error")
+        ),
+        theme::style(role),
     )
 }
 

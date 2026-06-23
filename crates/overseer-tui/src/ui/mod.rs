@@ -4,7 +4,9 @@
 //! state (`ListState`); it never touches domain data.
 
 mod doctor;
+mod help;
 mod overlay;
+mod settings;
 
 use overseer_core::apply::DeploymentStatus;
 use overseer_core::plugins::PluginMeta;
@@ -16,18 +18,14 @@ use ratatui::{
     widgets::{Block, BorderType, List, ListItem, ListState, Paragraph},
 };
 
-use crate::app::{App, Focus, Popup};
+use crate::app::{App, Focus};
 use crate::theme;
 
 /// Draw the main view, plus any popup floating on top
 pub(crate) fn draw(app: &mut App, frame: &mut Frame) {
     draw_main(app, frame);
-    if let Some(popup) = app.popup {
-        match popup {
-            Popup::Help => overlay::render_help(app, frame),
-            Popup::Settings => overlay::render_settings(app, frame),
-            Popup::Doctor => doctor::render_doctor(app, frame),
-        }
+    if let Some(tab) = app.popup {
+        overlay::render_overlay(app, tab, frame);
     }
 }
 
@@ -191,12 +189,26 @@ fn render_pane(
     frame.render_stateful_widget(list, area, state);
 }
 
+/// Render a selectable list filling `area`, highlighting the current row
+fn render_overlay_list(
+    frame: &mut Frame,
+    area: Rect,
+    items: Vec<ListItem<'static>>,
+    state: &mut ListState,
+) {
+    let list = List::new(items)
+        .highlight_symbol("> ")
+        .highlight_style(theme::selection_style());
+    frame.render_stateful_widget(list, area, state);
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::app::Popup;
     use ratatui::{Terminal, backend::TestBackend};
 
     fn render(app: &mut App, w: u16, h: u16) -> String {
@@ -225,8 +237,9 @@ mod tests {
         let mut app = App::sample();
         app.popup = Some(Popup::Help);
         let out = render(&mut app, 80, 24);
-        assert!(out.contains("Help"), "popup title");
+        assert!(out.contains("Help"), "active tab label");
         assert!(out.contains("reorder"), "popup lists bindings");
+        assert!(out.contains("Doctor"), "tab bar shows the other tabs");
     }
 
     #[test]
@@ -269,7 +282,7 @@ mod tests {
         app.doctor_state.select(Some(0));
         app.popup = Some(Popup::Doctor);
         let out = render(&mut app, 80, 24);
-        assert!(out.contains("Diagnostics"), "popup title");
+        assert!(out.contains("Doctor"), "active tab label");
         assert!(out.contains("1 error"), "title summarises severity counts");
         assert!(out.contains("Broken thing"), "lists the finding");
         assert!(

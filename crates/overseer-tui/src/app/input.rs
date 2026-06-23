@@ -12,9 +12,7 @@ impl App {
     pub(crate) fn handle_key(&mut self, key: KeyEvent) {
         match self.popup {
             None => self.handle_main_key(key),
-            Some(Popup::Settings) => self.handle_settings_key(key),
-            Some(Popup::Help) => self.handle_help_key(key),
-            Some(Popup::Doctor) => self.handle_doctor_key(key),
+            Some(tab) => self.handle_overlay_key(tab, key),
         }
     }
 
@@ -28,9 +26,9 @@ impl App {
         self.message = None;
         match key.code {
             // Popup keys
-            KeyCode::Char('?') => self.open_help(),
-            KeyCode::Char('s') => self.open_settings(),
-            KeyCode::Char('d') => self.open_doctor(),
+            KeyCode::Char('?') => self.focus_tab(Popup::Help),
+            KeyCode::Char('s') => self.focus_tab(Popup::Settings),
+            KeyCode::Char('d') => self.focus_tab(Popup::Doctor),
 
             // Main view related controls
             KeyCode::Char(' ') | KeyCode::Enter => self.toggle_selected(),
@@ -40,6 +38,19 @@ impl App {
             KeyCode::Char('J') => self.reorder_selected(1),
             KeyCode::Char('K') => self.reorder_selected(-1),
             _ => {}
+        }
+    }
+
+    /// Route a key while a popup is open: Tab cycles tabs, everything else goes to the active tab
+    fn handle_overlay_key(&mut self, tab: Popup, key: KeyEvent) {
+        match key.code {
+            KeyCode::Tab => self.focus_tab(tab.cycle(1)),
+            KeyCode::BackTab => self.focus_tab(tab.cycle(-1)),
+            _ => match tab {
+                Popup::Help => self.handle_help_key(key),
+                Popup::Settings => self.handle_settings_key(key),
+                Popup::Doctor => self.handle_doctor_key(key),
+            },
         }
     }
 
@@ -87,30 +98,27 @@ impl App {
         }
     }
 
-    /// Open the settings popup, selecting the current instance
-    fn open_settings(&mut self) {
-        let selected = (!self.settings.recent_instances.is_empty()).then_some(0);
-        self.settings_state.select(selected);
-        self.popup = Some(Popup::Settings);
-    }
-
-    /// Open the help popup at the top
-    fn open_help(&mut self) {
-        self.help_state.select(Some(0));
-        self.popup = Some(Popup::Help);
-    }
-
-    /// Run diagnostics for the current profile and open the popup
-    fn open_doctor(&mut self) {
-        match diagnose(&self.session.instance, &self.session.profile.name) {
-            Ok(report) => {
-                let selected = (!report.findings.is_empty()).then_some(0);
-                self.doctor_state.select(selected);
-                self.report = Some(report);
-                self.popup = Some(Popup::Doctor);
+    /// Show `tab`, preparing its selection (for doctor: its fresh report)
+    fn focus_tab(&mut self, tab: Popup) {
+        match tab {
+            Popup::Help => self.help_state.select(Some(0)),
+            Popup::Settings => {
+                let selected = (!self.settings.recent_instances.is_empty()).then_some(0);
+                self.settings_state.select(selected);
             }
-            Err(e) => self.message = Some(format!("Error: {e}")),
+            Popup::Doctor => match diagnose(&self.session.instance, &self.session.profile.name) {
+                Ok(report) => {
+                    let selected = (!report.findings.is_empty()).then_some(0);
+                    self.doctor_state.select(selected);
+                    self.report = Some(report);
+                }
+                Err(e) => {
+                    self.message = Some(format!("Error: {e}"));
+                    return;
+                }
+            },
         }
+        self.popup = Some(tab);
     }
 
     fn toggle_focus(&mut self) {
@@ -410,5 +418,16 @@ mod tests {
         assert_eq!(app.doctor_state.selected(), Some(1));
         app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
         assert_eq!(app.popup, None, "Esc closes the popup");
+    }
+
+    #[test]
+    fn tab_cycles_between_overlay_tabs() {
+        let mut app = App::sample();
+        app.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE)); // open Settings
+        assert_eq!(app.popup, Some(Popup::Settings));
+        app.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)); // Settings -> Help
+        assert_eq!(app.popup, Some(Popup::Help));
+        app.handle_key(KeyEvent::new(KeyCode::BackTab, KeyModifiers::NONE)); // Help -> Settings
+        assert_eq!(app.popup, Some(Popup::Settings));
     }
 }
