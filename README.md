@@ -11,23 +11,28 @@ Sorter, BethINI) and setup diagnostics.
 
 Under active development. The UI-agnostic core (`overseer-core`) and the CLI (`overseer-cli`)
 already support a full Fallout 4 workflow: create an instance, install mods from archives,
-manage a profile's mod list and plugin load order, and deploy/purge into the game's `Data/`
-directory — writing the real `Plugins.txt` via `libloadorder` and restoring it on purge.
+manage a profile's mod list and plugin load order, and deploy or purge into the game's `Data/`
+directory. Deploying writes the real `Plugins.txt` through `libloadorder` and restores it on
+purge. A terminal UI (`overseer-tui`) and a setup health checker (`overseer doctor`) are in
+active development on top of the same core.
 
-Deployment is **non-destructive and crash-safe**: any pre-existing files a mod would overwrite
-are backed up first and restored exactly on purge, and the apply is journaled as a transaction —
-so an interrupted run is rolled back on the next command instead of leaving `Data/` half-written.
+Deployment is **non-destructive and crash-safe**. Any pre-existing files a mod would overwrite
+are backed up first and restored exactly on purge. The apply is journaled as a transaction, so an
+interrupted run is rolled back on the next command instead of leaving `Data/` half-written.
 
 ## Workspace
 
 - `overseer-core`: UI-agnostic domain logic. Modules: `deploy` (the hardlink engine behind a
-  `Deployer` trait), `install` (archive extraction + staging), `instance` (instances, profiles,
-  mod lists), `plugins` (metadata, discovery, load order, real `Plugins.txt`), and `apply` (the
-  orchestrator that turns a profile into a live deployment).
-- `overseer-cli`: command-line front end (scriptable / one-shot).
+  `Deployer` trait), `install` (archive extraction and staging), `instance` (instances, profiles,
+  mod lists), `plugins` (metadata, discovery, load order, the real `Plugins.txt`), `apply` (the
+  orchestrator that turns a profile into a live deployment), plus `game`, `launch`, and `settings`.
+- `overseer-frontend`: shared support for the front ends (file logging, theming, path helpers).
+- `overseer-cli`: command-line front end (scriptable and one-shot).
+- `overseer-diagnostics`: read-only setup health checks, surfaced by `overseer doctor`.
+- `overseer-tui`: the interactive terminal UI, built on `ratatui`.
 
-The primary interactive front end will be a **TUI** (`overseer-tui`, built on `ratatui`) over the
-same core; a desktop GUI (Tauri) is an optional later addition if broader adoption calls for it.
+The TUI is the primary interactive front end. A desktop GUI (Tauri) is a possible later addition
+over the same core.
 
 ## Try it
 
@@ -56,6 +61,9 @@ overseer plugin list --instance <instance-dir>
 overseer deploy --instance <instance-dir>
 overseer status --instance <instance-dir>
 overseer purge  --instance <instance-dir>
+
+# run the setup health checks
+overseer doctor --instance <instance-dir>
 ```
 
 Run the tests with:
