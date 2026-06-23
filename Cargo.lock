@@ -1451,6 +1451,7 @@ version = "0.0.0"
 dependencies = [
  "atomicwrites",
  "camino",
+ "dirs",
  "esplugin",
  "libloadorder",
  "serde",

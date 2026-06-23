@@ -24,6 +24,7 @@ esplugin = "6.1"
 toml = "0.8"
 libloadorder = "18.8"
 atomicwrites = "0.4"
+dirs = "6"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 tracing-appender = "0.2"

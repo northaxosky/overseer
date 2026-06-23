@@ -18,6 +18,10 @@ pub struct InstanceConfig {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub local_dir: Option<Utf8PathBuf>,
 
+    /// Where the game reads its INIs (`Documents\My Games\<game>`)
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub ini_dir: Option<Utf8PathBuf>,
+
     /// The profile used when a command doesn't specify one
     #[serde(default = "default_profile")]
     pub default_profile: String,
@@ -87,6 +91,7 @@ impl Instance {
                 game_dir: game_dir.into(),
                 game: GameKind::default(),
                 local_dir: None,
+                ini_dir: None,
                 default_profile: default_profile(),
                 deployer: DeployerKind::default(),
                 executables: Vec::new(),
@@ -294,6 +299,7 @@ mod tests {
             game_dir: Utf8PathBuf::from(game_dir),
             game: GameKind::default(),
             local_dir: None,
+            ini_dir: None,
             default_profile: "Default".to_owned(),
             deployer: DeployerKind::default(),
             executables: Vec::new(),
@@ -321,6 +327,7 @@ mod tests {
             game_dir: Utf8PathBuf::from("D:/FO4"),
             game: GameKind::SkyrimSE,
             local_dir: Some(Utf8PathBuf::from("C:/Users/Me/AppData/Local/Fallout4")),
+            ini_dir: None,
             default_profile: "Survival".to_owned(),
             deployer: DeployerKind::Usvfs,
             executables: vec![Executable {

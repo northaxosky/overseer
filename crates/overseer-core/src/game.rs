@@ -63,6 +63,24 @@ impl GameKind {
             Self::Starfield => None,
         }
     }
+
+    /// Folder under `Documents/My Games` where the game keeps its INIs
+    pub fn my_games_dir(self) -> &'static str {
+        match self {
+            Self::Fallout4 => "Fallout4",
+            Self::SkyrimSE => "Skyrim Special Edition",
+            Self::Starfield => "Starfield",
+        }
+    }
+
+    /// Base name of the game's ini files: `<stem>.ini`, `<stem>Custom.ini`, `<stem>Prefs.ini`
+    pub fn ini_stem(self) -> &'static str {
+        match self {
+            Self::Fallout4 => "Fallout4",
+            Self::SkyrimSE => "Skyrim",
+            Self::Starfield => "Starfield",
+        }
+    }
 }
 
 impl std::fmt::Display for GameKind {
@@ -174,6 +192,17 @@ mod tests {
         assert_eq!(GameKind::Fallout4.ccc_file(), Some("Fallout4.ccc"));
         assert_eq!(GameKind::SkyrimSE.ccc_file(), Some("Skyrim.ccc"));
         assert_eq!(GameKind::Starfield.ccc_file(), None);
+    }
+
+    #[test]
+    fn my_games_dir_and_ini_stem_match_the_games() {
+        // The My Games folder and the INI stem genuinely differ for Skyrim.
+        assert_eq!(GameKind::Fallout4.my_games_dir(), "Fallout4");
+        assert_eq!(GameKind::Fallout4.ini_stem(), "Fallout4");
+        assert_eq!(GameKind::SkyrimSE.my_games_dir(), "Skyrim Special Edition");
+        assert_eq!(GameKind::SkyrimSE.ini_stem(), "Skyrim");
+        assert_eq!(GameKind::Starfield.my_games_dir(), "Starfield");
+        assert_eq!(GameKind::Starfield.ini_stem(), "Starfield");
     }
 
     #[test]

@@ -36,6 +36,7 @@ fn init(
         game_dir,
         game,
         local_dir: local.map(|l| absolutize(&l)).transpose()?,
+        ini_dir: None,
         default_profile: profile,
         deployer: DeployerKind::default(),
         executables,
