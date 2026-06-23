@@ -13,8 +13,9 @@ Under active development. The UI-agnostic core (`overseer-core`) and the CLI (`o
 already support a full Fallout 4 workflow: create an instance, install mods from archives,
 manage a profile's mod list and plugin load order, and deploy or purge into the game's `Data/`
 directory. Deploying writes the real `Plugins.txt` through `libloadorder` and restores it on
-purge. A terminal UI (`overseer-tui`) and a setup health checker (`overseer doctor`) are in
-active development on top of the same core.
+purge. A setup health checker (`overseer doctor`) runs the diagnostics from the command line, and
+the terminal UI (`overseer-tui`) presents the mods and plugins and surfaces the same checks in an
+in-app panel. Both are in active development on top of the same core.
 
 Deployment is **non-destructive and crash-safe**. Any pre-existing files a mod would overwrite
 are backed up first and restored exactly on purge. The apply is journaled as a transaction, so an
@@ -29,7 +30,8 @@ interrupted run is rolled back on the next command instead of leaving `Data/` ha
 - `overseer-frontend`: shared support for the front ends (file logging, theming, path helpers).
 - `overseer-cli`: command-line front end (scriptable and one-shot).
 - `overseer-diagnostics`: read-only setup health checks, surfaced by `overseer doctor`.
-- `overseer-tui`: the interactive terminal UI, built on `ratatui`.
+- `overseer-tui`: the interactive terminal UI, built on `ratatui`, with a mods and plugins view
+  and an in-app diagnostics panel.
 
 The TUI is the primary interactive front end. A desktop GUI (Tauri) is a possible later addition
 over the same core.
