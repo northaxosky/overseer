@@ -16,8 +16,9 @@ pub fn run(command: InstanceCommand) -> Result<()> {
             game,
             game_dir,
             local,
+            ini_dir,
             profile,
-        } => init(path, game, game_dir, local, profile),
+        } => init(path, game, game_dir, local, ini_dir, profile),
         InstanceCommand::Show { path } => show(path),
     }
 }
@@ -27,6 +28,7 @@ fn init(
     game: GameKind,
     game_dir: Utf8PathBuf,
     local: Option<Utf8PathBuf>,
+    ini_dir: Option<Utf8PathBuf>,
     profile: String,
 ) -> Result<()> {
     let path = absolutize(&path)?;
@@ -36,7 +38,7 @@ fn init(
         game_dir,
         game,
         local_dir: local.map(|l| absolutize(&l)).transpose()?,
-        ini_dir: None,
+        ini_dir: ini_dir.map(|d| absolutize(&d)).transpose()?,
         default_profile: profile,
         deployer: DeployerKind::default(),
         executables,

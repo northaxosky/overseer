@@ -1,6 +1,7 @@
 //! The setup health checks: the `Check` trait and every check that implements it
 
 mod creation_club;
+mod ini_config;
 mod loose_files;
 mod loose_folders;
 mod missing_masters;
@@ -12,6 +13,7 @@ use crate::finding::Finding;
 use camino::Utf8Path;
 
 pub use creation_club::CreationClub;
+pub use ini_config::IniConfig;
 pub use loose_files::LooseFiles;
 pub use loose_folders::LooseFolders;
 pub use missing_masters::MissingMasters;
@@ -36,6 +38,7 @@ pub fn all() -> Vec<Box<dyn Check>> {
         Box::new(LooseFiles),
         Box::new(LooseFolders),
         Box::new(CreationClub),
+        Box::new(IniConfig),
     ]
 }
 

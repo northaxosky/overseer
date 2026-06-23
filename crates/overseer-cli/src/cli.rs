@@ -178,6 +178,9 @@ pub enum InstanceCommand {
         /// Where the real Plugins.txt lives (default: %LOCALAPPDATA%\Fallout4)
         #[arg(long)]
         local: Option<Utf8PathBuf>,
+        /// Where the game reads its INIs (default: Documents\My Games\<game>)
+        #[arg(long)]
+        ini_dir: Option<Utf8PathBuf>,
         /// Name of the default profile
         #[arg(long, default_value = "Default")]
         profile: String,

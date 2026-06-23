@@ -3,6 +3,7 @@
 use crate::error::DiagnosticError;
 use camino::{Utf8Path, Utf8PathBuf};
 use overseer_core::deploy::DeployPlan;
+use overseer_core::ini::{GameInis, read_game_inis};
 use overseer_core::instance::{Instance, Profile};
 use overseer_core::plugins::{PluginLoadOrder, PluginMeta, discover_plugins, find_plugin_files};
 use std::collections::BTreeSet;
@@ -18,6 +19,8 @@ pub struct GameContext {
     pub data_files: Vec<DataFile>,
     /// The state of the game's Creation Club manifest
     pub ccc: CccStatus,
+    /// The game's parsed INIs, if they could be read
+    pub inis: Option<GameInis>,
     /// Race subgraph (`SADD`) record counts for active mod plugins
     pub sadd_records: Vec<SaddCount>,
 }
@@ -99,6 +102,7 @@ impl GameContext {
             present_plugins,
             data_files,
             ccc: read_ccc(instance),
+            inis: read_game_inis(instance).ok(),
             sadd_records,
         })
     }
