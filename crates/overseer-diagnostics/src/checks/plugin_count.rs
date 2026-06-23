@@ -56,7 +56,6 @@ impl PluginCount {
 mod tests {
     use super::*;
     use overseer_core::plugins::PluginMeta;
-    use std::collections::BTreeSet;
 
     fn plugin(is_light: bool) -> PluginMeta {
         PluginMeta {
@@ -72,10 +71,7 @@ mod tests {
         active_plugins.extend(vec![plugin(true); light]);
         GameContext {
             active_plugins,
-            present_plugins: BTreeSet::new(),
-            data_files: Vec::new(),
-            ccc: crate::context::CccStatus::NotApplicable,
-            sadd_records: Vec::new(),
+            ..GameContext::default()
         }
     }
 

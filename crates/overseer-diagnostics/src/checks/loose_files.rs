@@ -114,7 +114,6 @@ fn in_skipped_folder(path: &Utf8Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::BTreeSet;
 
     fn df(path: &str) -> DataFile {
         DataFile {
@@ -125,11 +124,8 @@ mod tests {
 
     fn ctx(files: Vec<DataFile>) -> GameContext {
         GameContext {
-            active_plugins: Vec::new(),
-            present_plugins: BTreeSet::new(),
             data_files: files,
-            ccc: crate::context::CccStatus::NotApplicable,
-            sadd_records: Vec::new(),
+            ..GameContext::default()
         }
     }
 

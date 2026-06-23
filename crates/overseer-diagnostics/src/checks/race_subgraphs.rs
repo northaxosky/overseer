@@ -36,16 +36,12 @@ impl Check for RaceSubgraphs {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::context::{CccStatus, SaddCount};
-    use std::collections::BTreeSet;
+    use crate::context::SaddCount;
 
     fn ctx(records: Vec<SaddCount>) -> GameContext {
         GameContext {
-            active_plugins: Vec::new(),
-            present_plugins: BTreeSet::new(),
-            data_files: Vec::new(),
-            ccc: CccStatus::NotApplicable,
             sadd_records: records,
+            ..GameContext::default()
         }
     }
 

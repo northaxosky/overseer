@@ -8,6 +8,7 @@ use overseer_core::plugins::{PluginLoadOrder, PluginMeta, discover_plugins, find
 use std::collections::BTreeSet;
 
 /// The state a diagnostic run inspects. Gathered once using [`GameContext::gather`]
+#[derive(Default)]
 pub struct GameContext {
     /// The active mod plugins to inspect (with their masters)
     pub active_plugins: Vec<PluginMeta>,
@@ -30,8 +31,10 @@ pub struct DataFile {
 }
 
 /// The state of the game's Creation Club manifest (e.g. `Fallout4.ccc`)
+#[derive(Default)]
 pub enum CccStatus {
     /// This game has no Creation Club manifest
+    #[default]
     NotApplicable,
     /// The named manifest should exist in the game folder but doesn't
     Missing { file: &'static str },

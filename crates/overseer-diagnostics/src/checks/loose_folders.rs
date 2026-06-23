@@ -86,7 +86,7 @@ impl Check for LooseFolders {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::context::{CccStatus, DataFile};
+    use crate::context::DataFile;
     use camino::Utf8Path;
 
     fn df(path: &str, mod_name: &str) -> DataFile {
@@ -98,11 +98,8 @@ mod tests {
 
     fn run(files: Vec<DataFile>) -> Vec<Finding> {
         let ctx = GameContext {
-            active_plugins: Vec::new(),
-            present_plugins: BTreeSet::new(),
             data_files: files,
-            ccc: CccStatus::NotApplicable,
-            sadd_records: Vec::new(),
+            ..GameContext::default()
         };
         LooseFolders.run(&ctx)
     }

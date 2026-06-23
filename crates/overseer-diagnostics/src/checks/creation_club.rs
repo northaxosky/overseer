@@ -48,15 +48,11 @@ impl Check for CreationClub {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::BTreeSet;
 
     fn ctx(ccc: CccStatus) -> GameContext {
         GameContext {
-            active_plugins: Vec::new(),
-            present_plugins: BTreeSet::new(),
-            data_files: Vec::new(),
             ccc,
-            sadd_records: Vec::new(),
+            ..GameContext::default()
         }
     }
 
