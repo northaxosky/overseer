@@ -6,6 +6,7 @@ use overseer_core::apply::{self, DeploymentStatus};
 use overseer_core::instance::{Instance, Profile};
 use overseer_core::plugins::{PluginLoadOrder, PluginMeta, discover_plugins};
 use overseer_core::settings::Settings;
+use overseer_diagnostics::{Report, diagnose};
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::widgets::ListState;
 
@@ -22,6 +23,7 @@ pub(crate) enum Focus {
 pub(crate) enum Popup {
     Help,
     Settings,
+    Doctor,
     // ModActions, etc... later
 }
 
@@ -32,6 +34,7 @@ pub(crate) const HELP_ENTRIES: &[(&str, &str)] = &[
     ("Space / Enter", "toggle enabled / active"),
     ("J / K", "reorder mod (priority)"),
     ("s", "open settings"),
+    ("d", "run diagnostics"),
     ("?", "toggle this help"),
     ("q / Esc", "quit"),
 ];
@@ -83,6 +86,8 @@ pub(crate) struct App {
     pub(crate) plugins_state: ListState,
     pub(crate) settings_state: ListState,
     pub(crate) help_state: ListState,
+    pub(crate) report: Option<Report>,
+    pub(crate) doctor_state: ListState,
 }
 
 impl App {
@@ -109,6 +114,8 @@ impl App {
             plugins_state: initial_selection(session.order.plugins.len()),
             settings_state: ListState::default(),
             help_state: ListState::default(),
+            report: None,
+            doctor_state: ListState::default(),
             settings,
             session,
         })
@@ -119,6 +126,7 @@ impl App {
             None => self.handle_main_key(key),
             Some(Popup::Settings) => self.handle_settings_key(key),
             Some(Popup::Help) => self.handle_help_key(key),
+            Some(Popup::Doctor) => self.handle_doctor_key(key),
         }
     }
 
@@ -134,6 +142,7 @@ impl App {
             // Popup keys
             KeyCode::Char('?') => self.open_help(),
             KeyCode::Char('s') => self.open_settings(),
+            KeyCode::Char('d') => self.open_doctor(),
 
             // Main view related controls
             KeyCode::Char(' ') | KeyCode::Enter => self.toggle_selected(),
@@ -179,6 +188,17 @@ impl App {
         }
     }
 
+    /// Handle a key press in the diagnostics popup
+    fn handle_doctor_key(&mut self, key: KeyEvent) {
+        let len = self.report.as_ref().map_or(0, |r| r.findings.len());
+        match key.code {
+            KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('d') => self.popup = None,
+            KeyCode::Down | KeyCode::Char('j') => move_in_list(&mut self.doctor_state, len, 1),
+            KeyCode::Up | KeyCode::Char('k') => move_in_list(&mut self.doctor_state, len, -1),
+            _ => {}
+        }
+    }
+
     /// Open the settings popup, selecting the current instance
     fn open_settings(&mut self) {
         let selected = (!self.settings.recent_instances.is_empty()).then_some(0);
@@ -190,6 +210,19 @@ impl App {
     fn open_help(&mut self) {
         self.help_state.select(Some(0));
         self.popup = Some(Popup::Help);
+    }
+
+    /// Run diagnostics for the current profile and open the popup
+    fn open_doctor(&mut self) {
+        match diagnose(&self.session.instance, &self.session.profile.name) {
+            Ok(report) => {
+                let selected = (!report.findings.is_empty()).then_some(0);
+                self.doctor_state.select(selected);
+                self.report = Some(report);
+                self.popup = Some(Popup::Doctor);
+            }
+            Err(e) => self.message = Some(format!("Error: {e}")),
+        }
     }
 
     fn toggle_focus(&mut self) {
@@ -464,5 +497,39 @@ mod tests {
         assert_eq!(app.settings_state.selected(), Some(1));
         app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
         assert_eq!(app.popup, None);
+    }
+
+    #[test]
+    fn doctor_popup_navigates_and_closes() {
+        use overseer_diagnostics::{Finding, Report, Severity};
+        let mut app = App::sample();
+        app.report = Some(Report::new(vec![
+            Finding {
+                check: "a",
+                severity: Severity::Warning,
+                title: "first".to_owned(),
+                detail: None,
+            },
+            Finding {
+                check: "b",
+                severity: Severity::Error,
+                title: "second".to_owned(),
+                detail: Some("why".to_owned()),
+            },
+        ]));
+        app.doctor_state.select(Some(0));
+        app.popup = Some(Popup::Doctor);
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
+        assert_eq!(app.doctor_state.selected(), Some(1), "j navigates findings");
+        assert_eq!(
+            app.popup,
+            Some(Popup::Doctor),
+            "navigation does not close the popup"
+        );
+        app.handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE)); // clamp at the end
+        assert_eq!(app.doctor_state.selected(), Some(1));
+        app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        assert_eq!(app.popup, None, "Esc closes the popup");
     }
 }

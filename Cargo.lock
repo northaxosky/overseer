@@ -1492,6 +1492,7 @@ dependencies = [
  "anyhow",
  "camino",
  "overseer-core",
+ "overseer-diagnostics",
  "overseer-frontend",
  "ratatui",
  "tracing",

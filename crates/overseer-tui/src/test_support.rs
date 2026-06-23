@@ -15,6 +15,7 @@ impl App {
             popup: None,
             focus: Focus::Mods,
             message: None,
+            report: None,
             settings: Settings {
                 recent_instances: vec![
                     Utf8Path::new("/alpha").to_owned(),
@@ -63,6 +64,7 @@ impl App {
             plugins_state: initial_selection(2),
             settings_state: ListState::default(),
             help_state: ListState::default(),
+            doctor_state: ListState::default(),
         }
     }
 }
