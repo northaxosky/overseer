@@ -75,6 +75,7 @@ mod tests {
             present_plugins: BTreeSet::new(),
             data_files: Vec::new(),
             ccc: crate::context::CccStatus::NotApplicable,
+            sadd_records: Vec::new(),
         }
     }
 

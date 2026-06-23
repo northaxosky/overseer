@@ -102,6 +102,7 @@ mod tests {
             present_plugins: BTreeSet::new(),
             data_files: files,
             ccc: CccStatus::NotApplicable,
+            sadd_records: Vec::new(),
         };
         LooseFolders.run(&ctx)
     }

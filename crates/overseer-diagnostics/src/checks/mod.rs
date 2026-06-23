@@ -5,6 +5,7 @@ mod loose_files;
 mod loose_folders;
 mod missing_masters;
 mod plugin_count;
+mod race_subgraphs;
 
 use crate::context::GameContext;
 use crate::finding::Finding;
@@ -15,6 +16,7 @@ pub use loose_files::LooseFiles;
 pub use loose_folders::LooseFolders;
 pub use missing_masters::MissingMasters;
 pub use plugin_count::PluginCount;
+pub use race_subgraphs::RaceSubgraphs;
 
 /// A single setup/health check: pure function of the gathered context
 pub trait Check {
@@ -30,6 +32,7 @@ pub fn all() -> Vec<Box<dyn Check>> {
     vec![
         Box::new(PluginCount),
         Box::new(MissingMasters),
+        Box::new(RaceSubgraphs),
         Box::new(LooseFiles),
         Box::new(LooseFolders),
         Box::new(CreationClub),

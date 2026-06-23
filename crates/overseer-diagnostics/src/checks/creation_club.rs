@@ -56,6 +56,7 @@ mod tests {
             present_plugins: BTreeSet::new(),
             data_files: Vec::new(),
             ccc,
+            sadd_records: Vec::new(),
         }
     }
 

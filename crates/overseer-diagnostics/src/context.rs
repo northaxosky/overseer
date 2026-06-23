@@ -17,6 +17,8 @@ pub struct GameContext {
     pub data_files: Vec<DataFile>,
     /// The state of the game's Creation Club manifest
     pub ccc: CccStatus,
+    /// Race subgraph (`SADD`) record counts for active mod plugins
+    pub sadd_records: Vec<SaddCount>,
 }
 
 /// A file that will deploy under the game's `Data/` folder, and the mod it came from
@@ -38,6 +40,14 @@ pub enum CccStatus {
         file: &'static str,
         entries: Vec<String>,
     },
+}
+
+/// How many race-subgraph (`SADD`) records a plugin contains
+pub struct SaddCount {
+    /// The plugin's filename
+    pub plugin: String,
+    /// Number of `SADD` markers found in its bytes
+    pub count: usize,
 }
 
 impl GameContext {
@@ -79,12 +89,14 @@ impl GameContext {
                 })
             })
             .collect();
+        let sadd_records = scan_sadd(&plan, &active_plugins);
 
         Ok(Self {
             active_plugins,
             present_plugins,
             data_files,
             ccc: read_ccc(instance),
+            sadd_records,
         })
     }
 }
@@ -110,6 +122,45 @@ fn read_ccc(instance: &Instance) -> CccStatus {
     }
 }
 
+/// Race subgraph (`SADD`) record counts for each active mod plugin that has any
+fn scan_sadd(plan: &DeployPlan, active_plugins: &[PluginMeta]) -> Vec<SaddCount> {
+    const SADD_MARKER: &[u8] = b"\x00SADD";
+
+    let active: BTreeSet<String> = active_plugins
+        .iter()
+        .map(|p| p.name.to_lowercase())
+        .collect();
+
+    plan.files()
+        .iter()
+        .filter_map(|file| {
+            let name = active_plugins_name(&file.relative, &active)?;
+            let bytes = std::fs::read(&file.source).ok()?;
+            let count = bytes
+                .windows(SADD_MARKER.len())
+                .filter(|window| *window == SADD_MARKER)
+                .count();
+            (count > 0).then(|| SaddCount {
+                plugin: name.to_owned(),
+                count,
+            })
+        })
+        .collect()
+}
+
+/// The filename if `relative` is a top level `Data/<plugin>` path naming an active plugin
+fn active_plugins_name<'a>(relative: &'a Utf8Path, active: &BTreeSet<String>) -> Option<&'a str> {
+    let mut components = relative.components();
+    let data = components.next()?;
+    let name = components.next()?.as_str();
+
+    // Must be 2 components: `Data/<plugin>`
+    if components.next().is_some() || !data.as_str().eq_ignore_ascii_case("Data") {
+        return None;
+    }
+    active.contains(&name.to_lowercase()).then_some(name)
+}
+
 /// Keep only deploy paths under `Data/`, returning the path relative to `Data/`
 fn strip_data_prefix(relative: &Utf8Path) -> Option<Utf8PathBuf> {
     let mut components = relative.components();
@@ -118,5 +169,108 @@ fn strip_data_prefix(relative: &Utf8Path) -> Option<Utf8PathBuf> {
             Some(components.as_path().to_owned())
         }
         _ => None,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use overseer_core::deploy::ModSource;
+    use tempfile::TempDir;
+
+    fn active_set(names: &[&str]) -> BTreeSet<String> {
+        names.iter().map(|n| n.to_lowercase()).collect()
+    }
+
+    fn meta(name: &str) -> PluginMeta {
+        PluginMeta {
+            name: name.to_owned(),
+            is_master: false,
+            is_light: false,
+            masters: Vec::new(),
+        }
+    }
+
+    // --- active_plugins_name (pure) ---
+
+    #[test]
+    fn names_a_top_level_active_plugin() {
+        let active = active_set(&["foo.esp"]);
+        assert_eq!(
+            active_plugins_name(Utf8Path::new("Data/Foo.esp"), &active),
+            Some("Foo.esp")
+        );
+    }
+
+    #[test]
+    fn rejects_inactive_nested_and_non_data_paths() {
+        let active = active_set(&["foo.esp"]);
+        // Not in the active set.
+        assert_eq!(
+            active_plugins_name(Utf8Path::new("Data/Bar.esp"), &active),
+            None
+        );
+        // Deeper than Data/<plugin>.
+        assert_eq!(
+            active_plugins_name(Utf8Path::new("Data/meshes/Foo.esp"), &active),
+            None
+        );
+        // Not under Data/.
+        assert_eq!(active_plugins_name(Utf8Path::new("Foo.esp"), &active), None);
+    }
+
+    #[test]
+    fn folder_and_name_match_case_insensitively() {
+        let active = active_set(&["foo.esp"]);
+        assert_eq!(
+            active_plugins_name(Utf8Path::new("data/FOO.ESP"), &active),
+            Some("FOO.ESP")
+        );
+    }
+
+    // --- scan_sadd (real temp-dir plan) ---
+
+    fn temp_base() -> (TempDir, Utf8PathBuf) {
+        let tmp = TempDir::new().expect("temp dir");
+        let base = Utf8PathBuf::from_path_buf(tmp.path().to_path_buf()).expect("utf8");
+        (tmp, base)
+    }
+
+    #[test]
+    fn counts_markers_only_in_active_top_level_plugins() {
+        let (_tmp, base) = temp_base();
+        let mod_dir = base.join("mods/A");
+        std::fs::create_dir_all(mod_dir.join("meshes")).unwrap();
+        // Two markers in the active plugin; markers elsewhere must be ignored.
+        std::fs::write(mod_dir.join("Active.esp"), b"--\x00SADD--\x00SADD--").unwrap();
+        std::fs::write(mod_dir.join("Inactive.esp"), b"\x00SADD").unwrap();
+        std::fs::write(mod_dir.join("meshes/anim.nif"), b"\x00SADD").unwrap();
+
+        let plan =
+            DeployPlan::from_rooted_mods(base.join("game"), &[ModSource::new("A", &mod_dir)])
+                .unwrap();
+
+        let records = scan_sadd(&plan, &[meta("Active.esp")]);
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].plugin, "Active.esp");
+        assert_eq!(records[0].count, 2);
+    }
+
+    #[test]
+    fn a_plugin_without_markers_is_omitted() {
+        let (_tmp, base) = temp_base();
+        let mod_dir = base.join("mods/A");
+        std::fs::create_dir_all(&mod_dir).unwrap();
+        std::fs::write(mod_dir.join("Clean.esp"), b"no markers here").unwrap();
+
+        let plan =
+            DeployPlan::from_rooted_mods(base.join("game"), &[ModSource::new("A", &mod_dir)])
+                .unwrap();
+
+        assert!(scan_sadd(&plan, &[meta("Clean.esp")]).is_empty());
     }
 }
