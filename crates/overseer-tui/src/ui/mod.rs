@@ -3,17 +3,17 @@
 //! View layer only. It reads [`App`] state and mutates just the UI selection
 //! state (`ListState`); it never touches domain data.
 
+mod doctor;
+mod overlay;
+
 use overseer_core::apply::DeploymentStatus;
 use overseer_core::plugins::PluginMeta;
-use overseer_diagnostics::{Finding, Report, Severity};
 use overseer_frontend::style::Role;
 use ratatui::{
     Frame,
     layout::{Alignment, Constraint, Layout, Rect},
     text::{Line, Span},
-    widgets::{
-        Block, BorderType, Borders, Clear, List, ListItem, ListState, Padding, Paragraph, Wrap,
-    },
+    widgets::{Block, BorderType, List, ListItem, ListState, Paragraph},
 };
 
 use crate::app::{App, Focus, Popup};
@@ -24,9 +24,9 @@ pub(crate) fn draw(app: &mut App, frame: &mut Frame) {
     draw_main(app, frame);
     if let Some(popup) = app.popup {
         match popup {
-            Popup::Help => render_help(app, frame),
-            Popup::Settings => render_settings(app, frame),
-            Popup::Doctor => render_doctor(app, frame),
+            Popup::Help => overlay::render_help(app, frame),
+            Popup::Settings => overlay::render_settings(app, frame),
+            Popup::Doctor => doctor::render_doctor(app, frame),
         }
     }
 }
@@ -119,151 +119,8 @@ pub(crate) fn draw_main(app: &mut App, frame: &mut Frame) {
     );
 }
 
-/// A centered, bordered popup wrapping a selectable list
-fn render_list_popup(
-    frame: &mut Frame,
-    title: &str,
-    items: Vec<ListItem<'static>>,
-    state: &mut ListState,
-    pct_x: u16,
-    pct_y: u16,
-) {
-    let block = Block::bordered()
-        .title(format!("  {title}  "))
-        .padding(Padding::uniform(1));
-    let list = List::new(items)
-        .block(block)
-        .highlight_symbol("> ")
-        .highlight_style(theme::selection_style());
-    let area = centered_rect(pct_x, pct_y, frame.area());
-    frame.render_widget(Clear, area);
-    frame.render_stateful_widget(list, area, state);
-}
-
-/// The help popup: a selectable list of keybindings
-fn render_help(app: &mut App, frame: &mut Frame) {
-    let items: Vec<ListItem<'static>> = crate::app::HELP_ENTRIES
-        .iter()
-        .map(|(keys, desc)| ListItem::new(format!("  {keys:<16}{desc}")))
-        .collect();
-    render_list_popup(
-        frame,
-        "Help (Esc: close)",
-        items,
-        &mut app.help_state,
-        70,
-        60,
-    );
-}
-
-/// The settings popup: A selectable list of recent instances to switch to
-fn render_settings(app: &mut App, frame: &mut Frame) {
-    let items: Vec<ListItem<'static>> = app
-        .settings
-        .recent_instances
-        .iter()
-        .map(|p| ListItem::new(p.to_string()))
-        .collect();
-    render_list_popup(
-        frame,
-        "Settings — recent instances (Enter: switch · Esc: close)",
-        items,
-        &mut app.settings_state,
-        70,
-        60,
-    );
-}
-
-/// The diagnostics popup: a scrollable findings list with a detail pane for the selection
-fn render_doctor(app: &mut App, frame: &mut Frame) {
-    let area = centered_rect(80, 70, frame.area());
-    frame.render_widget(Clear, area);
-
-    let report = app.report.as_ref();
-    let block = Block::bordered().title(format!(
-        "  {}  ",
-        doctor_title(report, &app.session.profile.name)
-    ));
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
-
-    let rows = Layout::vertical([Constraint::Fill(1), Constraint::Length(7)]).split(inner);
-
-    let items: Vec<ListItem<'static>> = report
-        .map(|r| r.findings.iter().map(finding_item).collect())
-        .unwrap_or_default();
-    let list = List::new(items)
-        .highlight_symbol("> ")
-        .highlight_style(theme::selection_style());
-    frame.render_stateful_widget(list, rows[0], &mut app.doctor_state);
-
-    let detail = selected_detail(report, app.doctor_state.selected());
-    let detail_pane = Paragraph::new(detail)
-        .wrap(Wrap { trim: true })
-        .block(Block::new().borders(Borders::TOP).title(" detail "));
-    frame.render_widget(detail_pane, rows[1]);
-}
-
-/// The doctor popup's border title: the profile plus a one-line severity summary
-fn doctor_title(report: Option<&Report>, profile: &str) -> String {
-    let Some(report) = report else {
-        return format!("Diagnostics — {profile}");
-    };
-    let count = |s| report.findings.iter().filter(|f| f.severity == s).count();
-    let (warnings, errors) = (count(Severity::Warning), count(Severity::Error));
-    if warnings == 0 && errors == 0 {
-        return format!("Diagnostics — {profile} · all clear");
-    }
-    format!(
-        "Diagnostics — {profile} · {}, {}",
-        plural(warnings, "warning"),
-        plural(errors, "error")
-    )
-}
-
-/// One finding as a styled list row: a severity coloured glyph and the title
-fn finding_item(finding: &Finding) -> ListItem<'static> {
-    let (role, glyph) = severity_style(finding.severity);
-    let line = Line::from(vec![
-        Span::styled(format!(" {glyph} "), theme::style(role)),
-        Span::raw(finding.title.clone()),
-    ]);
-    ListItem::new(line)
-}
-
-/// The detail text for the selected finding
-fn selected_detail(report: Option<&Report>, selected: Option<usize>) -> String {
-    let Some(report) = report else {
-        return String::new();
-    };
-    if report.findings.is_empty() {
-        return "No problems found.".to_owned();
-    }
-    match selected.and_then(|i| report.findings.get(i)) {
-        Some(f) => f
-            .detail
-            .clone()
-            .unwrap_or_else(|| "No further detail.".to_owned()),
-        None => String::new(),
-    }
-}
-
-/// The role and glpyh for a severity, matches `overseer doctor`
-fn severity_style(severity: Severity) -> (Role, &'static str) {
-    match severity {
-        Severity::Info => (Role::Success, "✓"),
-        Severity::Warning => (Role::Warning, "!"),
-        Severity::Error => (Role::Failure, "✗"),
-    }
-}
-
-/// `N noun(s)` with naive pluralisation
-fn plural(n: usize, noun: &str) -> String {
-    format!("{n} {noun}{}", if n == 1 { "" } else { "s" })
-}
-
 /// A `Rect` centered in `area`, `pct_x`% wide and `pct_y`% tall
-fn centered_rect(pct_x: u16, pct_y: u16, area: Rect) -> Rect {
+pub(super) fn centered_rect(pct_x: u16, pct_y: u16, area: Rect) -> Rect {
     let rows = Layout::vertical([
         Constraint::Percentage((100 - pct_y) / 2),
         Constraint::Percentage(pct_y),
