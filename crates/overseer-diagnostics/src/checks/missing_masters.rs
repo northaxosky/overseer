@@ -50,7 +50,7 @@ impl MissingMasters {
             check: self.id(),
             severity: Severity::Error,
             title: format!("`{}` is missing {}", plugin.name, missing.join(", ")),
-            detail: Some("Install or enable the master(s), or disable this plugin".to_owned()),
+            detail: Some("Install or activate the master(s), or deactivate this plugin".to_owned()),
         })
     }
 }
@@ -101,6 +101,9 @@ mod tests {
         assert_eq!(findings[0].severity, Severity::Error);
         assert!(findings[0].title.contains("Patch.esp"));
         assert!(findings[0].title.contains("Gone.esm"));
+        // Plugins are activated/deactivated, not enabled/disabled (glossary).
+        let detail = findings[0].detail.as_deref().expect("detail");
+        assert!(detail.contains("deactivate") && !detail.contains("disable"));
     }
 
     #[test]
