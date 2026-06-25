@@ -53,7 +53,7 @@ pub fn extract(archive: &Utf8Path, dest: &Utf8Path) -> Result<(), InstallError> 
 }
 
 fn extract_7z(archive: &Utf8Path, dest: &Utf8Path) -> Result<(), InstallError> {
-    sevenz_rust::decompress_file(archive.as_std_path(), dest.as_std_path()).map_err(|source| {
+    sevenz_rust2::decompress_file(archive.as_std_path(), dest.as_std_path()).map_err(|source| {
         InstallError::SevenZip {
             path: archive.to_owned(),
             source,
@@ -72,4 +72,78 @@ fn extract_zip(archive: &Utf8Path, dest: &Utf8Path) -> Result<(), InstallError> 
             path: archive.to_owned(),
             source,
         })
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use camino::Utf8PathBuf;
+    use std::fs::File;
+
+    fn temp() -> (tempfile::TempDir, Utf8PathBuf) {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let base = Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).expect("utf8 path");
+        (dir, base)
+    }
+
+    /// A normal `.7z` extracts through `extract`, covering the 7z happy path on the backend.
+    #[test]
+    fn extracts_a_normal_7z_archive() {
+        let (_t, base) = temp();
+        let src = base.join("src");
+        std::fs::create_dir_all(src.join("Textures")).expect("mk src");
+        std::fs::write(src.join("Textures/a.dds"), b"tex").expect("write tex");
+        std::fs::write(src.join("Cool.esp"), b"plugin").expect("write esp");
+        let archive = base.join("mod.7z");
+        sevenz_rust2::compress_to_path(src.as_std_path(), archive.as_std_path()).expect("compress");
+
+        let dest = base.join("dest");
+        extract(&archive, &dest).expect("extract");
+
+        assert_eq!(
+            std::fs::read_to_string(dest.join("Textures/a.dds")).unwrap(),
+            "tex"
+        );
+        assert_eq!(
+            std::fs::read_to_string(dest.join("Cool.esp")).unwrap(),
+            "plugin"
+        );
+    }
+
+    /// A crafted `.7z` whose entry name escapes the destination is rejected, writing nothing
+    /// outside `dest`. Regression for the sevenz-rust 0.6 path-traversal CVE (RUSTSEC-2023-0086);
+    /// `sevenz-rust2` confines each entry under `dest`, and `extract` surfaces that as an error.
+    #[test]
+    fn rejects_a_path_traversal_7z_archive() {
+        let (_t, base) = temp();
+        // A real payload the malicious entry points at; its declared name escapes `dest`.
+        let payload = base.join("payload.txt");
+        std::fs::write(&payload, b"pwned").expect("write payload");
+
+        let archive = base.join("evil.7z");
+        let entry = sevenz_rust2::ArchiveEntry::from_path(
+            payload.as_std_path(),
+            "../escape.txt".to_owned(),
+        );
+        let mut writer =
+            sevenz_rust2::ArchiveWriter::new(File::create(&archive).expect("create archive"))
+                .expect("archive writer");
+        writer
+            .push_archive_entry(entry, Some(File::open(&payload).expect("open payload")))
+            .expect("push entry");
+        writer.finish().expect("finish archive");
+
+        let dest = base.join("dest");
+        let err = extract(&archive, &dest).expect_err("traversal must be rejected");
+        assert!(matches!(err, InstallError::SevenZip { .. }), "got {err:?}");
+
+        // The escape target (a sibling of `dest`) must never be created.
+        assert!(
+            !base.join("escape.txt").exists(),
+            "a file escaped the destination directory"
+        );
+    }
 }

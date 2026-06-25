@@ -22,7 +22,7 @@ pub enum InstallError {
     SevenZip {
         path: Utf8PathBuf,
         #[source]
-        source: sevenz_rust::Error,
+        source: sevenz_rust2::Error,
     },
 
     #[error("failed to read zip archive `{path}`")]
