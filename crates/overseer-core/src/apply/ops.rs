@@ -303,7 +303,7 @@ fn guard_no_orphaned_backup(backup_root: &Utf8Path) -> Result<(), ApplyError> {
 mod tests {
     use super::*;
     use crate::deploy::NullSink;
-    use crate::instance::{Instance, ModListEntry, Profile};
+    use crate::instance::{Instance, ModKind, ModListEntry, Profile};
     use crate::plugins::test_support::write_plugin;
     use camino::Utf8PathBuf;
     use tempfile::TempDir;
@@ -341,7 +341,7 @@ mod tests {
                 .map(|(n, enabled)| ModListEntry {
                     name: (*n).to_owned(),
                     enabled: *enabled,
-                    foreign: false,
+                    kind: ModKind::Managed,
                 })
                 .collect(),
         };

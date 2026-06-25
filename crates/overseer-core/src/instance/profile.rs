@@ -2,12 +2,23 @@ use super::error::{InstanceError, io_err};
 use super::model::Instance;
 use crate::deploy::ModSource;
 
+/// What kind of `modlist.txt` line an entry is
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModKind {
+    /// A mod Overseer manages, deployed from `mods/<name>/`
+    Managed,
+    /// A game-shipped/foreign plugin (DLC, CC) managed elsewhere; always active
+    Foreign,
+    /// An MO2 separator: visual divider, never deployed
+    Separator,
+}
+
 /// One line of a profile's mod list: a mod name plus whether it's enabled
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ModListEntry {
     pub name: String,
     pub enabled: bool,
-    pub foreign: bool,
+    pub kind: ModKind,
 }
 
 /// Profile: a named, ordered mod list.
@@ -45,10 +56,10 @@ impl Profile {
     pub fn to_modlist_string(&self) -> String {
         let mut out = String::new();
         for entry in &self.mods {
-            out.push(match (entry.foreign, entry.enabled) {
-                (true, _) => '*',
-                (false, true) => '+',
-                (false, false) => '-',
+            out.push(match entry.kind {
+                ModKind::Foreign => '*',
+                _ if entry.enabled => '+',
+                _ => '-',
             });
             out.push_str(&entry.name);
             out.push('\n');
@@ -88,7 +99,7 @@ impl Profile {
             ModListEntry {
                 name,
                 enabled,
-                foreign: false,
+                kind: ModKind::Managed,
             },
         );
         Ok(())
@@ -162,7 +173,7 @@ impl Profile {
 
         // Drop entries with no folder
         self.mods.retain(|e| {
-            e.foreign
+            e.kind != ModKind::Managed
                 || installed
                     .iter()
                     .any(|m| m.name.eq_ignore_ascii_case(&e.name))
@@ -176,7 +187,7 @@ impl Profile {
                 self.mods.push(ModListEntry {
                     name: m.name.clone(),
                     enabled: true,
-                    foreign: false,
+                    kind: ModKind::Managed,
                 });
                 added += 1;
             }
@@ -191,17 +202,29 @@ fn parse_modlist(text: &str) -> Vec<ModListEntry> {
     text.lines()
         .filter_map(|line| {
             let line = line.trim();
-            let (enabled, foreign) = match line.chars().next() {
-                Some('+') => (true, false),
-                Some('*') => (true, true),
-                Some('-') => (false, false),
+            let enabled = match line.chars().next() {
+                Some('+') | Some('*') => true,
+                Some('-') => false,
                 _ => return None,
             };
+            let foreign = line.starts_with('*');
             let name = line[1..].trim();
-            (!name.is_empty()).then(|| ModListEntry {
+            if name.is_empty() {
+                return None;
+            }
+            let kind = if name.ends_with("_separator") {
+                ModKind::Separator
+            } else if foreign {
+                ModKind::Foreign
+            } else {
+                ModKind::Managed
+            };
+            // separators never deploy
+            let enabled = enabled && kind != ModKind::Separator;
+            Some(ModListEntry {
                 name: name.to_owned(),
                 enabled,
-                foreign,
+                kind,
             })
         })
         .collect()
@@ -221,7 +244,7 @@ mod tests {
         ModListEntry {
             name: name.to_owned(),
             enabled,
-            foreign: false,
+            kind: ModKind::Managed,
         }
     }
 
@@ -229,7 +252,15 @@ mod tests {
         ModListEntry {
             name: name.to_owned(),
             enabled: true,
-            foreign: true,
+            kind: ModKind::Foreign,
+        }
+    }
+
+    fn separator_entry(name: &str) -> ModListEntry {
+        ModListEntry {
+            name: name.to_owned(),
+            enabled: false,
+            kind: ModKind::Separator,
         }
     }
 
@@ -267,9 +298,17 @@ mod tests {
     }
 
     #[test]
-    fn skips_blank_comment_and_separator_lines() {
-        // MO2 files contain separators and blank lines we don't model; they must be ignored.
-        let text = "+A\n\n# a comment\nSomeSeparator_separator\n-B\n";
+    fn parses_a_separator_as_an_inert_entry() {
+        // A real MO2 separator line: preserved verbatim, never a deployable mod.
+        let mods = parse_modlist("-Gameplay_separator\n");
+        assert_eq!(mods, vec![separator_entry("Gameplay_separator")]);
+        assert!(!mods[0].enabled, "a separator is never enabled/deployed");
+    }
+
+    #[test]
+    fn skips_blank_comment_and_unmarked_lines() {
+        // Blank lines, comments, and lines without a +/-/* marker are not entries.
+        let text = "+A\n\n# a comment\nno marker here\n-B\n";
         let mods = parse_modlist(text);
         assert_eq!(mods, vec![entry("A", true), entry("B", false)]);
     }
@@ -305,6 +344,21 @@ mod tests {
         assert_eq!(parse_modlist(&text), profile.mods);
     }
 
+    #[test]
+    fn a_separator_round_trips_through_serialize_and_parse() {
+        let profile = Profile {
+            name: "P".to_owned(),
+            mods: vec![
+                entry("Alpha", true),
+                separator_entry("Gameplay_separator"),
+                entry("Beta", false),
+            ],
+        };
+        let text = profile.to_modlist_string();
+        assert_eq!(text, "+Alpha\n-Gameplay_separator\n-Beta\n");
+        assert_eq!(parse_modlist(&text), profile.mods);
+    }
+
     // --- deploy_sources bridge ---
 
     #[test]
@@ -315,6 +369,23 @@ mod tests {
         let sources = profile.deploy_sources(&instance);
         let names: Vec<&str> = sources.iter().map(|s| s.name.as_str()).collect();
         assert_eq!(names, ["Low", "Mid", "High"]);
+    }
+
+    #[test]
+    fn deploy_sources_excludes_separators() {
+        let (_tmp, instance) = temp_instance();
+        let profile = Profile {
+            name: "P".to_owned(),
+            mods: vec![
+                entry("High", true),
+                separator_entry("Mid_separator"),
+                entry("Low", true),
+            ],
+        };
+        let sources = profile.deploy_sources(&instance);
+        let names: Vec<&str> = sources.iter().map(|s| s.name.as_str()).collect();
+        // Only the managed mods, lowest-priority first; the separator never deploys.
+        assert_eq!(names, ["Low", "High"]);
     }
 
     #[test]
@@ -393,7 +464,7 @@ mod tests {
         let mut profile = profile_of(&["Existing"]);
         profile.add("Newcomer", true).expect("add");
         assert_eq!(names_of(&profile), ["Newcomer", "Existing"]);
-        assert!(!profile.mods[0].foreign);
+        assert_eq!(profile.mods[0].kind, ModKind::Managed);
     }
 
     #[test]
@@ -560,6 +631,28 @@ mod tests {
         // DLCRobot has no mods/ folder but must not be dropped.
         assert!(!changed);
         assert!(profile.contains("DLCRobot"));
+    }
+
+    #[test]
+    fn reconcile_keeps_a_separator_without_a_folder() {
+        let (_tmp, instance) = temp_instance();
+        install_dirs(&instance, &["Managed"]);
+        let mut profile = Profile {
+            name: "P".to_owned(),
+            mods: vec![
+                separator_entry("Gameplay_separator"),
+                entry("Managed", true),
+            ],
+        };
+
+        let changed = profile.reconcile(&instance).expect("reconcile");
+        // A separator has no mods/ folder but must survive reconcile (and the save that follows),
+        // so importing an MO2 profile and running `mod list` can't silently destroy it.
+        assert!(!changed, "a separator is not a change to reconcile away");
+        assert!(
+            profile.mods.iter().any(|e| e.kind == ModKind::Separator),
+            "the separator is preserved"
+        );
     }
 
     #[test]

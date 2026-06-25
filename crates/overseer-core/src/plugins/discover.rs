@@ -77,7 +77,7 @@ pub fn find_plugin_files(dir: &Utf8Path) -> Result<Vec<camino::Utf8PathBuf>, Plu
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::instance::{ModListEntry, Profile};
+    use crate::instance::{ModKind, ModListEntry, Profile};
     use crate::plugins::test_support::{FLAG_MASTER, write_plugin};
     use camino::Utf8PathBuf;
     use tempfile::TempDir;
@@ -92,7 +92,7 @@ mod tests {
         ModListEntry {
             name: name.to_owned(),
             enabled,
-            foreign: false,
+            kind: ModKind::Managed,
         }
     }
 

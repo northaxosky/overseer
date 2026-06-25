@@ -2,7 +2,7 @@
 
 use crate::app::{App, Focus, Session, initial_selection};
 use camino::Utf8Path;
-use overseer_core::instance::{Instance, ModListEntry, Profile};
+use overseer_core::instance::{Instance, ModKind, ModListEntry, Profile};
 use overseer_core::plugins::{PluginEntry, PluginLoadOrder, PluginMeta};
 use overseer_core::settings::Settings;
 use ratatui::widgets::ListState;
@@ -30,12 +30,12 @@ impl App {
                         ModListEntry {
                             name: "CoolMod".to_owned(),
                             enabled: true,
-                            foreign: false,
+                            kind: ModKind::Managed,
                         },
                         ModListEntry {
                             name: "OffMod".to_owned(),
                             enabled: false,
-                            foreign: false,
+                            kind: ModKind::Managed,
                         },
                     ],
                 },

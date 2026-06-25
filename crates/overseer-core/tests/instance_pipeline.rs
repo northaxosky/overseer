@@ -6,7 +6,7 @@ use camino::Utf8PathBuf;
 use overseer_core::apply::{deploy_profile, purge, status};
 use overseer_core::deploy::NullSink;
 use overseer_core::game::GameKind;
-use overseer_core::instance::{Instance, ModListEntry, Profile};
+use overseer_core::instance::{Instance, ModKind, ModListEntry, Profile};
 use tempfile::{TempDir, tempdir};
 
 /// TES4 header flag: master file.
@@ -70,7 +70,7 @@ fn save_profile(instance: &Instance, name: &str, mods: &[(&str, bool)]) {
             .map(|(n, enabled)| ModListEntry {
                 name: (*n).to_owned(),
                 enabled: *enabled,
-                foreign: false,
+                kind: ModKind::Managed,
             })
             .collect(),
     };
