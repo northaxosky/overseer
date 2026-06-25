@@ -45,8 +45,6 @@ pub struct DeployEntry {
     pub relative: Utf8PathBuf,
     /// Absolute path to the source file in the winning mod's staging dir
     pub source: Utf8PathBuf,
-    /// Whether a real file already occupied this destination
-    pub preexisting: bool,
 }
 
 /// The authoritative record of a deployment transaction
@@ -77,19 +75,9 @@ impl DeployRecord {
         let mut seen: BTreeSet<Utf8PathBuf> = BTreeSet::new();
 
         for file in plan.files() {
-            let relative = file.relative.clone();
-
-            // Prob once to see if dest is occupied
-            let dest = target_root.join(&relative);
-            let preexisting = match dest.symlink_metadata() {
-                Ok(_) => true,
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => false,
-                Err(e) => return Err(io_err(&dest, e)),
-            };
             entries.push(DeployEntry {
-                relative,
+                relative: file.relative.clone(),
                 source: file.source.clone(),
-                preexisting,
             });
             if let Some(parent) = file.relative.parent() {
                 collect_missing_dirs(&target_root, parent, &mut seen, &mut created_dirs)?;
@@ -231,7 +219,6 @@ mod tests {
             entries: vec![DeployEntry {
                 relative: Utf8PathBuf::from("Textures/x.dds"),
                 source: Utf8PathBuf::from("C:/mods/M/Textures/x.dds"),
-                preexisting: false,
             }],
             created_dirs: vec![Utf8PathBuf::from("Textures")],
         };

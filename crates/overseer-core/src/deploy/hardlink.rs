@@ -8,6 +8,7 @@ use super::{
     ReversalReport, VerifyReport,
 };
 use camino::{Utf8Path, Utf8PathBuf};
+use same_file::Handle;
 use std::fs;
 use walkdir::WalkDir;
 
@@ -95,9 +96,10 @@ impl Deployer for HardlinkDeployer {
                     }
                 }
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                    if entry.preexisting {
-                        // Original already restored by an earlier pass
-                    } else if let Err(e) = remove_if_present(&dest) {
+                    // no backup for this entry: only remove dest if its our link
+                    if is_our_link(&dest, &entry.source)
+                        && let Err(e) = remove_if_present(&dest)
+                    {
                         unresolved.push(e);
                     }
                 }
@@ -167,6 +169,17 @@ fn remove_if_present(path: &Utf8Path) -> Result<(), DeployError> {
         Ok(()) => Ok(()),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(e) => Err(io_err(path, e)),
+    }
+}
+
+/// Whether `dest` is still the hard link this deployment created
+fn is_our_link(dest: &Utf8Path, source: &Utf8Path) -> bool {
+    match (
+        Handle::from_path(dest.as_std_path()),
+        Handle::from_path(source.as_std_path()),
+    ) {
+        (Ok(d), Ok(s)) => d == s,
+        _ => false,
     }
 }
 
@@ -509,6 +522,47 @@ mod tests {
             "restored original survives a re-run"
         );
         assert!(!data.join("made.txt").exists());
+    }
+
+    #[test]
+    fn is_our_link_holds_only_for_a_live_link() {
+        let (_tmp, base) = temp();
+        let source = base.join("mods/M/x.txt");
+        write(&source, "content");
+        let dest = base.join("Data/x.txt");
+        fs::create_dir_all(dest.parent().expect("parent")).expect("mk Data");
+        fs::hard_link(&source, &dest).expect("hard link");
+
+        // An intact hard link resolves to the same underlying file as its source.
+        assert!(is_our_link(&dest, &source));
+
+        // Replacing dest in place (remove + recreate) breaks the link: new file, new identity.
+        fs::remove_file(&dest).expect("remove");
+        write(&dest, "replaced");
+        assert!(!is_our_link(&dest, &source));
+
+        // A source that no longer exists can't be proven ours.
+        assert!(!is_our_link(&dest, &base.join("mods/M/gone.txt")));
+    }
+
+    #[test]
+    fn undeploy_leaves_a_file_replaced_in_place_after_deploy() {
+        let (_tmp, base) = temp();
+        let (record, data) = record_one(&base, "sub/x.txt", "ours");
+        let dest = data.join("sub/x.txt");
+        let d = HardlinkDeployer::new();
+        d.deploy(&record, &NullSink).expect("deploy");
+        assert_eq!(fs::read_to_string(&dest).unwrap(), "ours");
+
+        // A tool replaces the deployed file in place, breaking our hard link.
+        fs::remove_file(&dest).expect("remove our link");
+        write(&dest, "tool output");
+
+        let report = d.undeploy(&record, &NullSink);
+        assert!(report.is_fully_resolved());
+        // The replacement is no longer our link, so it is left alone, not deleted.
+        assert!(dest.exists(), "a file replaced after deploy is preserved");
+        assert_eq!(fs::read_to_string(&dest).unwrap(), "tool output");
     }
 
     #[test]

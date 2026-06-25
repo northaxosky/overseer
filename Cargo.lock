@@ -1519,6 +1519,7 @@ dependencies = [
  "dirs",
  "esplugin",
  "libloadorder",
+ "same-file",
  "serde",
  "serde_json",
  "sevenz-rust2",

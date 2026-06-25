@@ -449,6 +449,27 @@ mod tests {
     }
 
     #[test]
+    fn purge_leaves_a_data_file_replaced_after_deployment() {
+        let (_tmp, instance) = temp_instance();
+        // A mod ships a non-plugin file we deploy as a hard link.
+        install_mod(&instance, "Texturer", &[("Textures/a.dds", "ours")]);
+        save_profile(&instance, "Default", &[("Texturer", true)]);
+
+        deploy_profile(&instance, "Default", &NullSink).expect("deploy");
+        let dest = deployed(&instance, "Textures/a.dds");
+        assert_eq!(std::fs::read_to_string(&dest).expect("read"), "ours");
+
+        // A tool rewrites the deployed file in place after deployment, breaking the link.
+        std::fs::remove_file(&dest).expect("remove our link");
+        std::fs::write(&dest, "tool output").expect("tool writes");
+
+        purge(&instance, &NullSink).expect("purge");
+        // Purge must not delete the externally written file as if it were still ours.
+        assert!(dest.exists(), "an externally replaced file survives purge");
+        assert_eq!(std::fs::read_to_string(&dest).expect("read"), "tool output");
+    }
+
+    #[test]
     fn deploy_routes_root_content_to_the_game_root_and_purge_restores() {
         let (_tmp, instance) = temp_instance();
         // A mod with Root/ content (-> game root) and ordinary Data content (-> Data/).
