@@ -26,6 +26,9 @@ pub enum InstanceError {
     #[error("an Overseer instance already exists at `{path}`")]
     AlreadyAnInstance { path: Utf8PathBuf },
 
+    #[error("`{0}` is not a managed mod; only managed mods can be enabled or disabled")]
+    NotManaged(String),
+
     #[error("failed to parse instance config `{path}`")]
     Config {
         path: Utf8PathBuf,

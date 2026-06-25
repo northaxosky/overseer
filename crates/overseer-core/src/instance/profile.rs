@@ -121,15 +121,23 @@ impl Profile {
         Ok(&mut self.mods[idx])
     }
 
+    fn managed_entry_mut(&mut self, name: &str) -> Result<&mut ModListEntry, InstanceError> {
+        let entry = self.entry_mut(name)?;
+        if entry.kind != ModKind::Managed {
+            return Err(InstanceError::NotManaged(name.to_owned()));
+        }
+        Ok(entry)
+    }
+
     /// Mark a mod enabled in this profile's mod list.
     pub fn enable(&mut self, name: &str) -> Result<(), InstanceError> {
-        self.entry_mut(name)?.enabled = true;
+        self.managed_entry_mut(name)?.enabled = true;
         Ok(())
     }
 
     /// Mark a mod disabled in this profile's mod list.
     pub fn disable(&mut self, name: &str) -> Result<(), InstanceError> {
-        self.entry_mut(name)?.enabled = false;
+        self.managed_entry_mut(name)?.enabled = false;
         Ok(())
     }
 
@@ -506,6 +514,33 @@ mod tests {
             profile.enable("x").expect_err("err"),
             InstanceError::ModNotInList(_)
         ));
+    }
+
+    #[test]
+    fn disabling_a_foreign_entry_is_rejected_not_a_silent_noop() {
+        let mut profile = Profile {
+            name: "P".to_owned(),
+            mods: vec![foreign_entry("DLCRobot")],
+        };
+        // Foreign entries always serialize as `*`, so a flip would be a lie; reject it.
+        assert!(matches!(
+            profile.disable("DLCRobot").expect_err("err"),
+            InstanceError::NotManaged(_)
+        ));
+        assert!(profile.mods[0].enabled, "the entry is left untouched");
+    }
+
+    #[test]
+    fn toggling_a_separator_is_rejected() {
+        let mut profile = Profile {
+            name: "P".to_owned(),
+            mods: vec![separator_entry("Gameplay_separator")],
+        };
+        assert!(matches!(
+            profile.enable("Gameplay_separator").expect_err("err"),
+            InstanceError::NotManaged(_)
+        ));
+        assert!(!profile.mods[0].enabled, "the separator stays inert");
     }
 
     // --- reorder ---
