@@ -5,7 +5,8 @@ use super::lock::InstanceLock;
 use super::state::{Deployment, Status};
 
 use crate::deploy::{
-    DeployError, DeployPlan, DeployRecord, ModSource, ProgressSink, VerifyReport, deployer_for,
+    DeployError, DeployPlan, DeployRecord, ModSource, NullSink, ProgressSink, VerifyReport,
+    deployer_for,
 };
 use crate::instance::{Instance, Profile};
 use crate::plugins::{self, PluginLoadOrder};
@@ -186,6 +187,9 @@ pub struct DeploymentStatus {
 
 /// Report the instance's live deployment, or `None` if nothing is deployed
 pub fn status(instance: &Instance) -> Result<Option<DeploymentStatus>, ApplyError> {
+    let _lock = InstanceLock::acquire(instance)?;
+    recover_if_needed(instance, &NullSink)?;
+
     if !Deployment::exists(instance) {
         return Ok(None);
     }
@@ -741,6 +745,42 @@ mod tests {
 
         let _held = InstanceLock::acquire(&instance).expect("hold the lock");
         let err = purge(&instance, &NullSink).expect_err("purge must observe the held lock");
+        assert!(matches!(err, ApplyError::Busy));
+    }
+
+    #[test]
+    fn status_recovers_an_interrupted_deployment_and_reports_nothing_live() {
+        let (_tmp, instance) = temp_instance();
+        install_plugin(&instance, "CoolMod", "Cool.esp");
+        save_profile(&instance, "Default", &[("CoolMod", true)]);
+
+        // Deploy, then forge the journal back to InProgress to mimic a crash that
+        // struck after the files landed but before the commit flip.
+        deploy_profile(&instance, "Default", &NullSink).expect("deploy");
+        force_status(&instance, Status::InProgress);
+
+        // status must reverse the interrupted deployment, not report it as live.
+        let live = status(&instance).expect("status");
+        assert!(
+            live.is_none(),
+            "an interrupted deployment is reversed, not reported as live"
+        );
+        assert!(
+            !Deployment::exists(&instance),
+            "the journal is cleared once recovery resolves"
+        );
+        assert!(
+            !deployed(&instance, "Cool.esp").exists(),
+            "the interrupted deployment's files are removed"
+        );
+    }
+
+    #[test]
+    fn a_held_lock_makes_status_busy() {
+        let (_tmp, instance) = temp_instance();
+
+        let _held = InstanceLock::acquire(&instance).expect("hold the lock");
+        let err = status(&instance).expect_err("status must observe the held lock");
         assert!(matches!(err, ApplyError::Busy));
     }
 

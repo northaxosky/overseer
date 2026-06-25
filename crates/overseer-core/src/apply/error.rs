@@ -34,7 +34,7 @@ pub enum ApplyError {
     Busy,
 
     /// A reversal could not be fully resolved; the journal is kept
-    #[error("{path} has an unresolved deployment reversal; run `overseer recover` to retry")]
+    #[error("{path} has an unresolved deployment reversal; purge again to retry")]
     RecoveryFailed { path: Utf8PathBuf },
 
     /// A backup directory survives from a previous run with no journal to reverse it
