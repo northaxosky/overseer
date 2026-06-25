@@ -31,6 +31,11 @@ pub struct Deployment {
     /// The user's original `Plugins.txt` bytes, if any
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub plugins_txt_backup: Option<Vec<u8>>,
+
+    /// The `Plugins.txt` bytes this deployment wrote, captured after the write phase, so a
+    /// reversal can tell our file apart from one a tool or the user changed afterward
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plugins_txt_intended: Option<Vec<u8>>,
 }
 
 impl Deployment {

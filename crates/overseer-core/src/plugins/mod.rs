@@ -11,6 +11,9 @@ pub(crate) mod test_support;
 
 pub use discover::{discover_plugins, find_plugin_files};
 pub use error::PluginError;
-pub use gamestate::{read_plugins_txt, restore_plugins_txt, write_active_plugins};
+pub use gamestate::{
+    PluginsRestore, read_plugins_txt, restore_plugins_txt, restore_plugins_txt_if_ours,
+    write_active_plugins,
+};
 pub use loadorder::{PluginEntry, PluginLoadOrder};
 pub use metadata::{PluginMeta, is_plugin_file, read_metadata};

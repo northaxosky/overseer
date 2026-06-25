@@ -58,6 +58,35 @@ pub fn restore_plugins_txt(local_dir: &Utf8Path, backup: Option<&[u8]>) -> Resul
     }
 }
 
+/// Whether a content aware restore put the original back, or left a diverged file alone
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PluginsRestore {
+    /// The original was restored (or there was nothing to undo)
+    Restored,
+    /// The live file no longer matched what we wrote, so it was left untouched
+    Conflict,
+}
+
+/// Restore the user's original `Plugins.txt`, only when the live file is still the one this deployment wrote
+pub fn restore_plugins_txt_if_ours(
+    local_dir: &Utf8Path,
+    original: Option<&[u8]>,
+    intended: Option<&[u8]>,
+) -> Result<PluginsRestore, PluginError> {
+    let Some(intended) = intended else {
+        restore_plugins_txt(local_dir, original)?;
+        return Ok(PluginsRestore::Restored);
+    };
+
+    let current = read_plugins_txt(local_dir)?;
+    if current.as_deref() == Some(intended) {
+        restore_plugins_txt(local_dir, original)?;
+        Ok(PluginsRestore::Restored)
+    } else {
+        Ok(PluginsRestore::Conflict)
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -172,5 +201,50 @@ mod tests {
             err,
             PluginError::GameState(loadorder::Error::TooManyActivePlugins { .. })
         ));
+    }
+
+    #[test]
+    fn restore_if_ours_restores_when_the_file_is_untouched() {
+        let (_tmp, _game, local) = setup();
+        // The live file is still exactly what we wrote.
+        std::fs::write(local.join("Plugins.txt"), b"*Cool.esp\n").expect("seed current");
+        let outcome =
+            restore_plugins_txt_if_ours(&local, Some(b"*Original.esp\n"), Some(b"*Cool.esp\n"))
+                .expect("restore");
+        assert_eq!(outcome, PluginsRestore::Restored);
+        assert_eq!(
+            std::fs::read(local.join("Plugins.txt")).expect("read"),
+            b"*Original.esp\n"
+        );
+    }
+
+    #[test]
+    fn restore_if_ours_keeps_a_diverged_file() {
+        let (_tmp, _game, local) = setup();
+        // The live file no longer matches what we wrote.
+        std::fs::write(local.join("Plugins.txt"), b"*Edited.esp\n").expect("seed current");
+        let outcome =
+            restore_plugins_txt_if_ours(&local, Some(b"*Original.esp\n"), Some(b"*Cool.esp\n"))
+                .expect("restore");
+        assert_eq!(outcome, PluginsRestore::Conflict);
+        // Left untouched, not rolled back to the original.
+        assert_eq!(
+            std::fs::read(local.join("Plugins.txt")).expect("read"),
+            b"*Edited.esp\n"
+        );
+    }
+
+    #[test]
+    fn restore_if_ours_restores_unconditionally_when_nothing_was_written() {
+        let (_tmp, _game, local) = setup();
+        std::fs::write(local.join("Plugins.txt"), b"*Whatever.esp\n").expect("seed current");
+        // intended == None: we never reached the write phase, so fully undo to the original.
+        let outcome =
+            restore_plugins_txt_if_ours(&local, Some(b"*Original.esp\n"), None).expect("restore");
+        assert_eq!(outcome, PluginsRestore::Restored);
+        assert_eq!(
+            std::fs::read(local.join("Plugins.txt")).expect("read"),
+            b"*Original.esp\n"
+        );
     }
 }

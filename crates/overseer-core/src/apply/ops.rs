@@ -9,7 +9,7 @@ use crate::deploy::{
     deployer_for,
 };
 use crate::instance::{Instance, Profile};
-use crate::plugins::{self, PluginLoadOrder};
+use crate::plugins::{self, PluginLoadOrder, PluginsRestore};
 use camino::{Utf8Path, Utf8PathBuf};
 use std::collections::BTreeSet;
 use walkdir::WalkDir;
@@ -64,6 +64,7 @@ pub fn deploy_profile(
         profile: profile.name,
         record,
         plugins_txt_backup,
+        plugins_txt_intended: None,
     };
     deployment.save(instance)?;
 
@@ -87,6 +88,9 @@ pub fn deploy_profile(
         }
         return Err(e.into());
     }
+
+    // Capture exactly what we wrote, so a later reversal can tell Plugins.txt apart
+    deployment.plugins_txt_intended = plugins::read_plugins_txt(&local_dir)?;
 
     // Second Write: InProgress -> Committed flip
     deployment.status = Status::Committed;
@@ -230,10 +234,19 @@ fn reverse_and_finalize(
     let report = deployer.undeploy(&deployment.record, progress);
 
     let local_dir = resolve_local_dir(instance)?;
-    let plugins_restored =
-        plugins::restore_plugins_txt(&local_dir, deployment.plugins_txt_backup.as_deref());
+    let plugins_restore = plugins::restore_plugins_txt_if_ours(
+        &local_dir,
+        deployment.plugins_txt_backup.as_deref(),
+        deployment.plugins_txt_intended.as_deref(),
+    );
 
-    if report.is_fully_resolved() && plugins_restored.is_ok() {
+    if let Ok(PluginsRestore::Conflict) = &plugins_restore {
+        tracing::warn!(
+            "Plugins.txt changed since deployment; kept the current file instead of restoring the pre-deployment version"
+        );
+    }
+
+    if report.is_fully_resolved() && plugins_restore.is_ok() {
         tracing::info!("reversal complete; clearing journal");
         Deployment::remove(instance)
     } else {
@@ -244,7 +257,7 @@ fn reverse_and_finalize(
             ..deployment
         };
         failed.save(instance)?;
-        Err(plugins_restored
+        Err(plugins_restore
             .err()
             .map_or(ApplyError::RecoveryFailed { path }, ApplyError::from))
     }
@@ -782,6 +795,34 @@ mod tests {
         let _held = InstanceLock::acquire(&instance).expect("hold the lock");
         let err = status(&instance).expect_err("status must observe the held lock");
         assert!(matches!(err, ApplyError::Busy));
+    }
+
+    #[test]
+    fn purge_keeps_a_plugins_txt_edited_after_deployment() {
+        let (_tmp, instance) = temp_instance();
+        let local = instance.config.local_dir.clone().expect("local dir set");
+        std::fs::create_dir_all(&local).expect("mk local");
+        // The user's original list, which an untouched purge would restore.
+        std::fs::write(local.join("Plugins.txt"), b"*Original.esp\n").expect("seed original");
+
+        install_plugin(&instance, "CoolMod", "Cool.esp");
+        save_profile(&instance, "Default", &[("CoolMod", true)]);
+        deploy_profile(&instance, "Default", &NullSink).expect("deploy");
+
+        // A tool or the user rewrites Plugins.txt after deployment.
+        std::fs::write(local.join("Plugins.txt"), b"*Edited.esp\n").expect("edit after deploy");
+
+        purge(&instance, &NullSink).expect("purge");
+
+        // The post-deploy edit is preserved, not rolled back to the original.
+        assert_eq!(
+            std::fs::read(local.join("Plugins.txt")).expect("read"),
+            b"*Edited.esp\n"
+        );
+        assert!(
+            !Deployment::exists(&instance),
+            "purge still completes and clears the journal on a Plugins.txt conflict"
+        );
     }
 
     #[test]
