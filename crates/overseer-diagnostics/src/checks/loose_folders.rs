@@ -63,16 +63,17 @@ impl Check for LooseFolders {
                 .map(|file| file.mod_name.as_str())
                 .collect();
 
-            findings.extend(mods.into_iter().map(|name| Finding {
-                check: self.id(),
-                severity: folder.severity,
-                title: format!(
-                    "`{}` {} (from `{}`)",
-                    folder.prefix.join("/"),
-                    folder.summary,
-                    name
-                ),
-                detail: Some(folder.fix.to_owned()),
+            findings.extend(mods.into_iter().map(|name| {
+                Finding::new(
+                    folder.severity,
+                    format!(
+                        "`{}` {} (from `{}`)",
+                        folder.prefix.join("/"),
+                        folder.summary,
+                        name
+                    ),
+                    Some(folder.fix.to_owned()),
+                )
             }));
         }
         findings

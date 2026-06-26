@@ -38,7 +38,7 @@ pub enum InstallError {
     #[error("archive contains no installable files")]
     EmptyArchive,
 
-    #[error("path is not valid UTF-8: {0}")]
+    #[error("path is not valid UTF-8: `{0}`")]
     NonUtf8Path(String),
 }
 

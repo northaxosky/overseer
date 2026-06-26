@@ -30,7 +30,7 @@ pub enum Command {
         target: ProfileArgs,
     },
 
-    /// Removes the instance's live deployment, restoring the game directory
+    /// Remove the instance's live deployment, restoring the game directory
     Purge {
         #[arg(long)]
         instance: Utf8PathBuf,

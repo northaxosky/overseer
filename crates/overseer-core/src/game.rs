@@ -96,7 +96,7 @@ impl std::fmt::Display for GameKind {
 
 /// Returned when a string does not name a game Overseer supports
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
-#[error("unknown game '{0}' (expected one of: fallout4, skyrimse, starfield)")]
+#[error("unknown game `{0}` (expected one of: fallout4, skyrimse, starfield)")]
 pub struct ParseGameKindError(String);
 
 impl FromStr for GameKind {

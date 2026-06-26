@@ -11,7 +11,7 @@ pub enum InstanceError {
         source: std::io::Error,
     },
 
-    #[error("path is not valid UTF-8: {0}")]
+    #[error("path is not valid UTF-8: `{0}`")]
     NonUtf8Path(String),
 
     #[error("no mod named `{0}` in this profile")]
@@ -20,7 +20,7 @@ pub enum InstanceError {
     #[error("a mod named `{0}` is already in this profile")]
     ModAlreadyInList(String),
 
-    #[error("no Overseer instance at `{path}` (run `instance init` first)")]
+    #[error("no Overseer instance at `{path}` (run `overseer instance init` first)")]
     NotAnInstance { path: Utf8PathBuf },
 
     #[error("an Overseer instance already exists at `{path}`")]

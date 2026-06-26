@@ -16,26 +16,24 @@ impl Check for CreationClub {
         let finding = match &ctx.ccc {
             CccStatus::NotApplicable => return Vec::new(),
 
-            CccStatus::Missing { file } => Finding {
-                check: self.id(),
-                severity: Severity::Warning,
-                title: format!("`{file}` is missing from the game folder"),
-                detail: Some(
+            CccStatus::Missing { file } => Finding::new(
+                Severity::Warning,
+                format!("`{file}` is missing from the game folder"),
+                Some(
                     "The install may be incomplete; Creation Club content won't load in order"
                         .to_owned(),
                 ),
-            },
+            ),
 
-            CccStatus::Present { file, entries } => Finding {
-                check: self.id(),
-                severity: Severity::Info,
-                title: format!(
+            CccStatus::Present { file, entries } => Finding::new(
+                Severity::Info,
+                format!(
                     "`{file}` lists {} Creation Club plugin{}",
                     entries.len(),
                     if entries.len() == 1 { "" } else { "s" }
                 ),
-                detail: None,
-            },
+                None,
+            ),
         };
         vec![finding]
     }

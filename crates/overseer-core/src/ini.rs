@@ -11,10 +11,10 @@ pub enum IniError {
     #[error("could not locate the Documents folder to find the game's INI directory")]
     NoDocumentsDir,
 
-    #[error("the Documents path is not valid UTF-8: {0}")]
+    #[error("the Documents path is not valid UTF-8: `{0}`")]
     NonUtf8DocumentsPath(std::path::PathBuf),
 
-    #[error("reading {path}")]
+    #[error("reading `{path}`")]
     Io {
         path: Utf8PathBuf,
         #[source]
@@ -31,6 +31,7 @@ pub struct Ini {
 impl Ini {
     /// Parse INI text: `[section]` headers and `key=value` lines; everything else ignored
     pub fn parse(text: &str) -> Self {
+        let text = text.strip_prefix('\u{FEFF}').unwrap_or(text);
         let mut sections: BTreeMap<String, BTreeMap<String, String>> = BTreeMap::new();
         let mut current = String::new();
         for line in text.lines() {
@@ -130,6 +131,14 @@ mod tests {
     fn parses_sections_and_keys() {
         let ini = Ini::parse("[General]\nsFoo=Bar\n[Archive]\nbInvalidateOlderFiles=1\n");
         assert_eq!(ini.get("General", "sFoo"), Some("Bar"));
+        assert_eq!(ini.get("Archive", "bInvalidateOlderFiles"), Some("1"));
+    }
+
+    #[test]
+    fn a_leading_utf8_bom_is_ignored() {
+        // Windows editors often save INIs with a BOM; without stripping it the first
+        // `[section]` header is misread and every key under it is lost.
+        let ini = Ini::parse("\u{FEFF}[Archive]\nbInvalidateOlderFiles=1\n");
         assert_eq!(ini.get("Archive", "bInvalidateOlderFiles"), Some("1"));
     }
 

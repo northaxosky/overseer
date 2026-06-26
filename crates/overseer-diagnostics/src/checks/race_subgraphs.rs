@@ -20,12 +20,11 @@ impl Check for RaceSubgraphs {
         if total <= STUTTER_THRESHOLD {
             return Vec::new();
         }
-        vec![Finding {
-            check: self.id(),
-            severity: Severity::Warning,
-            title: format!("Mods add {total} race-subgraph records across {} plugins", ctx.sadd_records.len()),
-            detail: Some("High counts can cause stutter between cells; removing or merging animation mods can help".to_owned()),
-        }]
+        vec![Finding::new(
+            Severity::Warning,
+            format!("Mods add {total} race-subgraph records across {} plugins", ctx.sadd_records.len()),
+            Some("High counts can cause stutter between cells; removing or merging animation mods can help".to_owned()),
+        )]
     }
 }
 

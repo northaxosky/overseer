@@ -10,15 +10,15 @@ use thiserror::Error;
 #[derive(Debug, Error)]
 pub enum ApplyError {
     /// An instance may only have one live deployment at a time
-    #[error("{path} already has a live deployment; purge it first")]
+    #[error("`{path}` already has a live deployment; purge it first")]
     AlreadyDeployed { path: Utf8PathBuf },
 
     /// Tried to purge but nothing is deployed
-    #[error("no live deployment found at {path}")]
+    #[error("no live deployment found at `{path}`")]
     NotDeployed { path: Utf8PathBuf },
 
     /// The deployment state file could not be read or written as JSON
-    #[error("deployment state {path}: {source}")]
+    #[error("deployment state `{path}`: {source}")]
     State {
         path: Utf8PathBuf,
         #[source]
@@ -34,7 +34,7 @@ pub enum ApplyError {
     Busy,
 
     /// A reversal could not be fully resolved; the journal is kept
-    #[error("{path} has an unresolved deployment reversal; purge again to retry")]
+    #[error("`{path}` has an unresolved deployment reversal; purge again to retry")]
     RecoveryFailed { path: Utf8PathBuf },
 
     /// A backup directory survives from a previous run with no journal to reverse it
@@ -43,7 +43,7 @@ pub enum ApplyError {
     )]
     OrphanedBackup { path: Utf8PathBuf },
 
-    #[error("{path}: {source}")]
+    #[error("`{path}`: {source}")]
     Io {
         path: Utf8PathBuf,
         #[source]

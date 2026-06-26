@@ -33,12 +33,11 @@ impl Check for LooseFiles {
             .collect();
 
         if findings.is_empty() {
-            findings.push(Finding {
-                check: self.id(),
-                severity: Severity::Info,
-                title: "No loose-file problems found".to_owned(),
-                detail: None,
-            });
+            findings.push(Finding::new(
+                Severity::Info,
+                "No loose-file problems found",
+                None,
+            ));
         }
         findings
     }
@@ -88,12 +87,11 @@ impl LooseFiles {
 
     /// A warning naming the offending file and its mod
     fn warn(&self, file: &DataFile, problem: &str, fix: &str) -> Finding {
-        Finding {
-            check: self.id(),
-            severity: Severity::Warning,
-            title: format!("`{}` {problem} (from `{}`)", file.path, file.mod_name),
-            detail: Some(fix.to_owned()),
-        }
+        Finding::new(
+            Severity::Warning,
+            format!("`{}` {problem} (from `{}`)", file.path, file.mod_name),
+            Some(fix.to_owned()),
+        )
     }
 }
 

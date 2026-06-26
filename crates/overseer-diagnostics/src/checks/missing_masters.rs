@@ -22,12 +22,11 @@ impl Check for MissingMasters {
             .collect();
 
         if findings.is_empty() {
-            findings.push(Finding {
-                check: self.id(),
-                severity: Severity::Info,
-                title: "All plugin masters are present".to_owned(),
-                detail: None,
-            });
+            findings.push(Finding::new(
+                Severity::Info,
+                "All plugin masters are present",
+                None,
+            ));
         }
         findings
     }
@@ -46,12 +45,11 @@ impl MissingMasters {
         if missing.is_empty() {
             return None;
         }
-        Some(Finding {
-            check: self.id(),
-            severity: Severity::Error,
-            title: format!("`{}` is missing {}", plugin.name, missing.join(", ")),
-            detail: Some("Install or activate the master(s), or deactivate this plugin".to_owned()),
-        })
+        Some(Finding::new(
+            Severity::Error,
+            format!("`{}` is missing {}", plugin.name, missing.join(", ")),
+            Some("Install or activate the master(s), or deactivate this plugin".to_owned()),
+        ))
     }
 }
 

@@ -21,15 +21,14 @@ impl Check for IniConfig {
 
         // If the game reads INIs from its install folder, then the ones we parsed aren't real
         if settings.get("General", "bUseMyGamesDirectory") == Some("0") {
-            return vec![Finding {
-                check: self.id(),
-                severity: Severity::Warning,
-                title: "The game is set to ignore the My Games INIs".to_owned(),
-                detail: Some(
+            return vec![Finding::new(
+                Severity::Warning,
+                "The game is set to ignore the My Games INIs",
+                Some(
                     "`bUseMyGamesDirectory=0` makes the game read INIs from its install folder"
                         .to_owned(),
                 ),
-            }];
+            )];
         }
 
         let mut findings = Vec::new();
@@ -37,36 +36,31 @@ impl Check for IniConfig {
         let dirs_final_empty = settings.get("Archive", "sResourceDataDirsFinal") == Some("");
 
         if invalidate_on && dirs_final_empty {
-            findings.push(Finding {
-                check: self.id(),
-                severity: Severity::Info,
-                title: "Archive invalidation is enabled".to_owned(),
-                detail: None,
-            });
+            findings.push(Finding::new(
+                Severity::Info,
+                "Archive invalidation is enabled",
+                None,
+            ));
         } else {
             if !invalidate_on {
-                findings.push(Finding {
-                    check: self.id(),
-                    severity: Severity::Error,
-                    title:
-                        "Archive invalidation is off; loose files won't override archived content"
-                            .to_owned(),
-                    detail: Some(
+                findings.push(Finding::new(
+                    Severity::Error,
+                    "Archive invalidation is off; loose files won't override archived content",
+                    Some(
                         "Set `[Archive] bInvalidateOlderFiles=1` in `Fallout4Custom.ini`"
                             .to_owned(),
                     ),
-                });
+                ));
             }
             if !dirs_final_empty {
-                findings.push(Finding {
-                    check: self.id(),
-                    severity: Severity::Warning,
-                    title: "`sResourceDataDirsFinal` is not empty".to_owned(),
-                    detail: Some(
+                findings.push(Finding::new(
+                    Severity::Warning,
+                    "`sResourceDataDirsFinal` is not empty",
+                    Some(
                         "Clear it with `[Archive] sResourceDataDirsFinal=` in `Fallout4Custom.ini`"
                             .to_owned(),
                     ),
-                });
+                ));
             }
         }
 
@@ -74,12 +68,11 @@ impl Check for IniConfig {
         if let Some(lang) = settings.get("General", "sLanguage") {
             let lang = lang.to_lowercase();
             if lang != "en" {
-                findings.push(Finding {
-                    check: self.id(),
-                    severity: Severity::Info,
-                    title: format!("Game language is `{lang}` (expects `Voices_{lang}` archives)"),
-                    detail: None,
-                });
+                findings.push(Finding::new(
+                    Severity::Info,
+                    format!("Game language is `{lang}` (expects `Voices_{lang}` archives)"),
+                    None,
+                ));
             }
         }
 

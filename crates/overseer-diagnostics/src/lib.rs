@@ -22,6 +22,15 @@ use overseer_core::instance::Instance;
 /// Gather the context for a profile and run every registered check
 pub fn diagnose(instance: &Instance, profile: &str) -> Result<Report, DiagnosticError> {
     let ctx = GameContext::gather(instance, profile)?;
-    let findings = checks::all().iter().flat_map(|c| c.run(&ctx)).collect();
+    let findings = checks::all()
+        .iter()
+        .flat_map(|c| {
+            let id = c.id();
+            c.run(&ctx).into_iter().map(move |mut f| {
+                f.check = id;
+                f
+            })
+        })
+        .collect();
     Ok(Report::new(findings))
 }

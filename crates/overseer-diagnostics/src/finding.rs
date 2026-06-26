@@ -23,3 +23,15 @@ pub struct Finding {
     /// Longer explanation / guidance, shown by the CLI for warnings and errors
     pub detail: Option<String>,
 }
+
+impl Finding {
+    /// A finding without a check id; `diagnose` stamps id
+    pub fn new(severity: Severity, title: impl Into<String>, detail: Option<String>) -> Self {
+        Self {
+            check: "",
+            severity,
+            title: title.into(),
+            detail,
+        }
+    }
+}

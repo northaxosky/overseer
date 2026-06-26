@@ -10,7 +10,7 @@ pub enum DeployError {
     #[error("mod `{mod_name}` has no staging directory @ `{path}`")]
     MissingStaging { mod_name: String, path: Utf8PathBuf },
 
-    #[error("path is not valid UTF-8: {0}")]
+    #[error("path is not valid UTF-8: `{0}`")]
     NonUtf8Path(String),
 
     #[error("failed to walk staging directory `{path}`")]
@@ -41,7 +41,7 @@ pub enum DeployError {
     #[error("the {deployer} backend is not implemented")]
     Unsupported { deployer: DeployerKind },
 
-    #[error("failed to launch `{program}")]
+    #[error("failed to launch `{program}`")]
     Launch {
         program: Utf8PathBuf,
         #[source]

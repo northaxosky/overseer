@@ -39,12 +39,11 @@ impl PluginCount {
         } else {
             (Severity::Info, None)
         };
-        Finding {
-            check: self.id(),
+        Finding::new(
             severity,
-            title: format!("{label} plugins: {count} / {limit}"),
-            detail: detail.map(String::from),
-        }
+            format!("{label} plugins: {count} / {limit}"),
+            detail.map(String::from),
+        )
     }
 }
 
