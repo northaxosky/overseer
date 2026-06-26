@@ -17,8 +17,8 @@ impl Check for PluginCount {
     }
 
     fn run(&self, ctx: &GameContext) -> Vec<Finding> {
-        let light = ctx.active_plugins.iter().filter(|p| p.is_light).count();
-        let full = ctx.active_plugins.len() - light;
+        let light = ctx.loaded_plugins.iter().filter(|p| p.is_light).count();
+        let full = ctx.loaded_plugins.len() - light;
         vec![
             self.count_finding("Full (ESM/ESP)", full, MAX_FULL),
             self.count_finding("Light (ESL)", light, MAX_LIGHT),
@@ -66,10 +66,10 @@ mod tests {
     }
 
     fn ctx(full: usize, light: usize) -> GameContext {
-        let mut active_plugins = vec![plugin(false); full];
-        active_plugins.extend(vec![plugin(true); light]);
+        let mut loaded = vec![plugin(false); full];
+        loaded.extend(vec![plugin(true); light]);
         GameContext {
-            active_plugins,
+            loaded_plugins: loaded,
             ..GameContext::default()
         }
     }

@@ -5,7 +5,9 @@ use camino::{Utf8Path, Utf8PathBuf};
 use overseer_core::deploy::{DATA_DIR, DeployPlan, strip_data_prefix};
 use overseer_core::ini::{GameInis, read_game_inis};
 use overseer_core::instance::{Instance, Profile};
-use overseer_core::plugins::{PluginLoadOrder, PluginMeta, discover_plugins, find_plugin_files};
+use overseer_core::plugins::{
+    PluginLoadOrder, PluginMeta, discover_plugins, implicit_active_plugins, read_metadata,
+};
 use std::collections::BTreeSet;
 
 /// The state a diagnostic run inspects. Gathered once using [`GameContext::gather`]
@@ -13,8 +15,9 @@ use std::collections::BTreeSet;
 pub struct GameContext {
     /// The active mod plugins to inspect (with their masters)
     pub active_plugins: Vec<PluginMeta>,
-    /// Lowercased names of every plugin present when the game loads
-    pub present_plugins: BTreeSet<String>,
+    /// Every plugin the engine actually loads: the active mod plugins plus the
+    /// installed base/DLC/Creation Club plugins it force-loads. The real load-order budget.
+    pub loaded_plugins: Vec<PluginMeta>,
     /// The files this profile would deploy under the game's `Data/` folder
     pub data_files: Vec<DataFile>,
     /// The state of the game's Creation Club manifest
@@ -71,16 +74,6 @@ impl GameContext {
             .filter(|p| order.is_active(&p.name))
             .collect();
 
-        // Everything a master can resolve against at load time: the real Data/ folder
-        // (vanilla + owned DLC + CC) plus the active mod plugins.
-        let mut present_plugins: BTreeSet<String> =
-            find_plugin_files(&instance.config.game_dir.join("Data"))?
-                .iter()
-                .filter_map(|p| p.file_name())
-                .map(str::to_lowercase)
-                .collect();
-        present_plugins.extend(active_plugins.iter().map(|p| p.name.to_lowercase()));
-
         // The files this profile would actually deploy, conflict-resolved. Root/ content
         // deploys to the game root rather than Data/, so it's dropped here.
         let sources = profile.deploy_sources(instance);
@@ -97,13 +90,29 @@ impl GameContext {
             .collect();
         let sadd_records = scan_sadd(&plan, &active_plugins);
 
+        // What the engine force loads (base + dlc + cc)
+        let data_dir = instance.config.game_dir.join(DATA_DIR);
+        let plugin_id = instance.config.game.plugin_id();
+        let mut loaded_plugins: Vec<PluginMeta> = Vec::new();
+
+        if let Ok(local_dir) = instance.local_dir() {
+            let game_id = instance.config.game.load_order_id();
+            for name in implicit_active_plugins(game_id, &instance.config.game_dir, &local_dir)? {
+                let path = data_dir.join(&name);
+                if path.exists() {
+                    loaded_plugins.push(read_metadata(plugin_id, &name, &path)?);
+                }
+            }
+        }
+        loaded_plugins.extend(active_plugins.iter().cloned());
+
         Ok(Self {
             active_plugins,
-            present_plugins,
             data_files,
             ccc: read_ccc(instance),
             inis: read_game_inis(instance).ok(),
             sadd_records,
+            loaded_plugins,
         })
     }
 }
@@ -176,6 +185,7 @@ fn active_plugins_name<'a>(relative: &'a Utf8Path, active: &BTreeSet<String>) ->
 mod tests {
     use super::*;
     use overseer_core::deploy::ModSource;
+    use overseer_core::game::GameKind;
     use tempfile::TempDir;
 
     fn active_set(names: &[&str]) -> BTreeSet<String> {
@@ -268,5 +278,82 @@ mod tests {
                 .unwrap();
 
         assert!(scan_sadd(&plan, &[meta("Clean.esp")]).is_empty());
+    }
+
+    // --- gather: installed implicit (base/DLC/CC) plugins (real temp-dir install) ---
+
+    /// A minimal `TES4` header, enough for a header-only parse to read the flags.
+    fn tes4_bytes(flags: u32) -> Vec<u8> {
+        let mut data = Vec::new();
+        data.extend_from_slice(b"HEDR");
+        data.extend_from_slice(&12u16.to_le_bytes());
+        data.extend_from_slice(&1.0f32.to_le_bytes());
+        data.extend_from_slice(&0i32.to_le_bytes());
+        data.extend_from_slice(&1u32.to_le_bytes());
+
+        let mut out = Vec::new();
+        out.extend_from_slice(b"TES4");
+        out.extend_from_slice(&(data.len() as u32).to_le_bytes());
+        out.extend_from_slice(&flags.to_le_bytes());
+        out.extend_from_slice(&0u32.to_le_bytes());
+        out.extend_from_slice(&0u32.to_le_bytes());
+        out.extend_from_slice(&0u16.to_le_bytes());
+        out.extend_from_slice(&0u16.to_le_bytes());
+        out.extend_from_slice(&data);
+        out
+    }
+
+    /// A fake Fallout 4 install in a temp dir: an instance with its local/ini dirs
+    /// redirected away from the real `%LOCALAPPDATA%`/Documents, plus an empty `Data/`.
+    fn fake_install() -> (TempDir, Instance) {
+        let (tmp, base) = temp_base();
+        let mut instance = Instance::new(base.join("instance"), base.join("game"));
+        instance.config.game = GameKind::Fallout4;
+        instance.config.local_dir = Some(base.join("local"));
+        instance.config.ini_dir = Some(base.join("ini"));
+        std::fs::create_dir_all(instance.config.game_dir.join("Data")).unwrap();
+        std::fs::create_dir_all(instance.mods_dir()).unwrap();
+        (tmp, instance)
+    }
+
+    fn install_game_plugin(instance: &Instance, name: &str, flags: u32) {
+        let path = instance.config.game_dir.join("Data").join(name);
+        std::fs::write(path, tes4_bytes(flags)).unwrap();
+    }
+
+    #[test]
+    fn gather_loads_only_installed_implicit_plugins() {
+        const FLAG_MASTER: u32 = 0x1;
+        let (_tmp, instance) = fake_install();
+        // The base master, one owned DLC, and a Creation Club plugin are installed.
+        install_game_plugin(&instance, "Fallout4.esm", FLAG_MASTER);
+        install_game_plugin(&instance, "DLCCoast.esm", FLAG_MASTER);
+        install_game_plugin(&instance, "ccBGSFO4001-PipBoy.esl", 0);
+        std::fs::write(
+            instance.config.game_dir.join("Fallout4.ccc"),
+            "ccBGSFO4001-PipBoy.esl\n",
+        )
+        .unwrap();
+
+        let ctx = GameContext::gather(&instance, "Default").expect("gather");
+        let names: Vec<&str> = ctx.loaded_plugins.iter().map(|p| p.name.as_str()).collect();
+
+        assert!(names.contains(&"Fallout4.esm"), "base master force-loads");
+        assert!(names.contains(&"DLCCoast.esm"), "owned DLC force-loads");
+        assert!(
+            names.contains(&"ccBGSFO4001-PipBoy.esl"),
+            "CC plugin from Fallout4.ccc force-loads"
+        );
+        // An implicit candidate that isn't installed must not be counted.
+        assert!(
+            !names.contains(&"DLCNukaWorld.esm"),
+            "an uninstalled DLC does not load"
+        );
+
+        // The budget the engine actually sees: 2 full ESMs + 1 light ESL.
+        let full = ctx.loaded_plugins.iter().filter(|p| !p.is_light).count();
+        let light = ctx.loaded_plugins.iter().filter(|p| p.is_light).count();
+        assert_eq!(full, 2, "Fallout4.esm + DLCCoast.esm");
+        assert_eq!(light, 1, "the CC .esl");
     }
 }

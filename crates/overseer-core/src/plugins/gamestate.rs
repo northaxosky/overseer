@@ -30,6 +30,17 @@ pub fn write_active_plugins(
     Ok(())
 }
 
+/// The plugins Fallout 4 force-loads regardless of `Plugins.txt`
+pub fn implicit_active_plugins(
+    game_id: GameId,
+    game_dir: &Utf8Path,
+    local_dir: &Utf8Path,
+) -> Result<Vec<String>, PluginError> {
+    let settings =
+        GameSettings::with_local_path(game_id, game_dir.as_std_path(), local_dir.as_std_path())?;
+    Ok(settings.implicitly_active_plugins().to_vec())
+}
+
 /// The game's real `Plugins.txt` lives directly in the local data dir
 fn plugins_txt_path(local_dir: &Utf8Path) -> Utf8PathBuf {
     local_dir.join("Plugins.txt")
@@ -245,6 +256,36 @@ mod tests {
         assert_eq!(
             std::fs::read(local.join("Plugins.txt")).expect("read"),
             b"*Original.esp\n"
+        );
+    }
+
+    #[test]
+    fn implicit_actives_include_hardcoded_masters_and_ccc_entries() {
+        let (_tmp, game, local) = setup();
+        // A real install ships its Creation Club manifest in the game root.
+        std::fs::write(
+            game.join("Fallout4.ccc"),
+            "ccBGSFO4001-PipBoy(Black).esl\nccBGSFO4003-PipBoy(Camo01).esl\n",
+        )
+        .expect("write ccc");
+
+        let implicit =
+            implicit_active_plugins(GameId::Fallout4, &game, &local).expect("implicit actives");
+
+        // The hardcoded base master and a DLC ESM are always candidates, even
+        // though no files exist on disk: the set is deliberately not presence-filtered.
+        assert!(implicit.iter().any(|p| p == "Fallout4.esm"));
+        assert!(implicit.iter().any(|p| p == "DLCCoast.esm"));
+        // The Creation Club plugins from the manifest are folded in.
+        assert!(
+            implicit
+                .iter()
+                .any(|p| p == "ccBGSFO4001-PipBoy(Black).esl")
+        );
+        assert!(
+            implicit
+                .iter()
+                .any(|p| p == "ccBGSFO4003-PipBoy(Camo01).esl")
         );
     }
 }

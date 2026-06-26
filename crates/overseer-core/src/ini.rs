@@ -1,6 +1,6 @@
 //! Reading the game's INI files (`Fallout4.ini`, `Fallout4Custom.ini`, `Fallout4Prefs.ini`)
 
-use crate::instance::Instance;
+use crate::instance::{Instance, InstanceError};
 use camino::Utf8PathBuf;
 use std::collections::BTreeMap;
 use thiserror::Error;
@@ -8,11 +8,8 @@ use thiserror::Error;
 /// Something went wrong locating or reading the game INIs
 #[derive(Debug, Error)]
 pub enum IniError {
-    #[error("could not locate the Documents folder to find the game's INI directory")]
-    NoDocumentsDir,
-
-    #[error("the Documents path is not valid UTF-8: `{0}`")]
-    NonUtf8DocumentsPath(std::path::PathBuf),
+    #[error(transparent)]
+    Instance(#[from] InstanceError),
 
     #[error("reading `{path}`")]
     Io {
@@ -73,29 +70,9 @@ pub struct GameInis {
     pub prefs: Ini,
 }
 
-/// Locate the directory holding the game INIs
-pub fn resolve_ini_dir(instance: &Instance) -> Result<Utf8PathBuf, IniError> {
-    if let Some(dir) = &instance.config.ini_dir {
-        return Ok(dir.clone());
-    }
-
-    #[cfg(windows)]
-    {
-        let docs = dirs::document_dir().ok_or(IniError::NoDocumentsDir)?;
-        let docs = Utf8PathBuf::from_path_buf(docs).map_err(IniError::NonUtf8DocumentsPath)?;
-        Ok(docs
-            .join("My Games")
-            .join(instance.config.game.my_games_dir()))
-    }
-    #[cfg(not(windows))]
-    {
-        Err(IniError::NoDocumentsDir)
-    }
-}
-
 /// Read and parse the game's INIs from the resolved directory
 pub fn read_game_inis(instance: &Instance) -> Result<GameInis, IniError> {
-    let dir = resolve_ini_dir(instance)?;
+    let dir = instance.ini_dir()?;
     let stem = instance.config.game.ini_stem();
 
     let read = |name: String| -> Result<Ini, IniError> {
@@ -201,7 +178,7 @@ mod tests {
         assert_eq!(base.get("archive", "bBar"), Some("1"));
     }
 
-    // --- resolve_ini_dir + read_game_inis (driven through the ini_dir override) ---
+    // --- ini_dir + read_game_inis (driven through the ini_dir override) ---
 
     fn temp() -> (TempDir, Utf8PathBuf) {
         let d = TempDir::new().expect("temp");
@@ -219,7 +196,7 @@ mod tests {
     fn resolve_uses_the_override_when_set() {
         let (_t, base) = temp();
         let instance = instance_with_ini_dir(&base);
-        assert_eq!(resolve_ini_dir(&instance).unwrap(), base);
+        assert_eq!(instance.ini_dir().unwrap(), base);
     }
 
     #[test]

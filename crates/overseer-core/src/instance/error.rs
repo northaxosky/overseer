@@ -42,6 +42,15 @@ pub enum InstanceError {
         #[source]
         source: Box<toml::ser::Error>,
     },
+
+    #[error("could not locate %LOCALAPPDATA%; set `local_dir` in overseer.toml")]
+    NoLocalAppData,
+
+    #[error("could not locate the Documents folder to find the game's INI directory")]
+    NoDocumentsDir,
+
+    #[error("the Documents path is not valid UTF-8: `{0}`")]
+    NonUtf8DocumentsPath(std::path::PathBuf),
 }
 
 pub(crate) fn io_err(path: &Utf8Path, source: std::io::Error) -> InstanceError {

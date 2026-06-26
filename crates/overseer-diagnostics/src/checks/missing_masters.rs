@@ -15,10 +15,17 @@ impl Check for MissingMasters {
     }
 
     fn run(&self, ctx: &GameContext) -> Vec<Finding> {
+        // A master is satisfied only if its provider is actually loaded: the active
+        // mod plugins plus the base/DLC/CC the engine force-loads (not merely on disk).
+        let loaded: BTreeSet<String> = ctx
+            .loaded_plugins
+            .iter()
+            .map(|p| p.name.to_lowercase())
+            .collect();
         let mut findings: Vec<Finding> = ctx
             .active_plugins
             .iter()
-            .filter_map(|plugin| self.missing_for(plugin, &ctx.present_plugins))
+            .filter_map(|plugin| self.missing_for(plugin, &loaded))
             .collect();
 
         if findings.is_empty() {
@@ -73,7 +80,7 @@ mod tests {
     fn ctx(active: Vec<PluginMeta>, present: &[&str]) -> GameContext {
         GameContext {
             active_plugins: active,
-            present_plugins: present.iter().map(|p| p.to_lowercase()).collect(),
+            loaded_plugins: present.iter().map(|p| meta(p, &[])).collect(),
             ..GameContext::default()
         }
     }

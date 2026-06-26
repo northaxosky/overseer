@@ -25,10 +25,6 @@ pub enum ApplyError {
         source: serde_json::Error,
     },
 
-    /// The game's local app-data dir couldn't be located
-    #[error("could not locate %LOCALAPPDATA%; set `local_dir` in overseer.toml")]
-    NoLocalAppData,
-
     /// Another process or command already holds this instance's lock
     #[error("instance is in use by another Overseer process; try again once it finishes")]
     Busy,

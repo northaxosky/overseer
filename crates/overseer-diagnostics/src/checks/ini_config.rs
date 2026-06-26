@@ -76,6 +76,25 @@ impl Check for IniConfig {
             }
         }
 
+        // `sTestFile*` entries make FO4 drive load order from plugin timestamps instead
+        // of `Plugins.txt`, which Overseer's deploy/purge doesn't manage.
+        if (1..=10).any(|n| {
+            settings
+                .get("General", &format!("sTestFile{n}"))
+                .is_some_and(|v| !v.trim().is_empty())
+        }) {
+            findings.push(Finding::new(
+                Severity::Warning,
+                "`sTestFile` entries are set in the game INI",
+                Some(
+                    "These force a plugin list by file timestamp, bypassing `Plugins.txt`; \
+                     Overseer's deploy and purge won't manage that load order. Remove the \
+                     `[General] sTestFile*` lines unless you set them deliberately."
+                        .to_owned(),
+                ),
+            ));
+        }
+
         findings
     }
 }
@@ -178,5 +197,26 @@ mod tests {
         // Only the invalidation Info; English needs no note.
         assert_eq!(findings.len(), 1);
         assert!(findings[0].title.contains("enabled"));
+    }
+
+    #[test]
+    fn stestfile_entries_warn() {
+        let findings = IniConfig.run(&ctx(
+            "[General]\nsTestFile1=WIP.esp\n[Archive]\nbInvalidateOlderFiles=1\nsResourceDataDirsFinal=\n",
+        ));
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.severity == Severity::Warning && f.title.contains("sTestFile"))
+        );
+    }
+
+    #[test]
+    fn an_empty_stestfile_does_not_warn() {
+        // A blank value isn't a valid test file, so it shouldn't trip the warning.
+        let findings = IniConfig.run(&ctx(
+            "[General]\nsTestFile1=\n[Archive]\nbInvalidateOlderFiles=1\nsResourceDataDirsFinal=\n",
+        ));
+        assert!(!findings.iter().any(|f| f.title.contains("sTestFile")));
     }
 }

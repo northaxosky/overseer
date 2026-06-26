@@ -156,6 +156,35 @@ impl Instance {
         std::fs::write(&path, text).map_err(|e| io_err(&path, e))
     }
 
+    /// The directory holding the game's real `Plugins.txt`: the configured
+    /// `local_dir`, else the standard `%LOCALAPPDATA%\<game>` location.
+    pub fn local_dir(&self) -> Result<Utf8PathBuf, InstanceError> {
+        if let Some(dir) = &self.config.local_dir {
+            return Ok(dir.clone());
+        }
+        let base = std::env::var("LOCALAPPDATA").map_err(|_| InstanceError::NoLocalAppData)?;
+        Ok(Utf8PathBuf::from(base).join(self.config.game.local_appdata_dir()))
+    }
+
+    /// The directory the game reads its INIs from: the configured `ini_dir`,
+    /// else the standard `Documents\My Games\<game>` location.
+    pub fn ini_dir(&self) -> Result<Utf8PathBuf, InstanceError> {
+        if let Some(dir) = &self.config.ini_dir {
+            return Ok(dir.clone());
+        }
+        #[cfg(windows)]
+        {
+            let docs = dirs::document_dir().ok_or(InstanceError::NoDocumentsDir)?;
+            let docs =
+                Utf8PathBuf::from_path_buf(docs).map_err(InstanceError::NonUtf8DocumentsPath)?;
+            Ok(docs.join("My Games").join(self.config.game.my_games_dir()))
+        }
+        #[cfg(not(windows))]
+        {
+            Err(InstanceError::NoDocumentsDir)
+        }
+    }
+
     pub fn mods_dir(&self) -> Utf8PathBuf {
         self.root.join("mods")
     }
