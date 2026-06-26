@@ -1,17 +1,26 @@
 //! The TUI's theme: maps the shared `Role`s to concrete `ratatui::Style`s
 
-use overseer_frontend::style::Role;
-use ratatui::style::{Color, Modifier, Style};
+use overseer_frontend::style::{Color, Role};
+use ratatui::style::{Color as TuiColor, Modifier, Style};
 
-/// The ratatui style for a semantic role
+/// The ratatui style for a semantic role, derived from the shared palette.
 pub(crate) fn style(role: Role) -> Style {
-    match role {
-        Role::Heading => Style::new().add_modifier(Modifier::BOLD),
-        Role::Success | Role::Added => Style::new().fg(Color::Green),
-        Role::Failure => Style::new().fg(Color::Red).add_modifier(Modifier::BOLD),
-        Role::Warning | Role::Removed => Style::new().fg(Color::Yellow),
-        Role::Muted => Style::new().add_modifier(Modifier::DIM),
+    let p = role.palette();
+    let mut style = Style::new();
+    if let Some(color) = p.color {
+        style = style.fg(match color {
+            Color::Green => TuiColor::Green,
+            Color::Red => TuiColor::Red,
+            Color::Yellow => TuiColor::Yellow,
+        });
     }
+    if p.bold {
+        style = style.add_modifier(Modifier::BOLD);
+    }
+    if p.dim {
+        style = style.add_modifier(Modifier::DIM);
+    }
+    style
 }
 
 /// Highlight for the selected row in a list

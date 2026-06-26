@@ -18,3 +18,66 @@ pub enum Role {
     /// Removed Entry
     Removed,
 }
+
+/// A backend neutral terminal color
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Color {
+    Green,
+    Red,
+    Yellow,
+}
+
+/// The canonical styling for a role: an optional colour plus emphasis flags
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct RoleStyle {
+    pub color: Option<Color>,
+    pub bold: bool,
+    pub dim: bool,
+}
+
+impl Role {
+    /// This role's canonical, backend neutral styling
+    pub fn palette(self) -> RoleStyle {
+        let colored = |c| RoleStyle {
+            color: Some(c),
+            bold: true,
+            dim: false,
+        };
+        match self {
+            Role::Heading => RoleStyle {
+                bold: true,
+                ..RoleStyle::default()
+            },
+            Role::Success | Role::Added => colored(Color::Green),
+            Role::Failure => colored(Color::Red),
+            Role::Warning | Role::Removed => colored(Color::Yellow),
+            Role::Muted => RoleStyle {
+                dim: true,
+                ..RoleStyle::default()
+            },
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn palette_maps_roles_to_their_semantic_colours() {
+        assert_eq!(Role::Success.palette().color, Some(Color::Green));
+        assert_eq!(Role::Failure.palette().color, Some(Color::Red));
+        assert_eq!(Role::Warning.palette().color, Some(Color::Yellow));
+        // Heading and Muted carry emphasis, not colour.
+        assert_eq!(Role::Heading.palette().color, None);
+        assert!(Role::Heading.palette().bold);
+        assert!(Role::Muted.palette().dim);
+    }
+
+    #[test]
+    fn added_and_removed_share_their_base_role_styling() {
+        // The aliases must track their primary role so the front ends stay in sync.
+        assert_eq!(Role::Added.palette(), Role::Success.palette());
+        assert_eq!(Role::Removed.palette(), Role::Warning.palette());
+    }
+}

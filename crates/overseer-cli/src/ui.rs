@@ -3,17 +3,24 @@
 use std::fmt::Display;
 
 use overseer_core::deploy::{ProgressEvent, ProgressSink};
-pub use overseer_frontend::style::Role;
+pub use overseer_frontend::style::{Color, Role};
 use owo_colors::{OwoColorize, Stream::Stdout, Style};
 
 fn role_style(role: Role) -> Style {
-    match role {
-        Role::Heading => Style::new().bold(),
-        Role::Success | Role::Added => Style::new().green().bold(),
-        Role::Failure => Style::new().red().bold(),
-        Role::Warning | Role::Removed => Style::new().yellow().bold(),
-        Role::Muted => Style::new().dimmed(),
+    let p = role.palette();
+    let mut style = match p.color {
+        Some(Color::Green) => Style::new().green(),
+        Some(Color::Red) => Style::new().red(),
+        Some(Color::Yellow) => Style::new().yellow(),
+        None => Style::new(),
+    };
+    if p.bold {
+        style = style.bold();
     }
+    if p.dim {
+        style = style.dimmed();
+    }
+    style
 }
 
 /// Paint `value` in `role`, honouring the active colour choice (`--color` / `NO_COLOR`).
