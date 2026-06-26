@@ -1,4 +1,4 @@
-use camino::{Utf8Path, Utf8PathBuf};
+use camino::Utf8PathBuf;
 use thiserror::Error;
 
 /// Errors from reading or managing plugins
@@ -11,23 +11,14 @@ pub enum PluginError {
         source: esplugin::Error,
     },
 
-    #[error("io error at `{path}`")]
-    Io {
-        path: Utf8PathBuf,
-        #[source]
-        source: std::io::Error,
-    },
+    #[error(transparent)]
+    Io(#[from] crate::error::IoError),
 
     #[error("no plugin named `{0}` in the load order")]
     NotInLoadOrder(String),
 
-    #[error("writing the game load order: {0}")]
+    #[error(transparent)]
     GameState(#[from] loadorder::Error),
 }
 
-pub(crate) fn io_err(path: &Utf8Path, source: std::io::Error) -> PluginError {
-    PluginError::Io {
-        path: path.to_owned(),
-        source,
-    }
-}
+pub(crate) use crate::error::io_err;

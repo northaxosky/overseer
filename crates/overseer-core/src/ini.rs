@@ -1,7 +1,6 @@
 //! Reading the game's INI files (`Fallout4.ini`, `Fallout4Custom.ini`, `Fallout4Prefs.ini`)
 
 use crate::instance::{Instance, InstanceError};
-use camino::Utf8PathBuf;
 use std::collections::BTreeMap;
 use thiserror::Error;
 
@@ -11,12 +10,8 @@ pub enum IniError {
     #[error(transparent)]
     Instance(#[from] InstanceError),
 
-    #[error("reading `{path}`")]
-    Io {
-        path: Utf8PathBuf,
-        #[source]
-        source: std::io::Error,
-    },
+    #[error(transparent)]
+    Io(#[from] crate::error::IoError),
 }
 
 /// A parsed INI file: sections of key/value pairs
@@ -80,7 +75,7 @@ pub fn read_game_inis(instance: &Instance) -> Result<GameInis, IniError> {
         match std::fs::read_to_string(&path) {
             Ok(text) => Ok(Ini::parse(&text)),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Ini::default()),
-            Err(source) => Err(IniError::Io { path, source }),
+            Err(source) => Err(IniError::Io(crate::error::IoError::new(&path, source))),
         }
     };
 
@@ -100,7 +95,6 @@ mod tests {
     use super::*;
     use crate::instance::Instance;
     use camino::Utf8Path;
-    use tempfile::TempDir;
 
     // --- parser ---
 
@@ -180,11 +174,7 @@ mod tests {
 
     // --- ini_dir + read_game_inis (driven through the ini_dir override) ---
 
-    fn temp() -> (TempDir, Utf8PathBuf) {
-        let d = TempDir::new().expect("temp");
-        let base = Utf8PathBuf::from_path_buf(d.path().to_path_buf()).expect("utf8");
-        (d, base)
-    }
+    use crate::test_support::temp;
 
     fn instance_with_ini_dir(ini_dir: &Utf8Path) -> Instance {
         let mut instance = Instance::new("inst", "game");

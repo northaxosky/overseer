@@ -1,42 +1,10 @@
 //! Plan-derived record of a deployment transaction, acts as the source for reversing it
 
 use super::error::io_err;
-use super::{DeployError, DeployPlan, Deployer, HardlinkDeployer, ProjFsDeployer, UsvfsDeployer};
+use super::{DeployError, DeployPlan, DeployerKind};
 use camino::{Utf8Path, Utf8PathBuf};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
-
-/// Identifies which deployment backend owns a record
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub enum DeployerKind {
-    /// NTFS hard links
-    #[default]
-    HardLink,
-    /// TODO: User space virtual filesystem (MO2)
-    Usvfs,
-    /// TODO: ProjFS
-    ProjFs,
-}
-
-impl std::fmt::Display for DeployerKind {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let name = match self {
-            Self::HardLink => "HardLink Deployer",
-            Self::Usvfs => "USVFS Deployer",
-            Self::ProjFs => "ProjFS Deployer",
-        };
-        f.write_str(name)
-    }
-}
-
-/// Construct the deployment backend for a [`DeployerKind`]
-pub fn deployer_for(kind: DeployerKind) -> Box<dyn Deployer> {
-    match kind {
-        DeployerKind::HardLink => Box::new(HardlinkDeployer::new()),
-        DeployerKind::Usvfs => Box::new(UsvfsDeployer::new()),
-        DeployerKind::ProjFs => Box::new(ProjFsDeployer::new()),
-    }
-}
 
 /// One file to deploy: where it lands, and the source it is linked from
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -113,7 +81,7 @@ fn collect_missing_dirs(
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
                 created_dirs.push(current.clone());
             }
-            Err(e) => return Err(io_err(&abs, e)),
+            Err(e) => return Err(io_err(&abs, e).into()),
         }
     }
     Ok(())
@@ -152,21 +120,9 @@ impl ReversalReport {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::deploy::ModSource;
-    use tempfile::TempDir;
+    use crate::deploy::{ModSource, deployer_for};
 
-    fn temp() -> (TempDir, Utf8PathBuf) {
-        let dir = TempDir::new().expect("create temp dir");
-        let base = Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).expect("utf8 temp path");
-        (dir, base)
-    }
-
-    fn write(path: &Utf8Path, contents: &str) {
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).expect("create parents");
-        }
-        std::fs::write(path, contents).expect("write file");
-    }
+    use crate::test_support::{temp, write};
 
     #[test]
     fn vfs_stub_launch_is_unsupported() {

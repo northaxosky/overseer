@@ -35,7 +35,7 @@ impl Profile {
         let text = match std::fs::read_to_string(&path) {
             Ok(text) => text,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
-            Err(e) => return Err(io_err(&path, e)),
+            Err(e) => return Err(io_err(&path, e).into()),
         };
         Ok(Self {
             name: name.to_owned(),
@@ -53,7 +53,7 @@ impl Profile {
     }
 
     /// Serialize a mod list to `modlist.txt` text (`+`/`-` prefixes, one per line)
-    pub fn to_modlist_string(&self) -> String {
+    pub(crate) fn to_modlist_string(&self) -> String {
         let mut out = String::new();
         for entry in &self.mods {
             out.push(match entry.kind {
@@ -245,8 +245,6 @@ fn parse_modlist(text: &str) -> Vec<ModListEntry> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use camino::Utf8PathBuf;
-    use tempfile::TempDir;
 
     fn entry(name: &str, enabled: bool) -> ModListEntry {
         ModListEntry {
@@ -272,12 +270,7 @@ mod tests {
         }
     }
 
-    fn temp_instance() -> (TempDir, Instance) {
-        let dir = TempDir::new().expect("temp dir");
-        let root = Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).expect("utf8 path");
-        let instance = Instance::new(root.join("instance"), root.join("game"));
-        (dir, instance)
-    }
+    use crate::test_support::temp_instance;
 
     /// A profile with the given mods, all enabled and managed, in priority order.
     fn profile_of(names: &[&str]) -> Profile {

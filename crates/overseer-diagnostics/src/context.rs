@@ -186,6 +186,7 @@ mod tests {
     use super::*;
     use overseer_core::deploy::ModSource;
     use overseer_core::game::GameKind;
+    use overseer_core::test_support::{FLAG_MASTER, temp as temp_base, write_plugin};
     use tempfile::TempDir;
 
     fn active_set(names: &[&str]) -> BTreeSet<String> {
@@ -240,12 +241,6 @@ mod tests {
 
     // --- scan_sadd (real temp-dir plan) ---
 
-    fn temp_base() -> (TempDir, Utf8PathBuf) {
-        let tmp = TempDir::new().expect("temp dir");
-        let base = Utf8PathBuf::from_path_buf(tmp.path().to_path_buf()).expect("utf8");
-        (tmp, base)
-    }
-
     #[test]
     fn counts_markers_only_in_active_top_level_plugins() {
         let (_tmp, base) = temp_base();
@@ -282,27 +277,6 @@ mod tests {
 
     // --- gather: installed implicit (base/DLC/CC) plugins (real temp-dir install) ---
 
-    /// A minimal `TES4` header, enough for a header-only parse to read the flags.
-    fn tes4_bytes(flags: u32) -> Vec<u8> {
-        let mut data = Vec::new();
-        data.extend_from_slice(b"HEDR");
-        data.extend_from_slice(&12u16.to_le_bytes());
-        data.extend_from_slice(&1.0f32.to_le_bytes());
-        data.extend_from_slice(&0i32.to_le_bytes());
-        data.extend_from_slice(&1u32.to_le_bytes());
-
-        let mut out = Vec::new();
-        out.extend_from_slice(b"TES4");
-        out.extend_from_slice(&(data.len() as u32).to_le_bytes());
-        out.extend_from_slice(&flags.to_le_bytes());
-        out.extend_from_slice(&0u32.to_le_bytes());
-        out.extend_from_slice(&0u32.to_le_bytes());
-        out.extend_from_slice(&0u16.to_le_bytes());
-        out.extend_from_slice(&0u16.to_le_bytes());
-        out.extend_from_slice(&data);
-        out
-    }
-
     /// A fake Fallout 4 install in a temp dir: an instance with its local/ini dirs
     /// redirected away from the real `%LOCALAPPDATA%`/Documents, plus an empty `Data/`.
     fn fake_install() -> (TempDir, Instance) {
@@ -317,13 +291,11 @@ mod tests {
     }
 
     fn install_game_plugin(instance: &Instance, name: &str, flags: u32) {
-        let path = instance.config.game_dir.join("Data").join(name);
-        std::fs::write(path, tes4_bytes(flags)).unwrap();
+        write_plugin(&instance.config.game_dir.join("Data"), name, flags, &[]);
     }
 
     #[test]
     fn gather_loads_only_installed_implicit_plugins() {
-        const FLAG_MASTER: u32 = 0x1;
         let (_tmp, instance) = fake_install();
         // The base master, one owned DLC, and a Creation Club plugin are installed.
         install_game_plugin(&instance, "Fallout4.esm", FLAG_MASTER);

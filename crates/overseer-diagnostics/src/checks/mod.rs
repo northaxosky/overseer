@@ -12,13 +12,13 @@ use crate::context::GameContext;
 use crate::finding::Finding;
 use camino::Utf8Path;
 
-pub use creation_club::CreationClub;
-pub use ini_config::IniConfig;
-pub use loose_files::LooseFiles;
-pub use loose_folders::LooseFolders;
-pub use missing_masters::MissingMasters;
-pub use plugin_count::PluginCount;
-pub use race_subgraphs::RaceSubgraphs;
+use creation_club::CreationClub;
+use ini_config::IniConfig;
+use loose_files::LooseFiles;
+use loose_folders::LooseFolders;
+use missing_masters::MissingMasters;
+use plugin_count::PluginCount;
+use race_subgraphs::RaceSubgraphs;
 
 /// A single setup/health check: pure function of the gathered context
 pub trait Check {

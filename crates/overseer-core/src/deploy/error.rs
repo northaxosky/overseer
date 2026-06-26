@@ -1,7 +1,7 @@
 //! Errors produced by the deployment engine
 
 use super::DeployerKind;
-use camino::{Utf8Path, Utf8PathBuf};
+use camino::Utf8PathBuf;
 use thiserror::Error;
 
 /// Errors produced by the deployment engine
@@ -28,17 +28,13 @@ pub enum DeployError {
         target: Utf8PathBuf,
     },
 
-    #[error("io error at `{path}`")]
-    Io {
-        path: Utf8PathBuf,
-        #[source]
-        source: std::io::Error,
-    },
+    #[error(transparent)]
+    Io(#[from] crate::error::IoError),
 
     #[error("a backed-up file remains unresolved at `{path}`")]
     ResidualBackup { path: Utf8PathBuf },
 
-    #[error("the {deployer} backend is not implemented")]
+    #[error("the `{deployer}` backend is not implemented")]
     Unsupported { deployer: DeployerKind },
 
     #[error("failed to launch `{program}`")]
@@ -55,12 +51,7 @@ pub enum DeployError {
 }
 
 /// Attach the offending path to an [`std::io::Error`].
-pub(crate) fn io_err(path: &Utf8Path, source: std::io::Error) -> DeployError {
-    DeployError::Io {
-        path: path.to_owned(),
-        source,
-    }
-}
+pub(crate) use crate::error::io_err;
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -69,18 +60,14 @@ pub(crate) fn io_err(path: &Utf8Path, source: std::io::Error) -> DeployError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use camino::Utf8Path;
 
     #[test]
     fn io_err_attaches_path_and_preserves_source_kind() {
         let source = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "nope");
         let err = io_err(Utf8Path::new("C:/x/y.dds"), source);
-        match err {
-            DeployError::Io { path, source } => {
-                assert_eq!(path, Utf8PathBuf::from("C:/x/y.dds"));
-                assert_eq!(source.kind(), std::io::ErrorKind::PermissionDenied);
-            }
-            other => panic!("expected Io, got {other:?}"),
-        }
+        assert_eq!(err.path, Utf8PathBuf::from("C:/x/y.dds"));
+        assert_eq!(err.source.kind(), std::io::ErrorKind::PermissionDenied);
     }
 
     #[test]

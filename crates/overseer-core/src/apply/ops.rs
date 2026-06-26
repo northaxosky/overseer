@@ -288,50 +288,9 @@ fn guard_no_orphaned_backup(backup_root: &Utf8Path) -> Result<(), ApplyError> {
 mod tests {
     use super::*;
     use crate::deploy::NullSink;
-    use crate::instance::{Instance, ModKind, ModListEntry, Profile};
-    use crate::plugins::test_support::write_plugin;
+    use crate::instance::Instance;
+    use crate::test_support::{install_mod, install_plugin, save_profile, temp_instance};
     use camino::Utf8PathBuf;
-    use tempfile::TempDir;
-
-    /// A temp instance whose mods/ and game/ share one volume, so hardlinks succeed.
-    fn temp_instance() -> (TempDir, Instance) {
-        let dir = TempDir::new().expect("temp dir");
-        let root = Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).expect("utf8 path");
-        let mut instance = Instance::new(root.join("instance"), root.join("game"));
-        // Point Plugins.txt at a temp dir so tests never touch the real %LOCALAPPDATA%.
-        instance.config.local_dir = Some(root.join("local"));
-        (dir, instance)
-    }
-
-    /// Create a mod folder under mods/ with the given relative files and contents.
-    fn install_mod(instance: &Instance, name: &str, files: &[(&str, &str)]) {
-        for (rel, contents) in files {
-            let path = instance.mods_dir().join(name).join(rel);
-            std::fs::create_dir_all(path.parent().expect("parent")).expect("mkdir");
-            std::fs::write(&path, contents).expect("write file");
-        }
-    }
-
-    /// Install a mod whose staging dir holds a single valid Fallout 4 plugin.
-    fn install_plugin(instance: &Instance, mod_name: &str, plugin: &str) {
-        write_plugin(&instance.mods_dir().join(mod_name), plugin, 0, &[]);
-    }
-
-    /// Save a profile (highest priority first) so `deploy_profile` can load it from disk.
-    fn save_profile(instance: &Instance, name: &str, mods: &[(&str, bool)]) {
-        let profile = Profile {
-            name: name.to_owned(),
-            mods: mods
-                .iter()
-                .map(|(n, enabled)| ModListEntry {
-                    name: (*n).to_owned(),
-                    enabled: *enabled,
-                    kind: ModKind::Managed,
-                })
-                .collect(),
-        };
-        profile.save(instance).expect("save profile");
-    }
 
     /// Absolute path of a file as it would land under the game's Data/ directory.
     fn deployed(instance: &Instance, rel: &str) -> Utf8PathBuf {

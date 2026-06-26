@@ -80,14 +80,10 @@ fn extract_zip(archive: &Utf8Path, dest: &Utf8Path) -> Result<(), InstallError> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use camino::Utf8PathBuf;
+
     use std::fs::File;
 
-    fn temp() -> (tempfile::TempDir, Utf8PathBuf) {
-        let dir = tempfile::tempdir().expect("temp dir");
-        let base = Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).expect("utf8 path");
-        (dir, base)
-    }
+    use crate::test_support::temp;
 
     /// A normal `.7z` extracts through `extract`, covering the 7z happy path on the backend.
     #[test]

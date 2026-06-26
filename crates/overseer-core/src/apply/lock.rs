@@ -6,7 +6,7 @@ use std::fs::{File, OpenOptions, TryLockError};
 
 /// An exclusive RAII advisory lock on an instance's `state/overseer.lock`
 #[derive(Debug)]
-pub struct InstanceLock {
+pub(crate) struct InstanceLock {
     _file: File,
 }
 
@@ -27,7 +27,7 @@ impl InstanceLock {
         match file.try_lock() {
             Ok(()) => Ok(Self { _file: file }),
             Err(TryLockError::WouldBlock) => Err(ApplyError::Busy),
-            Err(TryLockError::Error(e)) => Err(io_err(&path, e)),
+            Err(TryLockError::Error(e)) => Err(io_err(&path, e).into()),
         }
     }
 }

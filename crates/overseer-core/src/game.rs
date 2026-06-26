@@ -13,14 +13,55 @@ pub enum GameKind {
     Starfield,
 }
 
+/// The per-game constants, declared once per variant so adding a game touches one place.
+struct GameSpecs {
+    load_order_id: GameId,
+    executable: &'static str,
+    script_extender_loader: &'static str,
+    /// Folder name under both `%LOCALAPPDATA%` and `Documents/My Games` (identical per game).
+    data_dir_name: &'static str,
+    ini_stem: &'static str,
+    ccc_file: Option<&'static str>,
+    display_name: &'static str,
+}
+
 impl GameKind {
+    /// All per-game specifics in one place; every accessor below reads a field from here.
+    fn specs(self) -> GameSpecs {
+        match self {
+            Self::Fallout4 => GameSpecs {
+                load_order_id: GameId::Fallout4,
+                executable: "Fallout4.exe",
+                script_extender_loader: "f4se_loader.exe",
+                data_dir_name: "Fallout4",
+                ini_stem: "Fallout4",
+                ccc_file: Some("Fallout4.ccc"),
+                display_name: "Fallout 4",
+            },
+            Self::SkyrimSE => GameSpecs {
+                load_order_id: GameId::SkyrimSE,
+                executable: "SkyrimSE.exe",
+                script_extender_loader: "skse64_loader.exe",
+                data_dir_name: "Skyrim Special Edition",
+                ini_stem: "Skyrim",
+                ccc_file: Some("Skyrim.ccc"),
+                display_name: "Skyrim Special Edition",
+            },
+            Self::Starfield => GameSpecs {
+                load_order_id: GameId::Starfield,
+                executable: "Starfield.exe",
+                script_extender_loader: "sfse_loader.exe",
+                data_dir_name: "Starfield",
+                ini_stem: "Starfield",
+                ccc_file: None,
+                display_name: "Starfield",
+            },
+        }
+    }
+
     /// The LOOT stack's id, for load order rules (`libloadorder`)
     pub fn load_order_id(self) -> GameId {
-        match self {
-            Self::Fallout4 => GameId::Fallout4,
-            Self::SkyrimSE => GameId::SkyrimSE,
-            Self::Starfield => GameId::Starfield,
-        }
+        self.specs().load_order_id
     }
 
     /// The plugin perser id (`esplugin`), from the load order id
@@ -30,67 +71,38 @@ impl GameKind {
 
     /// The game's main executable, found in the install root
     pub fn executable(self) -> &'static str {
-        match self {
-            Self::Fallout4 => "Fallout4.exe",
-            Self::SkyrimSE => "SkyrimSE.exe",
-            Self::Starfield => "Starfield.exe",
-        }
+        self.specs().executable
     }
 
     /// The script extender loader (F4SE, SKSE64, SFSE)
     pub fn script_extender_loader(self) -> &'static str {
-        match self {
-            Self::Fallout4 => "f4se_loader.exe",
-            Self::SkyrimSE => "skse64_loader.exe",
-            Self::Starfield => "sfse_loader.exe",
-        }
+        self.specs().script_extender_loader
     }
 
     /// Folder under `%LOCALAPPDATA%` where the game keeps `Plugins.txt`
     pub fn local_appdata_dir(self) -> &'static str {
-        match self {
-            Self::Fallout4 => "Fallout4",
-            Self::SkyrimSE => "Skyrim Special Edition",
-            Self::Starfield => "Starfield",
-        }
+        self.specs().data_dir_name
     }
 
     /// The Creation Club load-order manifest in the game root, if the game uses one
     pub fn ccc_file(self) -> Option<&'static str> {
-        match self {
-            Self::Fallout4 => Some("Fallout4.ccc"),
-            Self::SkyrimSE => Some("Skyrim.ccc"),
-            Self::Starfield => None,
-        }
+        self.specs().ccc_file
     }
 
     /// Folder under `Documents/My Games` where the game keeps its INIs
     pub fn my_games_dir(self) -> &'static str {
-        match self {
-            Self::Fallout4 => "Fallout4",
-            Self::SkyrimSE => "Skyrim Special Edition",
-            Self::Starfield => "Starfield",
-        }
+        self.specs().data_dir_name
     }
 
     /// Base name of the game's ini files: `<stem>.ini`, `<stem>Custom.ini`, `<stem>Prefs.ini`
     pub fn ini_stem(self) -> &'static str {
-        match self {
-            Self::Fallout4 => "Fallout4",
-            Self::SkyrimSE => "Skyrim",
-            Self::Starfield => "Starfield",
-        }
+        self.specs().ini_stem
     }
 }
 
 impl std::fmt::Display for GameKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let name = match self {
-            Self::Fallout4 => "Fallout 4",
-            Self::SkyrimSE => "Skyrim Special Edition",
-            Self::Starfield => "Starfield",
-        };
-        f.write_str(name)
+        f.write_str(self.specs().display_name)
     }
 }
 

@@ -13,4 +13,5 @@ camino.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
+overseer-core = { path = "../overseer-core", features = ["test-support"] }
 tempfile.workspace = true

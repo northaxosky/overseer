@@ -3,7 +3,7 @@
 use crate::deploy::DeployError;
 use crate::instance::InstanceError;
 use crate::plugins::PluginError;
-use camino::{Utf8Path, Utf8PathBuf};
+use camino::Utf8PathBuf;
 use thiserror::Error;
 
 /// Something went wrong while applying or reversing a profile's deployment
@@ -35,16 +35,12 @@ pub enum ApplyError {
 
     /// A backup directory survives from a previous run with no journal to reverse it
     #[error(
-        "{path} holds an orphaned backup from a previous run with no deployment journal; remove it by hand"
+        "`{path}` holds an orphaned backup from a previous run with no deployment journal; remove it by hand"
     )]
     OrphanedBackup { path: Utf8PathBuf },
 
-    #[error("`{path}`: {source}")]
-    Io {
-        path: Utf8PathBuf,
-        #[source]
-        source: std::io::Error,
-    },
+    #[error(transparent)]
+    Io(#[from] crate::error::IoError),
 
     #[error(transparent)]
     Deploy(#[from] DeployError),
@@ -57,9 +53,4 @@ pub enum ApplyError {
 }
 
 /// Build an [`ApplyError::Io`] tagged with the path that failed
-pub(crate) fn io_err(path: &Utf8Path, source: std::io::Error) -> ApplyError {
-    ApplyError::Io {
-        path: path.to_owned(),
-        source,
-    }
-}
+pub(crate) use crate::error::io_err;

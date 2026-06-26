@@ -92,7 +92,7 @@ impl Deployer for HardlinkDeployer {
                     if let Err(e) = remove_if_present(&dest) {
                         unresolved.push(e);
                     } else if let Err(e) = fs::rename(&backup, &dest) {
-                        unresolved.push(io_err(&backup, e));
+                        unresolved.push(io_err(&backup, e).into());
                     }
                 }
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
@@ -104,7 +104,7 @@ impl Deployer for HardlinkDeployer {
                     }
                 }
                 Err(e) => {
-                    unresolved.push(io_err(&backup, e));
+                    unresolved.push(io_err(&backup, e).into());
                 }
             }
 
@@ -168,7 +168,7 @@ fn remove_if_present(path: &Utf8Path) -> Result<(), DeployError> {
     match fs::remove_file(path) {
         Ok(()) => Ok(()),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(e) => Err(io_err(path, e)),
+        Err(e) => Err(io_err(path, e).into()),
     }
 }
 
@@ -202,7 +202,7 @@ fn sweep_backup_root(backup_root: &Utf8Path, unresolved: &mut Vec<DeployError>) 
                 let io = e
                     .into_io_error()
                     .unwrap_or_else(|| std::io::Error::other("walk backup root"));
-                unresolved.push(io_err(&path, io));
+                unresolved.push(io_err(&path, io).into());
                 continue;
             }
         };
@@ -251,20 +251,8 @@ mod tests {
     use super::*;
     use crate::deploy::{ModSource, NullSink};
     use camino::Utf8PathBuf;
-    use tempfile::TempDir;
 
-    fn temp() -> (TempDir, Utf8PathBuf) {
-        let dir = TempDir::new().expect("create temp dir");
-        let base = Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).expect("utf8 temp path");
-        (dir, base)
-    }
-
-    fn write(path: &Utf8Path, contents: &str) {
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).expect("create parents");
-        }
-        fs::write(path, contents).expect("write file");
-    }
+    use crate::test_support::{temp, write};
 
     #[test]
     fn launch_reports_a_missing_executable() {

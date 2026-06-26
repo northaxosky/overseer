@@ -23,7 +23,7 @@ impl PluginLoadOrder {
         let text = match std::fs::read_to_string(&path) {
             Ok(text) => text,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
-            Err(source) => return Err(io_err(&path, source)),
+            Err(source) => return Err(io_err(&path, source).into()),
         };
 
         Ok(Self {
@@ -38,11 +38,11 @@ impl PluginLoadOrder {
         std::fs::create_dir_all(&dir).map_err(|source| io_err(&dir, source))?;
         let path = dir.join("plugins.txt");
         std::fs::write(&path, self.to_plugins_string())
-            .map_err(|source| PluginError::Io { path, source })
+            .map_err(|source| io_err(&path, source).into())
     }
 
     /// Serialize to `plugins.txt` text: `*name` for active, `name` for inactive
-    pub fn to_plugins_string(&self) -> String {
+    pub(crate) fn to_plugins_string(&self) -> String {
         let mut out = String::new();
         for entry in &self.plugins {
             if entry.active {
@@ -60,7 +60,7 @@ impl PluginLoadOrder {
             .position(|e| e.name.eq_ignore_ascii_case(name))
     }
 
-    pub fn contains(&self, name: &str) -> bool {
+    fn contains(&self, name: &str) -> bool {
         self.position(name).is_some()
     }
 
@@ -147,14 +147,8 @@ fn parse_plugins(text: &str) -> Vec<PluginEntry> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use camino::Utf8PathBuf;
-    use tempfile::TempDir;
 
-    fn temp_instance() -> (TempDir, Instance) {
-        let d = TempDir::new().expect("temp");
-        let root = Utf8PathBuf::from_path_buf(d.path().to_path_buf()).expect("utf8");
-        (d, Instance::new(root.join("instance"), root.join("game")))
-    }
+    use crate::test_support::temp_instance;
 
     fn meta(name: &str, is_master: bool) -> PluginMeta {
         PluginMeta {

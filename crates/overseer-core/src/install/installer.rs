@@ -78,15 +78,10 @@ fn copy_dir(from: &Utf8Path, to: &Utf8Path) -> Result<(), InstallError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use camino::Utf8PathBuf;
-    use std::io::Write;
-    use tempfile::TempDir;
 
-    fn temp() -> (TempDir, Utf8PathBuf) {
-        let d = TempDir::new().expect("temp");
-        let base = Utf8PathBuf::from_path_buf(d.path().to_path_buf()).expect("utf8");
-        (d, base)
-    }
+    use std::io::Write;
+
+    use crate::test_support::temp;
 
     fn instance_in(base: &Utf8Path) -> Instance {
         Instance::new(base.join("instance"), base.join("game"))

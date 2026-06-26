@@ -103,7 +103,6 @@ fn read_entries(dir: &Utf8Path) -> Result<Vec<Entry>, InstallError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::TempDir;
 
     fn dir(name: &str) -> Entry {
         Entry {
@@ -188,11 +187,7 @@ mod tests {
         std::fs::write(path, b"x").expect("write");
     }
 
-    fn temp() -> (TempDir, Utf8PathBuf) {
-        let d = TempDir::new().expect("temp");
-        let base = Utf8PathBuf::from_path_buf(d.path().to_path_buf()).expect("utf8");
-        (d, base)
-    }
+    use crate::test_support::temp;
 
     #[test]
     fn flat_archive_root_is_the_extraction_dir() {

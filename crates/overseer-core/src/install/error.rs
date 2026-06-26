@@ -1,16 +1,12 @@
 use super::archive::ArchiveFormat;
-use camino::{Utf8Path, Utf8PathBuf};
+use camino::Utf8PathBuf;
 use thiserror::Error;
 
 /// Errors from installing a mod from an archive
 #[derive(Debug, Error)]
 pub enum InstallError {
-    #[error("io error at `{path}`")]
-    Io {
-        path: Utf8PathBuf,
-        #[source]
-        source: std::io::Error,
-    },
+    #[error(transparent)]
+    Io(#[from] crate::error::IoError),
 
     #[error(
         "unsupported archive format: `{extension}` (supported: {})",
@@ -42,9 +38,4 @@ pub enum InstallError {
     NonUtf8Path(String),
 }
 
-pub(crate) fn io_err(path: &Utf8Path, source: std::io::Error) -> InstallError {
-    InstallError::Io {
-        path: path.to_owned(),
-        source,
-    }
-}
+pub(crate) use crate::error::io_err;

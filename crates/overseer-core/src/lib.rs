@@ -5,6 +5,7 @@
 
 pub mod apply;
 pub mod deploy;
+mod error;
 pub mod game;
 pub mod ini;
 pub mod install;
@@ -12,3 +13,8 @@ pub mod instance;
 pub mod launch;
 pub mod plugins;
 pub mod settings;
+
+pub use error::IoError;
+
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_support;

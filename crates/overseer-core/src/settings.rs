@@ -12,12 +12,8 @@ const MAX_RECENT: usize = 10;
 /// Errors from loading or saving settings
 #[derive(Debug, Error)]
 pub enum SettingsError {
-    #[error("io error at `{path}`")]
-    Io {
-        path: Utf8PathBuf,
-        #[source]
-        source: std::io::Error,
-    },
+    #[error(transparent)]
+    Io(#[from] crate::error::IoError),
 
     #[error("could not parse settings at `{path}`")]
     Parse {
@@ -34,12 +30,7 @@ pub enum SettingsError {
     },
 }
 
-fn io_err(path: &Utf8Path, source: std::io::Error) -> SettingsError {
-    SettingsError::Io {
-        path: path.to_owned(),
-        source,
-    }
-}
+pub(crate) use crate::error::io_err;
 
 /// Persistent app level settings: The schema is intentionally open & every field has a default
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
@@ -72,7 +63,7 @@ impl Settings {
             Ok(text) => text,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Self::default()),
             Err(source) => {
-                return Err(io_err(path, source));
+                return Err(io_err(path, source).into());
             }
         };
         toml::from_str(&text).map_err(|source| SettingsError::Parse {
@@ -92,7 +83,7 @@ impl Settings {
         }
         let file = AtomicFile::new(path, OverwriteBehavior::AllowOverwrite);
         file.write(|f| f.write_all(text.as_bytes()))
-            .map_err(|e: atomicwrites::Error<std::io::Error>| io_err(path, e.into()))
+            .map_err(|e: atomicwrites::Error<std::io::Error>| io_err(path, e.into()).into())
     }
 
     /// The most recently opened instance, if any

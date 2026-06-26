@@ -155,21 +155,8 @@ fn map_root_relative(mod_name: &str, relative: &Utf8Path) -> Result<Utf8PathBuf,
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::TempDir;
 
-    /// Create a temp dir and return the guard (keeps it alive) plus its UTF-8 base path.
-    fn temp() -> (TempDir, Utf8PathBuf) {
-        let dir = TempDir::new().expect("create temp dir");
-        let base = Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).expect("utf8 temp path");
-        (dir, base)
-    }
-
-    fn write(path: &Utf8Path, contents: &str) {
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).expect("create parents");
-        }
-        std::fs::write(path, contents).expect("write file");
-    }
+    use crate::test_support::{temp, write};
 
     #[test]
     fn empty_mod_list_yields_empty_plan() {

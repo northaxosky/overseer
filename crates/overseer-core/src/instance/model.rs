@@ -112,7 +112,7 @@ impl Instance {
             if source.kind() == std::io::ErrorKind::NotFound {
                 InstanceError::NotAnInstance { path: path.clone() }
             } else {
-                io_err(&path, source)
+                io_err(&path, source).into()
             }
         })?;
 
@@ -153,7 +153,7 @@ impl Instance {
                 path: path.clone(),
                 source: Box::new(source),
             })?;
-        std::fs::write(&path, text).map_err(|e| io_err(&path, e))
+        std::fs::write(&path, text).map_err(|e| io_err(&path, e).into())
     }
 
     /// The directory holding the game's real `Plugins.txt`: the configured
@@ -225,7 +225,7 @@ fn read_subdirs(dir: &Utf8Path) -> Result<Vec<String>, InstanceError> {
     let entries = match std::fs::read_dir(dir) {
         Ok(entries) => entries,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(e) => return Err(io_err(dir, e)),
+        Err(e) => return Err(io_err(dir, e).into()),
     };
 
     let mut names = Vec::new();
@@ -256,12 +256,7 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
 
-    fn temp_instance() -> (TempDir, Instance) {
-        let dir = TempDir::new().expect("temp dir");
-        let root = Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).expect("utf8 path");
-        let instance = Instance::new(root.join("instance"), root.join("game"));
-        (dir, instance)
-    }
+    use crate::test_support::temp_instance;
 
     #[test]
     fn path_helpers_compose_under_root() {

@@ -4,14 +4,8 @@ use camino::Utf8PathBuf;
 use overseer_core::deploy::{
     DeployPlan, DeployRecord, Deployer, DeployerKind, HardlinkDeployer, ModSource, NullSink,
 };
+use overseer_core::test_support::write;
 use tempfile::tempdir;
-
-fn write(path: &Utf8PathBuf, contents: &str) {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).unwrap();
-    }
-    fs::write(path, contents).unwrap();
-}
 
 #[test]
 fn higher_priority_wins_files_are_hardlinks_and_purge_is_clean() {

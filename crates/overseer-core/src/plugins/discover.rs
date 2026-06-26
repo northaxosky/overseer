@@ -37,7 +37,7 @@ pub fn discover_plugins(
 
 /// Plugin files (`.esp`/`.esm`/`.esl`) directly inside a directory's top level.
 /// A directory that doesn't exist yields an empty list rather than an error.
-pub fn find_plugin_files(dir: &Utf8Path) -> Result<Vec<camino::Utf8PathBuf>, PluginError> {
+pub(crate) fn find_plugin_files(dir: &Utf8Path) -> Result<Vec<camino::Utf8PathBuf>, PluginError> {
     let mut found = Vec::new();
     for entry in WalkDir::new(dir).min_depth(1).max_depth(1) {
         let entry = match entry {
@@ -49,7 +49,7 @@ pub fn find_plugin_files(dir: &Utf8Path) -> Result<Vec<camino::Utf8PathBuf>, Plu
                 return Ok(found);
             }
             Err(e) => {
-                return Err(io_err(dir, e.into()));
+                return Err(io_err(dir, e.into()).into());
             }
         };
         if !entry.file_type().is_file() {
@@ -78,15 +78,7 @@ pub fn find_plugin_files(dir: &Utf8Path) -> Result<Vec<camino::Utf8PathBuf>, Plu
 mod tests {
     use super::*;
     use crate::instance::{ModKind, ModListEntry, Profile};
-    use crate::plugins::test_support::{FLAG_MASTER, write_plugin};
-    use camino::Utf8PathBuf;
-    use tempfile::TempDir;
-
-    fn temp_instance() -> (TempDir, Instance) {
-        let d = TempDir::new().expect("temp");
-        let root = Utf8PathBuf::from_path_buf(d.path().to_path_buf()).expect("utf8");
-        (d, Instance::new(root.join("instance"), root.join("game")))
-    }
+    use crate::test_support::{FLAG_MASTER, temp_instance, write_plugin};
 
     fn entry(name: &str, enabled: bool) -> ModListEntry {
         ModListEntry {

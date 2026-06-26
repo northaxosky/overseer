@@ -7,17 +7,10 @@
 pub mod logging;
 pub mod style;
 
-use camino::{Utf8Path, Utf8PathBuf};
-use thiserror::Error;
+mod error;
+pub use error::AbsolutizeError;
 
-/// Error from [`absolutize`].
-#[derive(Debug, Error)]
-pub enum AbsolutizeError {
-    #[error("could not read the current working directory")]
-    Cwd(#[source] std::io::Error),
-    #[error("the current working directory is not valid UTF-8")]
-    NonUtf8Cwd,
-}
+use camino::{Utf8Path, Utf8PathBuf};
 
 /// Resolve a possibly-relative path against the current working directory
 pub fn absolutize(path: &Utf8Path) -> Result<Utf8PathBuf, AbsolutizeError> {

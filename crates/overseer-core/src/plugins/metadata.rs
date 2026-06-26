@@ -60,7 +60,7 @@ pub fn read_metadata(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::plugins::test_support::{FLAG_LIGHT, FLAG_MASTER, write_plugin};
+    use crate::test_support::{FLAG_LIGHT, FLAG_MASTER, write_plugin};
     use camino::Utf8PathBuf;
     use tempfile::TempDir;
 

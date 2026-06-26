@@ -56,7 +56,7 @@ impl Deployment {
             if source.kind() == std::io::ErrorKind::NotFound {
                 ApplyError::NotDeployed { path: path.clone() }
             } else {
-                io_err(&path, source)
+                io_err(&path, source).into()
             }
         })?;
         serde_json::from_str(&text).map_err(|source| ApplyError::State { path, source })
@@ -77,7 +77,7 @@ impl Deployment {
     /// Delete the state file, marking the instance as no longer deployed
     pub(crate) fn remove(instance: &Instance) -> Result<(), ApplyError> {
         let path = Self::path(instance);
-        std::fs::remove_file(&path).map_err(|e| io_err(&path, e))
+        std::fs::remove_file(&path).map_err(|e| io_err(&path, e).into())
     }
 }
 
@@ -85,5 +85,5 @@ impl Deployment {
 pub(crate) fn write_atomic(path: &Utf8Path, bytes: &[u8]) -> Result<(), ApplyError> {
     let file = AtomicFile::new(path, OverwriteBehavior::AllowOverwrite);
     file.write(|f| f.write_all(bytes))
-        .map_err(|e: atomicwrites::Error<std::io::Error>| io_err(path, e.into()))
+        .map_err(|e: atomicwrites::Error<std::io::Error>| io_err(path, e.into()).into())
 }

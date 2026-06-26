@@ -1,9 +1,11 @@
 //! Deployment backend trait and types.
 
 use super::{
-    DeployError, DeployPlan, DeployRecord, DeployerKind, ProgressSink, ReversalReport, VerifyReport,
+    DeployError, DeployPlan, DeployRecord, HardlinkDeployer, ProgressSink, ReversalReport,
+    VerifyReport,
 };
 use camino::Utf8PathBuf;
+use serde::{Deserialize, Serialize};
 
 /// A fully resolved thing to run: program, arguments, and directory
 #[derive(Debug, Clone)]
@@ -33,4 +35,93 @@ pub trait Deployer {
 
     /// Run `target` with the instance's mods visible to it
     fn launch(&self, target: &LaunchTarget) -> Result<(), DeployError>;
+}
+
+/// Identifies which deployment backend owns a record
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum DeployerKind {
+    /// NTFS hard links
+    #[default]
+    HardLink,
+    /// TODO: User space virtual filesystem (MO2)
+    Usvfs,
+    /// TODO: ProjFS
+    ProjFs,
+}
+
+impl std::fmt::Display for DeployerKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let name = match self {
+            Self::HardLink => "HardLink Deployer",
+            Self::Usvfs => "USVFS Deployer",
+            Self::ProjFs => "ProjFS Deployer",
+        };
+        f.write_str(name)
+    }
+}
+
+/// Construct the deployment backend for a [`DeployerKind`].
+pub fn deployer_for(kind: DeployerKind) -> Box<dyn Deployer> {
+    match kind {
+        DeployerKind::HardLink => Box::new(HardlinkDeployer::new()),
+        DeployerKind::Usvfs | DeployerKind::ProjFs => Box::new(StubDeployer::new(kind)),
+    }
+}
+
+/// A backend that isn't implemented yet: every operation reports
+/// [`DeployError::Unsupported`], and `verify` treats every entry as missing.
+#[derive(Debug, Clone)]
+pub(crate) struct StubDeployer {
+    kind: DeployerKind,
+}
+
+impl StubDeployer {
+    fn new(kind: DeployerKind) -> Self {
+        Self { kind }
+    }
+
+    fn unsupported(&self) -> DeployError {
+        DeployError::Unsupported {
+            deployer: self.kind,
+        }
+    }
+}
+
+impl Deployer for StubDeployer {
+    fn kind(&self) -> DeployerKind {
+        self.kind
+    }
+
+    fn check_supported(&self, _plan: &DeployPlan) -> Result<(), DeployError> {
+        Err(self.unsupported())
+    }
+
+    fn deploy(
+        &self,
+        _record: &DeployRecord,
+        _progress: &dyn ProgressSink,
+    ) -> Result<(), DeployError> {
+        Err(self.unsupported())
+    }
+
+    fn undeploy(&self, _record: &DeployRecord, _progress: &dyn ProgressSink) -> ReversalReport {
+        ReversalReport {
+            unresolved: vec![self.unsupported()],
+        }
+    }
+
+    fn verify(&self, record: &DeployRecord) -> VerifyReport {
+        VerifyReport {
+            expected: record.entries.len(),
+            missing: record
+                .entries
+                .iter()
+                .map(|entry| entry.relative.clone())
+                .collect(),
+        }
+    }
+
+    fn launch(&self, _target: &LaunchTarget) -> Result<(), DeployError> {
+        Err(self.unsupported())
+    }
 }

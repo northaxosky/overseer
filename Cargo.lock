@@ -1519,6 +1519,7 @@ dependencies = [
  "dirs",
  "esplugin",
  "libloadorder",
+ "overseer-core",
  "same-file",
  "serde",
  "serde_json",
