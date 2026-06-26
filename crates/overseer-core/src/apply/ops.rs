@@ -5,8 +5,8 @@ use super::lock::InstanceLock;
 use super::state::{Deployment, Status};
 
 use crate::deploy::{
-    DeployError, DeployPlan, DeployRecord, ModSource, NullSink, ProgressSink, VerifyReport,
-    deployer_for,
+    DeployError, DeployPlan, DeployRecord, ModSource, NullSink, ProgressSink, ROOT_DIR,
+    VerifyReport, deployer_for, strip_data_prefix,
 };
 use crate::instance::{Instance, Profile};
 use crate::plugins::{self, PluginLoadOrder, PluginsRestore};
@@ -157,17 +157,12 @@ fn capture_overwrite(instance: &Instance, record: &DeployRecord) -> Result<(), A
 
 /// Inverse of the deploy mapping: turn a deployed (game-relative) path back into its overwrite *staging* layout
 fn overwrite_staging_path(game_relative: &Utf8Path) -> Utf8PathBuf {
-    let mut components = game_relative.components();
-    if components
-        .next()
-        .is_some_and(|c| c.as_str().eq_ignore_ascii_case("Data"))
-    {
-        let under_data = components.as_path();
-        if !under_data.as_str().is_empty() {
-            return under_data.to_owned();
-        }
+    match strip_data_prefix(game_relative) {
+        // Under Data/: the staging layout drops the Data/ prefix.
+        Some(under_data) if !under_data.as_str().is_empty() => under_data,
+        // Outside Data/ (a game-root file): it came from the mod's Root/ folder.
+        _ => Utf8Path::new(ROOT_DIR).join(game_relative),
     }
-    Utf8Path::new("Root").join(game_relative)
 }
 
 /// Move a captured file into the overwrite folder, creating parents

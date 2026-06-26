@@ -2,7 +2,7 @@
 
 use crate::error::DiagnosticError;
 use camino::{Utf8Path, Utf8PathBuf};
-use overseer_core::deploy::DeployPlan;
+use overseer_core::deploy::{DATA_DIR, DeployPlan, strip_data_prefix};
 use overseer_core::ini::{GameInis, read_game_inis};
 use overseer_core::instance::{Instance, Profile};
 use overseer_core::plugins::{PluginLoadOrder, PluginMeta, discover_plugins, find_plugin_files};
@@ -162,21 +162,10 @@ fn active_plugins_name<'a>(relative: &'a Utf8Path, active: &BTreeSet<String>) ->
     let name = components.next()?.as_str();
 
     // Must be 2 components: `Data/<plugin>`
-    if components.next().is_some() || !data.as_str().eq_ignore_ascii_case("Data") {
+    if components.next().is_some() || !data.as_str().eq_ignore_ascii_case(DATA_DIR) {
         return None;
     }
     active.contains(&name.to_lowercase()).then_some(name)
-}
-
-/// Keep only deploy paths under `Data/`, returning the path relative to `Data/`
-fn strip_data_prefix(relative: &Utf8Path) -> Option<Utf8PathBuf> {
-    let mut components = relative.components();
-    match components.next() {
-        Some(first) if first.as_str().eq_ignore_ascii_case("Data") => {
-            Some(components.as_path().to_owned())
-        }
-        _ => None,
-    }
 }
 
 // ---------------------------------------------------------------------------

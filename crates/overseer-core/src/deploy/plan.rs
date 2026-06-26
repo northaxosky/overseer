@@ -3,6 +3,7 @@
 use std::collections::BTreeMap;
 
 use super::error::DeployError;
+use super::layout::{DATA_DIR, ROOT_DIR};
 use camino::{Utf8Path, Utf8PathBuf};
 use walkdir::WalkDir;
 
@@ -124,19 +125,19 @@ impl DeployPlan {
 fn map_root_relative(mod_name: &str, relative: &Utf8Path) -> Result<Utf8PathBuf, DeployError> {
     let mut components = relative.components();
     let under_root = match components.next() {
-        Some(first) if first.as_str().eq_ignore_ascii_case("Root") => components.as_path(),
-        _ => return Ok(Utf8Path::new("Data").join(relative)),
+        Some(first) if first.as_str().eq_ignore_ascii_case(ROOT_DIR) => components.as_path(),
+        _ => return Ok(Utf8Path::new(DATA_DIR).join(relative)),
     };
 
     // A top level file literally named "Root"
     if under_root.as_str().is_empty() {
-        return Ok(Utf8Path::new("Data").join(relative));
+        return Ok(Utf8Path::new(DATA_DIR).join(relative));
     }
 
     if under_root
         .components()
         .next()
-        .is_some_and(|c| c.as_str().eq_ignore_ascii_case("Data"))
+        .is_some_and(|c| c.as_str().eq_ignore_ascii_case(DATA_DIR))
     {
         return Err(DeployError::RootDataConflict {
             name: mod_name.to_owned(),
