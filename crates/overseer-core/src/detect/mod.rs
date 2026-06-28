@@ -6,6 +6,7 @@ pub use fallout4::Edition;
 
 use crate::game::GameKind;
 use camino::Utf8Path;
+use std::fmt;
 
 /// A 4 part PE file version, e.g. `1.10.163.0`
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -14,6 +15,16 @@ pub struct ExeVersion {
     pub minor: u16,
     pub patch: u16,
     pub build: u16,
+}
+
+impl fmt::Display for ExeVersion {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{}.{}.{}.{}",
+            self.major, self.minor, self.patch, self.build
+        )
+    }
 }
 
 /// Which storefront the install came from, by marker files
