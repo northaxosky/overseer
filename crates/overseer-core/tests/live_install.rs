@@ -13,6 +13,8 @@ use overseer_core::game::GameKind;
 /// The real Fallout 4 dir from `OVERSEER_FO4_DIR`, or `None` (with a skip note) when it is unset
 /// or doesn't point at a Fallout 4 install.
 fn fo4_dir_or_skip() -> Option<Utf8PathBuf> {
+    // Load `.env` (machine-specific harness paths) if present; real shell env vars still win.
+    let _ = dotenvy::dotenv();
     let Ok(dir) = std::env::var("OVERSEER_FO4_DIR") else {
         eprintln!("skipping: set OVERSEER_FO4_DIR to a real Fallout 4 install to run");
         return None;

@@ -1,3 +1,6 @@
 /target
 **/*.rs.bk
 overseer-manifest.json
+
+# Local harness/test config (machine-specific paths)
+.env
