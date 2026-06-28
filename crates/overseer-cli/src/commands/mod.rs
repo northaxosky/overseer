@@ -8,5 +8,6 @@ pub mod install;
 pub mod instance;
 pub mod launch;
 pub mod mods;
+pub mod patch;
 pub mod plugins;
 pub mod profile;

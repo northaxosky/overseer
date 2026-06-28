@@ -99,6 +99,12 @@ pub enum Command {
         #[command(flatten)]
         target: ProfileArgs,
     },
+
+    /// Patch game archives in place
+    Patch {
+        #[command(subcommand)]
+        command: PatchCommand,
+    },
 }
 
 /// Arguments shared by every profile-scoped subcommand.
@@ -248,4 +254,31 @@ pub enum ExeCommand {
         #[arg(long)]
         instance: Utf8PathBuf,
     },
+}
+
+#[derive(Subcommand)]
+pub enum PatchCommand {
+    /// Flip Fallout 4 BA2 archives between OG (v1) and NG (v7/8)
+    Ba2 {
+        /// A `.ba2` file, or a directory of them
+        path: Utf8PathBuf,
+        /// Target edition: `og` (v1) or `ng` (v8)
+        #[arg(long, value_name = "og|ng")]
+        to: PatchTo,
+        /// Show what would change without writing
+        #[arg(long)]
+        dry_run: bool,
+        /// Patch a while directory without the preview confirmation
+        #[arg(long)]
+        yes: bool,
+    },
+}
+
+/// The Fallout 4 archive edition to patch towards
+#[derive(Clone, Copy, clap::ValueEnum)]
+pub enum PatchTo {
+    /// Old-gen: version 1 (loads in every Fallout 4 build)
+    Og,
+    /// Next-gen: version 8 (needs the NG/AE exe or backport)
+    Ng,
 }

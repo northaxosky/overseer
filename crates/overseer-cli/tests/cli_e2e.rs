@@ -316,3 +316,103 @@ fn profile_saves_toggle_redirects_saves_on_deploy() {
         "purge should remove our redirect, got: {after}"
     );
 }
+
+/// A minimal BA2: 24-byte header (`BTDX`, `version`, `tag`, count 0, name-table offset 0)
+/// plus a body whose bytes a version flip must never touch.
+fn ba2_bytes(version: u32, tag: &[u8; 4], body: &[u8]) -> Vec<u8> {
+    let mut b = Vec::new();
+    b.extend_from_slice(b"BTDX");
+    b.extend_from_slice(&version.to_le_bytes());
+    b.extend_from_slice(tag);
+    b.extend_from_slice(&0u32.to_le_bytes());
+    b.extend_from_slice(&0u64.to_le_bytes());
+    b.extend_from_slice(body);
+    b
+}
+
+#[test]
+fn patch_ba2_downgrades_a_single_file_and_preserves_the_body() {
+    let tmp = TempDir::new().unwrap();
+    let file = tmp.path().join("Test.ba2");
+    let original = ba2_bytes(8, b"GNRL", b"body-must-survive");
+    std::fs::write(&file, &original).unwrap();
+    let file_s = file.to_str().unwrap();
+
+    // A dry run previews the change but writes nothing.
+    overseer(&["patch", "ba2", file_s, "--to", "og", "--dry-run"])
+        .success()
+        .stdout(predicate::str::contains("would patch v8").and(predicate::str::contains("v1")));
+    assert_eq!(
+        std::fs::read(&file).unwrap(),
+        original,
+        "dry run must not write"
+    );
+
+    // The real patch flips only the version byte.
+    overseer(&["patch", "ba2", file_s, "--to", "og"])
+        .success()
+        .stdout(predicate::str::contains("patched v8").and(predicate::str::contains("v1")));
+    let patched = std::fs::read(&file).unwrap();
+    assert_eq!(&patched[4..8], 1u32.to_le_bytes().as_slice());
+    assert_eq!(
+        &patched[8..],
+        &original[8..],
+        "everything after the version is untouched"
+    );
+
+    // Re-running is idempotent.
+    overseer(&["patch", "ba2", file_s, "--to", "og"])
+        .success()
+        .stdout(predicate::str::contains("already og"));
+}
+
+#[test]
+fn patch_ba2_directory_requires_yes_then_patches_all() {
+    let tmp = TempDir::new().unwrap();
+    let dir = tmp.path().join("Data");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("A.ba2"), ba2_bytes(8, b"GNRL", b"aaaa")).unwrap();
+    std::fs::write(dir.join("B.ba2"), ba2_bytes(8, b"DX10", b"bbbb")).unwrap();
+    // A non-BA2 file in the same dir is simply ignored by the scan.
+    std::fs::write(dir.join("notes.txt"), "ignore me").unwrap();
+    let dir_s = dir.to_str().unwrap();
+
+    // Without --yes a directory is previewed, not written.
+    overseer(&["patch", "ba2", dir_s, "--to", "og"])
+        .success()
+        .stdout(
+            predicate::str::contains("re-run with --yes")
+                .and(predicate::str::contains("2 patched")),
+        );
+    assert_eq!(
+        std::fs::read(dir.join("A.ba2")).unwrap()[4],
+        8,
+        "preview must not write"
+    );
+
+    // With --yes both archives are patched.
+    overseer(&["patch", "ba2", dir_s, "--to", "og", "--yes"])
+        .success()
+        .stdout(predicate::str::contains("2 patched"));
+    assert_eq!(std::fs::read(dir.join("A.ba2")).unwrap()[4], 1);
+    assert_eq!(std::fs::read(dir.join("B.ba2")).unwrap()[4], 1);
+}
+
+#[test]
+fn patch_ba2_skips_unsupported_and_fails_on_invalid() {
+    let tmp = TempDir::new().unwrap();
+
+    // A Starfield-version archive is a benign skip, not an error.
+    let sf = tmp.path().join("Starfield.ba2");
+    std::fs::write(&sf, ba2_bytes(3, b"GNRL", b"sf")).unwrap();
+    overseer(&["patch", "ba2", sf.to_str().unwrap(), "--to", "og"])
+        .success()
+        .stdout(predicate::str::contains("skipped").and(predicate::str::contains("unsupported")));
+
+    // A file without the BTDX magic is a hard error (non-zero exit).
+    let bad = tmp.path().join("Bad.ba2");
+    std::fs::write(&bad, b"NOPE-not-a-ba2-header-padding-padding").unwrap();
+    overseer(&["patch", "ba2", bad.to_str().unwrap(), "--to", "og"])
+        .failure()
+        .stdout(predicate::str::contains("BTDX"));
+}
