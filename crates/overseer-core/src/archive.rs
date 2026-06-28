@@ -6,7 +6,7 @@ use std::io::Read;
 use thiserror::Error;
 
 /// The fixed BA2 header is 24 bytes for every version
-const HEADER_LEN: usize = 24;
+pub(crate) const HEADER_LEN: usize = 24;
 const MAGIC: &[u8; 4] = b"BTDX";
 
 /// What a BA2 archive holds, from its 4 byte type tag
