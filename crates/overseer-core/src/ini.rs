@@ -4,6 +4,9 @@ use crate::instance::{Instance, InstanceError};
 use std::collections::BTreeMap;
 use thiserror::Error;
 
+/// Bethesda INIs are CRLF by convention;
+const NL: &str = "\r\n";
+
 /// Something went wrong locating or reading the game INIs
 #[derive(Debug, Error)]
 pub enum IniError {
@@ -56,6 +59,68 @@ impl Ini {
             target.extend(keys);
         }
     }
+}
+
+/// `Some(lowercased_name)` if `line` is a `[section]` header
+fn section_name(line: &str) -> Option<String> {
+    line.trim()
+        .strip_prefix('[')
+        .and_then(|l| l.strip_suffix(']'))
+        .map(|n| n.trim().to_lowercase())
+}
+
+/// Whether `line` assigned `key` (case-insensitive)
+fn assigns(line: &str, key_lower: &str) -> bool {
+    line.split_once('=')
+        .is_some_and(|(k, _)| k.trim().to_lowercase() == key_lower)
+}
+
+/// Remove `[section] key`, leaving every other line intact. No-op if absent
+pub fn unset_key(text: &str, section: &str, key: &str) -> String {
+    let want_section = section.trim().to_lowercase();
+    let want_key = key.trim().to_lowercase();
+    let mut in_section = false;
+    text.lines()
+        .filter(|line| {
+            if let Some(name) = section_name(line) {
+                in_section = name == want_section;
+                true
+            } else {
+                !(in_section && assigns(line, &want_key))
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(NL)
+}
+
+/// Set `[section] key=value`, leaving every other line intact
+pub fn set_key(text: &str, section: &str, key: &str, value: &str) -> String {
+    let cleaned = unset_key(text, section, key);
+    let want_section = section.trim().to_lowercase();
+    let mut lines: Vec<String> = cleaned.lines().map(str::to_owned).collect();
+
+    let mut insert_at = None;
+    let mut in_section = false;
+    for (i, line) in lines.iter().enumerate() {
+        if let Some(name) = section_name(line) {
+            if in_section {
+                insert_at = Some(i);
+            }
+            in_section = name == want_section;
+        }
+    }
+    if in_section {
+        insert_at = Some(lines.len());
+    }
+
+    match insert_at {
+        Some(at) => lines.insert(at, format!("{key}={value}")),
+        None => {
+            lines.push(format!("[{}]", section.trim()));
+            lines.push(format!("{key}={value}"));
+        }
+    }
+    lines.join(NL)
 }
 
 /// The game INIs, parsed: `settings` is `<stem>.ini` merged with `<stem>Custom.ini`; prefs is `<stem>Prefs.ini`
@@ -225,5 +290,130 @@ mod tests {
         let inis = read_game_inis(&instance_with_ini_dir(&dir)).unwrap();
         assert_eq!(inis.settings.get("archive", "bInvalidateOlderFiles"), None);
         assert_eq!(inis.prefs.get("nvflex", "bNVFlexEnable"), None);
+    }
+
+    // --- set_key / unset_key (surgical, content-preserving edits) ---
+
+    #[test]
+    fn set_key_replaces_an_existing_value_in_place() {
+        let out = set_key(
+            "[General]\r\nSLocalSavePath=Saves\\\r\n",
+            "General",
+            "SLocalSavePath",
+            "Saves\\Hardcore\\",
+        );
+        assert_eq!(out, "[General]\r\nSLocalSavePath=Saves\\Hardcore\\");
+    }
+
+    #[test]
+    fn set_key_appends_to_an_existing_section() {
+        let out = set_key(
+            "[General]\r\nuGridsToLoad=5\r\n",
+            "General",
+            "SLocalSavePath",
+            "Saves\\P\\",
+        );
+        assert_eq!(
+            out,
+            "[General]\r\nuGridsToLoad=5\r\nSLocalSavePath=Saves\\P\\"
+        );
+    }
+
+    #[test]
+    fn set_key_creates_a_missing_section_at_eof() {
+        let out = set_key(
+            "[Display]\r\niSize=1\r\n",
+            "General",
+            "SLocalSavePath",
+            "Saves\\P\\",
+        );
+        assert_eq!(
+            out,
+            "[Display]\r\niSize=1\r\n[General]\r\nSLocalSavePath=Saves\\P\\"
+        );
+    }
+
+    #[test]
+    fn set_key_into_empty_text_creates_the_section() {
+        assert_eq!(
+            set_key("", "General", "SLocalSavePath", "Saves\\P\\"),
+            "[General]\r\nSLocalSavePath=Saves\\P\\"
+        );
+    }
+
+    #[test]
+    fn set_key_preserves_other_sections_keys_and_comments() {
+        // The regression we care about: injecting a save path must not disturb the
+        // user's archive-invalidation block or their comments.
+        let original = "; my setup\r\n[General]\r\nuGridsToLoad=5\r\n\r\n[Archive]\r\nbInvalidateOlderFiles=1\r\nsResourceDataDirsFinal=\r\n";
+        let out = set_key(original, "General", "SLocalSavePath", "Saves\\P\\");
+
+        // Re-parse: every original setting survives, plus our new key.
+        let ini = Ini::parse(&out);
+        assert_eq!(ini.get("general", "SLocalSavePath"), Some("Saves\\P\\"));
+        assert_eq!(ini.get("general", "uGridsToLoad"), Some("5"));
+        assert_eq!(ini.get("archive", "bInvalidateOlderFiles"), Some("1"));
+        assert_eq!(ini.get("archive", "sResourceDataDirsFinal"), Some(""));
+        // The comment line is carried through verbatim.
+        assert!(out.contains("; my setup"), "comment preserved: {out:?}");
+        // Our key lands inside [General] (before the [Archive] header), not leaked into [Archive].
+        let save_at = out.find("SLocalSavePath").expect("key present");
+        let archive_at = out.find("[Archive]").expect("archive header present");
+        assert!(
+            save_at < archive_at,
+            "save key must sit in [General]: {out:?}"
+        );
+    }
+
+    #[test]
+    fn section_and_key_matching_is_case_insensitive() {
+        // Existing header/key in a different case is still found and replaced (no duplicate).
+        let out = set_key(
+            "[general]\r\nslocalsavepath=old\r\n",
+            "General",
+            "SLocalSavePath",
+            "new",
+        );
+        assert_eq!(out, "[general]\r\nSLocalSavePath=new");
+    }
+
+    #[test]
+    fn unset_key_removes_only_the_target_line() {
+        let out = unset_key(
+            "[General]\r\nuGridsToLoad=5\r\nSLocalSavePath=Saves\\P\\\r\n",
+            "General",
+            "SLocalSavePath",
+        );
+        assert_eq!(out, "[General]\r\nuGridsToLoad=5");
+    }
+
+    #[test]
+    fn unset_key_is_a_noop_when_absent() {
+        let original = "[General]\r\nuGridsToLoad=5";
+        assert_eq!(unset_key(original, "General", "SLocalSavePath"), original);
+    }
+
+    #[test]
+    fn unset_key_ignores_a_same_named_key_in_another_section() {
+        // A key with the same name under a different section must not be touched.
+        let out = unset_key(
+            "[General]\r\nSLocalSavePath=ours\r\n[Other]\r\nSLocalSavePath=theirs\r\n",
+            "General",
+            "SLocalSavePath",
+        );
+        assert_eq!(out, "[General]\r\n[Other]\r\nSLocalSavePath=theirs");
+    }
+
+    #[test]
+    fn set_then_unset_round_trips_to_the_original_content() {
+        // Deploy then purge: the user's settings are back, our key is gone.
+        let original = "[General]\r\nuGridsToLoad=5\r\n[Archive]\r\nbInvalidateOlderFiles=1\r\n";
+        let injected = set_key(original, "General", "SLocalSavePath", "Saves\\P\\");
+        let restored = unset_key(&injected, "General", "SLocalSavePath");
+
+        let ini = Ini::parse(&restored);
+        assert_eq!(ini.get("general", "SLocalSavePath"), None);
+        assert_eq!(ini.get("general", "uGridsToLoad"), Some("5"));
+        assert_eq!(ini.get("archive", "bInvalidateOlderFiles"), Some("1"));
     }
 }
