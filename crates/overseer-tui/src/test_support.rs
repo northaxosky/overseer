@@ -38,6 +38,7 @@ impl App {
                             kind: ModKind::Managed,
                         },
                     ],
+                    local_saves: false,
                 },
                 order: PluginLoadOrder {
                     profile: "Default".to_owned(),

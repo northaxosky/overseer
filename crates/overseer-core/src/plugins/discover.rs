@@ -92,6 +92,7 @@ mod tests {
         Profile {
             name: "P".to_owned(),
             mods,
+            local_saves: false,
         }
     }
 

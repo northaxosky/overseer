@@ -69,12 +69,13 @@ pub fn temp() -> (TempDir, Utf8PathBuf) {
 }
 
 /// A throwaway instance whose `mods/` and `game/` share one volume (so hardlinks
-/// work) and whose `Plugins.txt` is redirected to a temp dir, never the real
-/// `%LOCALAPPDATA%`.
+/// work) and whose `Plugins.txt` and game INIs are redirected to temp dirs, never
+/// the real `%LOCALAPPDATA%` or `Documents\My Games`.
 pub fn temp_instance() -> (TempDir, Instance) {
     let (dir, root) = temp();
     let mut instance = Instance::new(root.join("instance"), root.join("game"));
     instance.config.local_dir = Some(root.join("local"));
+    instance.config.ini_dir = Some(root.join("my_games"));
     (dir, instance)
 }
 
@@ -112,6 +113,7 @@ pub fn save_profile(instance: &Instance, name: &str, mods: &[(&str, bool)]) {
                 kind: ModKind::Managed,
             })
             .collect(),
+        local_saves: false,
     };
     profile.save(instance).expect("save profile");
 }

@@ -1,6 +1,7 @@
 use super::error::{InstanceError, io_err};
 use super::model::Instance;
 use crate::deploy::ModSource;
+use camino::{Utf8Path, Utf8PathBuf};
 
 /// What kind of `modlist.txt` line an entry is
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -26,29 +27,33 @@ pub struct ModListEntry {
 pub struct Profile {
     pub name: String,
     pub mods: Vec<ModListEntry>,
+    pub local_saves: bool,
 }
 
 impl Profile {
-    /// Load a profile's `modlist.txt`. A missing file is treated as an empty mod list
+    /// Read a profile's `modlist.txt` + `settings.ini`. A missing modlist = empty profile.
     pub fn load(instance: &Instance, name: &str) -> Result<Self, InstanceError> {
-        let path = instance.profile_dir(name).join("modlist.txt");
-        let text = match std::fs::read_to_string(&path) {
+        let dir = instance.profile_dir(name);
+        let modlist = dir.join("modlist.txt");
+        let text = match std::fs::read_to_string(&modlist) {
             Ok(text) => text,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
-            Err(e) => return Err(io_err(&path, e).into()),
+            Err(e) => return Err(io_err(&modlist, e).into()),
         };
         Ok(Self {
             name: name.to_owned(),
             mods: parse_modlist(&text),
+            local_saves: read_local_saves(&dir)?,
         })
     }
 
-    /// Write the profile's `modlist.txt` & create the profile dir if necessary
+    /// Write the profile's `modlist.txt` + `settings.ini`, creating the dir if needed
     pub fn save(&self, instance: &Instance) -> Result<(), InstanceError> {
         let dir = instance.profile_dir(&self.name);
         std::fs::create_dir_all(&dir).map_err(|e| io_err(&dir, e))?;
-        let path = dir.join("modlist.txt");
-        std::fs::write(&path, self.to_modlist_string()).map_err(|e| io_err(&path, e))?;
+        let modlist = dir.join("modlist.txt");
+        std::fs::write(&modlist, self.to_modlist_string()).map_err(|e| io_err(&modlist, e))?;
+        write_local_saves(&dir, self.local_saves)?;
         Ok(())
     }
 
@@ -205,6 +210,38 @@ impl Profile {
     }
 }
 
+/// `profiles/<p>/settings.ini` — the MO2-compatible per-profile settings file.
+fn settings_path(profile_dir: &Utf8Path) -> Utf8PathBuf {
+    profile_dir.join("settings.ini")
+}
+
+/// Read `[General] LocalSaves` (MO2-compatible). Missing file or key means false.
+fn read_local_saves(profile_dir: &Utf8Path) -> Result<bool, InstanceError> {
+    let path = settings_path(profile_dir);
+    let text = match std::fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(e) => return Err(io_err(&path, e).into()),
+    };
+    Ok(crate::ini::Ini::parse(&text)
+        .get("General", "LocalSaves")
+        .is_some_and(|v| v.eq_ignore_ascii_case("true")))
+}
+
+/// Set `[General] LocalSaves`, preserving any other MO2 keys already in the file.
+fn write_local_saves(profile_dir: &Utf8Path, local_saves: bool) -> Result<(), InstanceError> {
+    let path = settings_path(profile_dir);
+    let text = match std::fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(e) => return Err(io_err(&path, e).into()),
+    };
+    let value = if local_saves { "true" } else { "false" };
+    let updated = crate::ini::set_key(&text, "General", "LocalSaves", value);
+    std::fs::write(&path, updated).map_err(|e| io_err(&path, e))?;
+    Ok(())
+}
+
 /// Parse `modlist.txt`: `+Name` enabled, `-Name` disabled, top line = highest priority, other lines skipped
 fn parse_modlist(text: &str) -> Vec<ModListEntry> {
     text.lines()
@@ -277,6 +314,7 @@ mod tests {
         Profile {
             name: "P".to_owned(),
             mods: names.iter().map(|n| entry(n, true)).collect(),
+            local_saves: false,
         }
     }
 
@@ -326,6 +364,7 @@ mod tests {
         let profile = Profile {
             name: "P".to_owned(),
             mods: vec![entry("On", true), entry("Off", false), foreign_entry("DLC")],
+            local_saves: false,
         };
         assert_eq!(profile.to_modlist_string(), "+On\n-Off\n*DLC\n");
     }
@@ -340,6 +379,7 @@ mod tests {
                 foreign_entry("DLCworkshop01"),
                 entry("Gamma", true),
             ],
+            local_saves: false,
         };
         let text = profile.to_modlist_string();
         assert_eq!(parse_modlist(&text), profile.mods);
@@ -354,6 +394,7 @@ mod tests {
                 separator_entry("Gameplay_separator"),
                 entry("Beta", false),
             ],
+            local_saves: false,
         };
         let text = profile.to_modlist_string();
         assert_eq!(text, "+Alpha\n-Gameplay_separator\n-Beta\n");
@@ -382,6 +423,7 @@ mod tests {
                 separator_entry("Mid_separator"),
                 entry("Low", true),
             ],
+            local_saves: false,
         };
         let sources = profile.deploy_sources(&instance);
         let names: Vec<&str> = sources.iter().map(|s| s.name.as_str()).collect();
@@ -395,6 +437,7 @@ mod tests {
         let profile = Profile {
             name: "P".to_owned(),
             mods: vec![entry("Yes", true), entry("No", false), entry("Also", true)],
+            local_saves: false,
         };
         let names: Vec<String> = profile
             .deploy_sources(&instance)
@@ -428,6 +471,7 @@ mod tests {
         let profile = Profile {
             name: "Default".to_owned(),
             mods: vec![entry("A", true), entry("B", false), foreign_entry("DLC")],
+            local_saves: false,
         };
         profile.save(&instance).expect("save");
         let loaded = Profile::load(&instance, "Default").expect("load");
@@ -444,6 +488,75 @@ mod tests {
         };
         profile.save(&instance).expect("save");
         assert!(instance.profile_dir("Fresh").join("modlist.txt").exists());
+    }
+
+    #[test]
+    fn save_then_load_round_trips_the_local_saves_flag() {
+        let (_tmp, instance) = temp_instance();
+
+        let mut on = profile_of(&["A"]);
+        on.name = "On".to_owned();
+        on.local_saves = true;
+        on.save(&instance).expect("save on");
+        assert!(
+            Profile::load(&instance, "On").expect("load on").local_saves,
+            "LocalSaves=true persists across save/load"
+        );
+
+        let mut off = profile_of(&["A"]);
+        off.name = "Off".to_owned();
+        off.save(&instance).expect("save off");
+        assert!(
+            !Profile::load(&instance, "Off")
+                .expect("load off")
+                .local_saves,
+            "LocalSaves=false persists across save/load"
+        );
+    }
+
+    #[test]
+    fn local_saves_defaults_to_false_without_a_settings_ini() {
+        let (_tmp, instance) = temp_instance();
+        // An MO2 profile (or one saved before this flag existed) has only modlist.txt.
+        let dir = instance.profile_dir("Legacy");
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        std::fs::write(dir.join("modlist.txt"), "+A\n").expect("seed modlist");
+
+        let loaded = Profile::load(&instance, "Legacy").expect("load");
+        assert!(
+            !loaded.local_saves,
+            "a missing settings.ini reads as LocalSaves off"
+        );
+    }
+
+    #[test]
+    fn enabling_local_saves_preserves_other_settings_keys() {
+        let (_tmp, instance) = temp_instance();
+        let dir = instance.profile_dir("P");
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        // MO2 writes sibling keys into the same [General] block; they must survive.
+        std::fs::write(
+            dir.join("settings.ini"),
+            "[General]\r\nLocalSettings=true\r\nAutomaticArchiveInvalidation=false\r\n",
+        )
+        .expect("seed settings.ini");
+
+        write_local_saves(&dir, true).expect("write");
+
+        let ini = crate::ini::Ini::parse(
+            &std::fs::read_to_string(dir.join("settings.ini")).expect("read"),
+        );
+        assert_eq!(ini.get("General", "LocalSaves"), Some("true"));
+        assert_eq!(
+            ini.get("General", "LocalSettings"),
+            Some("true"),
+            "sibling MO2 key kept"
+        );
+        assert_eq!(
+            ini.get("General", "AutomaticArchiveInvalidation"),
+            Some("false"),
+            "sibling MO2 key kept"
+        );
     }
 
     // --- lookup ---
@@ -514,6 +627,7 @@ mod tests {
         let mut profile = Profile {
             name: "P".to_owned(),
             mods: vec![foreign_entry("DLCRobot")],
+            local_saves: false,
         };
         // Foreign entries always serialize as `*`, so a flip would be a lie; reject it.
         assert!(matches!(
@@ -528,6 +642,7 @@ mod tests {
         let mut profile = Profile {
             name: "P".to_owned(),
             mods: vec![separator_entry("Gameplay_separator")],
+            local_saves: false,
         };
         assert!(matches!(
             profile.enable("Gameplay_separator").expect_err("err"),
@@ -638,6 +753,7 @@ mod tests {
             name: "P".to_owned(),
             // Deliberately not alphabetical, with B disabled.
             mods: vec![entry("C", true), entry("B", false), entry("A", true)],
+            local_saves: false,
         };
 
         let changed = profile.reconcile(&instance).expect("reconcile");
@@ -653,6 +769,7 @@ mod tests {
         let mut profile = Profile {
             name: "P".to_owned(),
             mods: vec![entry("Managed", true), foreign_entry("DLCRobot")],
+            local_saves: false,
         };
 
         let changed = profile.reconcile(&instance).expect("reconcile");
@@ -671,6 +788,7 @@ mod tests {
                 separator_entry("Gameplay_separator"),
                 entry("Managed", true),
             ],
+            local_saves: false,
         };
 
         let changed = profile.reconcile(&instance).expect("reconcile");
