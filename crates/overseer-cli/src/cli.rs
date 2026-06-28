@@ -60,6 +60,12 @@ pub enum Command {
         command: PluginCommand,
     },
 
+    /// Manage profile-level settings
+    Profile {
+        #[command(subcommand)]
+        command: ProfileCommand,
+    },
+
     /// Create or inspect an Overseer instance
     Instance {
         #[command(subcommand)]
@@ -160,6 +166,24 @@ pub enum PluginCommand {
         #[command(flatten)]
         target: ProfileArgs,
     },
+}
+
+#[derive(Subcommand)]
+pub enum ProfileCommand {
+    /// Show or set whether this profile keeps its own saves (MO2 `LocalSaves`)
+    Saves {
+        /// `on` or `off`; omit to show the current setting
+        state: Option<Toggle>,
+        #[command(flatten)]
+        target: ProfileArgs,
+    },
+}
+
+/// An on/off switch for a boolean setting.
+#[derive(Clone, Copy, clap::ValueEnum)]
+pub enum Toggle {
+    On,
+    Off,
 }
 
 #[derive(Subcommand)]

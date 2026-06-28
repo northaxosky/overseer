@@ -29,6 +29,7 @@ fn main() -> Result<()> {
         } => commands::install::run(archive, instance, name),
         Command::Mod { command } => commands::mods::run(command),
         Command::Plugin { command } => commands::plugins::run(command),
+        Command::Profile { command } => commands::profile::run(command),
         Command::Instance { command } => commands::instance::run(command),
         Command::Status { instance } => commands::deploy::status(instance),
         Command::Launch { name, instance } => commands::launch::run(name, instance),

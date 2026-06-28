@@ -9,3 +9,4 @@ pub mod instance;
 pub mod launch;
 pub mod mods;
 pub mod plugins;
+pub mod profile;

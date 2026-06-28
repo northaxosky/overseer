@@ -255,3 +255,64 @@ fn doctor_reports_a_clean_fresh_instance() {
                 .and(predicate::str::contains("No problems found.")),
         );
 }
+
+#[test]
+fn profile_saves_toggle_redirects_saves_on_deploy() {
+    let tmp = TempDir::new().unwrap();
+    let root = tmp.path();
+    let inst = root.join("inst");
+    let game = root.join("game");
+    let local = root.join("local");
+    let my_games = root.join("my_games");
+    let inst_s = inst.to_str().unwrap();
+
+    // Init with both the Plugins.txt dir and the INI dir redirected to temp.
+    overseer(&[
+        "instance",
+        "init",
+        "--path",
+        inst_s,
+        "--game-dir",
+        game.to_str().unwrap(),
+        "--local",
+        local.to_str().unwrap(),
+        "--ini-dir",
+        my_games.to_str().unwrap(),
+    ])
+    .success();
+
+    // Stage and enable a mod so there is something to deploy.
+    let mod_file = inst
+        .join("mods")
+        .join("CoolMod")
+        .join("Textures")
+        .join("cool.dds");
+    std::fs::create_dir_all(mod_file.parent().unwrap()).unwrap();
+    std::fs::write(&mod_file, "cool-bytes").unwrap();
+    overseer(&["mod", "enable", "CoolMod", "--instance", inst_s]).success();
+
+    // Turn per-profile saves on, then the bare form reports the current setting.
+    overseer(&["profile", "saves", "on", "--instance", inst_s])
+        .success()
+        .stdout(predicate::str::contains("enabled"));
+    overseer(&["profile", "saves", "--instance", inst_s])
+        .success()
+        .stdout(predicate::str::contains("Local saves: on"));
+
+    // Deploying redirects saves into the profile's folder via Fallout4Custom.ini.
+    overseer(&["deploy", "--instance", inst_s]).success();
+    let custom_ini = my_games.join("Fallout4Custom.ini");
+    let written = std::fs::read_to_string(&custom_ini).unwrap();
+    assert!(
+        written.contains("SLocalSavePath=Saves\\Default\\"),
+        "deploy should write the save redirect, got: {written}"
+    );
+
+    // Purge removes it (the user had no prior value to restore).
+    overseer(&["purge", "--instance", inst_s]).success();
+    let after = std::fs::read_to_string(&custom_ini).unwrap_or_default();
+    assert!(
+        !after.contains("SLocalSavePath"),
+        "purge should remove our redirect, got: {after}"
+    );
+}
