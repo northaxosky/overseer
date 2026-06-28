@@ -4,6 +4,7 @@
 //! dependencies so the command line tool and the app can both drive it
 
 pub mod apply;
+pub mod archive;
 pub mod deploy;
 mod error;
 pub mod game;
