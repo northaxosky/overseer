@@ -12,6 +12,7 @@ pub mod install;
 pub mod instance;
 pub mod launch;
 pub mod plugins;
+pub mod saves;
 pub mod settings;
 
 pub use error::IoError;
