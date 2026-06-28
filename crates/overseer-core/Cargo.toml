@@ -22,6 +22,8 @@ serde_json.workspace = true
 libloadorder.workspace = true
 atomicwrites.workspace = true
 dirs.workspace = true
+crc32fast.workspace = true
+pelite.workspace = true
 tracing.workspace = true
 
 [features]

@@ -23,6 +23,10 @@ struct GameSpecs {
     ini_stem: &'static str,
     ccc_file: Option<&'static str>,
     display_name: &'static str,
+    /// Steam application id, used to find `steamapps/appmanifest<id>.acf`
+    steam_appid: u32,
+    /// GOG application id (`goggame-<id>.info`), if the game is on GOG
+    gog_appid: Option<u32>,
 }
 
 impl GameKind {
@@ -37,6 +41,8 @@ impl GameKind {
                 ini_stem: "Fallout4",
                 ccc_file: Some("Fallout4.ccc"),
                 display_name: "Fallout 4",
+                steam_appid: 377160,
+                gog_appid: Some(1998527297),
             },
             Self::SkyrimSE => GameSpecs {
                 load_order_id: GameId::SkyrimSE,
@@ -46,6 +52,8 @@ impl GameKind {
                 ini_stem: "Skyrim",
                 ccc_file: Some("Skyrim.ccc"),
                 display_name: "Skyrim Special Edition",
+                steam_appid: 489830,
+                gog_appid: None, // TODO: verify if Skyrim SE is on GOG
             },
             Self::Starfield => GameSpecs {
                 load_order_id: GameId::Starfield,
@@ -55,6 +63,8 @@ impl GameKind {
                 ini_stem: "Starfield",
                 ccc_file: None,
                 display_name: "Starfield",
+                steam_appid: 1716740,
+                gog_appid: None,
             },
         }
     }
@@ -97,6 +107,16 @@ impl GameKind {
     /// Base name of the game's ini files: `<stem>.ini`, `<stem>Custom.ini`, `<stem>Prefs.ini`
     pub fn ini_stem(self) -> &'static str {
         self.specs().ini_stem
+    }
+
+    /// Steam application id, for location the Steam install manifest
+    pub fn steam_appid(self) -> u32 {
+        self.specs().steam_appid
+    }
+
+    /// GOG application id, if the game is on GOG
+    pub fn gog_appid(self) -> Option<u32> {
+        self.specs().gog_appid
     }
 }
 
