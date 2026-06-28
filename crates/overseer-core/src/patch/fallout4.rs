@@ -5,22 +5,17 @@ use super::{VersionChange, set_version};
 use crate::archive::{Ba2Error, Ba2Header, Ba2Kind};
 use camino::Utf8Path;
 
-/// The two Fallout 4 archive "generations", keyed on the header version field.
-///
-/// Next-Gen ships as either v7 or v8 — Bethesda bumped the number twice but the bytes are
-/// otherwise identical — so both map to `NextGen`, and we always *write* v8 when targeting it,
-/// matching every shipping downgrade tool.
+/// The two Fallout 4 archive "generations", keyed on the header version field
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Ba2Edition {
-    /// Old-Gen: version 1 (loads in every FO4 exe).
+    /// Old-Gen: version 1 (loads in every FO4 exe)
     OldGen,
-    /// Next-Gen: version 7 or 8 (needs the NG/AE exe, or a backport).
+    /// Next-Gen: version 7 or 8 (needs the NG/AE exe, or a backport)
     NextGen,
 }
 
 impl Ba2Edition {
-    /// The FO4 edition a raw header version denotes, or `None` for a non-FO4 version
-    /// (Starfield's 2/3, or anything unknown) — which we must never rewrite.
+    /// The FO4 edition a raw header version denotes
     pub fn from_version(version: u32) -> Option<Self> {
         match version {
             1 => Some(Self::OldGen),
@@ -29,7 +24,7 @@ impl Ba2Edition {
         }
     }
 
-    /// The version number written when targeting this edition: OldGen ⇒ 1, NextGen ⇒ 8.
+    /// The version number written when targeting this edition: OldGen ⇒ 1, NextGen ⇒ 8
     pub fn target_version(self) -> u32 {
         match self {
             Self::OldGen => 1,
@@ -38,22 +33,18 @@ impl Ba2Edition {
     }
 }
 
-/// What [`set_edition`] did — or, via [`plan`], *would* do — to one archive.
+/// What [`set_edition`] did — or, via [`plan`], *would* do — to one archive
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PatchOutcome {
-    /// The version field was rewritten from `from` to `to`.
+    /// The version field was rewritten from `from` to `to`
     Patched { from: u32, to: u32 },
-    /// Already the requested edition; nothing written. Carries the on-disk version, so a v7
-    /// asked for Next-Gen reports `AlreadyTarget { version: 7 }` rather than being forced to 8.
+    /// Already the requested edition; nothing written
     AlreadyTarget { version: u32 },
-    /// A readable BA2 we won't touch: a non-FO4 version (Starfield/unknown) or a non-FO4 kind
-    /// (e.g. `GNMF`). Left exactly as-is — a benign skip, not an error.
+    /// A readable BA2 we won't touch
     Unsupported { version: u32, kind: Ba2Kind },
 }
 
-/// Classify what patching `header` to `target` would do, touching nothing. The pure core of
-/// [`set_edition`], reused by the CLI for `--dry-run`. Only a genuine FO4 archive
-/// (version ∈ {1,7,8} *and* a GNRL/DX10 kind) is ever `Patched`.
+/// Classify what patching `header` to `target` would do, touching nothing
 pub fn plan(header: &Ba2Header, target: Ba2Edition) -> PatchOutcome {
     let kind_ok = matches!(header.kind, Ba2Kind::General | Ba2Kind::Texture);
     match Ba2Edition::from_version(header.version) {
@@ -76,9 +67,7 @@ pub fn plan(header: &Ba2Header, target: Ba2Edition) -> PatchOutcome {
     }
 }
 
-/// Patch the BA2 at `path` so it reads as `target`, in place. Reads the header, classifies via
-/// [`plan`], and only for a genuine FO4 archive that needs it delegates the flip to
-/// [`super::set_version`]. Idempotent and reversible.
+/// Patch the BA2 at `path` so it reads as `target`, in place
 pub fn set_edition(path: &Utf8Path, target: Ba2Edition) -> Result<PatchOutcome, Ba2Error> {
     let header = Ba2Header::read(path)?;
     let to = match plan(&header, target) {
