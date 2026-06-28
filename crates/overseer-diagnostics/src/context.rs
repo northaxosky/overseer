@@ -2,6 +2,7 @@
 
 use crate::error::DiagnosticError;
 use camino::{Utf8Path, Utf8PathBuf};
+use overseer_core::archive::{Ba2Error, Ba2Header};
 use overseer_core::deploy::{DATA_DIR, DeployPlan, strip_data_prefix};
 use overseer_core::ini::{GameInis, read_game_inis};
 use overseer_core::instance::{Instance, Profile};
@@ -26,6 +27,8 @@ pub struct GameContext {
     pub inis: Option<GameInis>,
     /// Race subgraph (`SADD`) record counts for active mod plugins
     pub sadd_records: Vec<SaddCount>,
+    /// BA2 archives in the profile's deploy set, with their headers
+    pub archives: Vec<ArchiveInfo>,
 }
 
 /// A file that will deploy under the game's `Data/` folder, and the mod it came from
@@ -34,6 +37,26 @@ pub struct DataFile {
     pub path: Utf8PathBuf,
     /// The mod that owns this file (the conflict winner)
     pub mod_name: String,
+}
+
+/// A BA2 archive in the profile's deploy set, with its scanned header
+pub struct ArchiveInfo {
+    /// File name, e.g. `Textures.ba2`
+    pub name: String,
+    /// The mod that owns it (conflict winner)
+    pub mod_name: String,
+    /// What reading its header found
+    pub scan: ArchiveScan,
+}
+
+/// The outcome of reading a BA2 header during gather
+pub enum ArchiveScan {
+    /// Header parsed successfully
+    Header(Ba2Header),
+    /// Present but not a valid BA2 (bad magic or too short)
+    Invalid,
+    /// Could not be read (IO error); message kept for diagnosis
+    Unreadable(String),
 }
 
 /// The state of the game's Creation Club manifest (e.g. `Fallout4.ccc`)
@@ -89,6 +112,7 @@ impl GameContext {
             })
             .collect();
         let sadd_records = scan_sadd(&plan, &active_plugins);
+        let archives = scan_archives(&plan);
 
         // What the engine force loads (base + dlc + cc)
         let data_dir = instance.config.game_dir.join(DATA_DIR);
@@ -113,6 +137,7 @@ impl GameContext {
             inis: read_game_inis(instance).ok(),
             sadd_records,
             loaded_plugins,
+            archives,
         })
     }
 }
@@ -160,6 +185,27 @@ fn scan_sadd(plan: &DeployPlan, active_plugins: &[PluginMeta]) -> Vec<SaddCount>
                 plugin: name.to_owned(),
                 count,
             })
+        })
+        .collect()
+}
+
+/// Read the header of every `.ba2` the profile would deploy
+fn scan_archives(plan: &DeployPlan) -> Vec<ArchiveInfo> {
+    plan.files()
+        .iter()
+        .filter(|f| {
+            f.relative
+                .extension()
+                .is_some_and(|e| e.eq_ignore_ascii_case("ba2"))
+        })
+        .map(|f| ArchiveInfo {
+            name: f.relative.file_name().unwrap_or_default().to_owned(),
+            mod_name: f.winner.clone(),
+            scan: match Ba2Header::read(&f.source) {
+                Ok(header) => ArchiveScan::Header(header),
+                Err(Ba2Error::BadMagic | Ba2Error::TooShort) => ArchiveScan::Invalid,
+                Err(Ba2Error::Io(e)) => ArchiveScan::Unreadable(e.to_string()),
+            },
         })
         .collect()
 }
