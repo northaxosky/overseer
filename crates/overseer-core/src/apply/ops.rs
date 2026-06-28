@@ -2,7 +2,7 @@
 
 use super::error::{self, ApplyError};
 use super::lock::InstanceLock;
-use super::state::{Deployment, Status};
+use super::state::{Deployment, SaveRedirect, Status};
 
 use crate::deploy::{
     DeployError, DeployPlan, DeployRecord, ModSource, NullSink, ProgressSink, ROOT_DIR,
@@ -10,6 +10,7 @@ use crate::deploy::{
 };
 use crate::instance::{Instance, Profile};
 use crate::plugins::{self, PluginLoadOrder, PluginsRestore};
+use crate::saves;
 use camino::{Utf8Path, Utf8PathBuf};
 use std::collections::BTreeSet;
 use walkdir::WalkDir;
@@ -54,6 +55,7 @@ pub fn deploy_profile(
 
     // Profile bookkeeping doesnt touch anything so its safe
     let order = prepare_load_order(instance, &profile)?;
+    let local_saves = profile.local_saves;
 
     // Capture the users original Plugins.txt
     let plugins_txt_backup = plugins::read_plugins_txt(&local_dir)?;
@@ -65,6 +67,7 @@ pub fn deploy_profile(
         record,
         plugins_txt_backup,
         plugins_txt_intended: None,
+        save_redirect: None,
     };
     deployment.save(instance)?;
 
@@ -91,6 +94,21 @@ pub fn deploy_profile(
 
     // Capture exactly what we wrote, so a later reversal can tell Plugins.txt apart
     deployment.plugins_txt_intended = plugins::read_plugins_txt(&local_dir)?;
+
+    // Redirect this profile's saves into its own folder, if it opts in
+    if local_saves {
+        let (custom_ini, saves_dir) = save_paths(instance, &deployment.profile)?;
+        match saves::apply_save_redirect(&custom_ini, &saves_dir, &deployment.profile) {
+            Ok(original) => deployment.save_redirect = Some(SaveRedirect { original }),
+            Err(e) => {
+                tracing::warn!(error = %e, "writing save redirect failed; rolling back");
+                if let Err(rb) = reverse_and_finalize(instance, deployment, progress) {
+                    tracing::warn!(error = %rb, "rollback after save-redirect failure was incomplete");
+                }
+                return Err(e.into());
+            }
+        }
+    }
 
     // Second Write: InProgress -> Committed flip
     deployment.status = Status::Committed;
@@ -241,7 +259,25 @@ fn reverse_and_finalize(
         );
     }
 
-    if report.is_fully_resolved() && plugins_restore.is_ok() {
+    // Undo the save redirect, but only if this deployment set one
+    let save_restore = match &deployment.save_redirect {
+        Some(redirect) => {
+            let (custom_ini, _) = save_paths(instance, &deployment.profile)?;
+            saves::restore_save_redirect(
+                &custom_ini,
+                &deployment.profile,
+                redirect.original.as_deref(),
+            )
+        }
+        None => Ok(saves::SaveRestore::Restored),
+    };
+    if let Ok(saves::SaveRestore::Conflict) = &save_restore {
+        tracing::warn!(
+            "SLocalSavePath changed since deployment; kept the current value instead of restoring"
+        );
+    }
+
+    if report.is_fully_resolved() && plugins_restore.is_ok() && save_restore.is_ok() {
         tracing::info!("reversal complete; clearing journal");
         Deployment::remove(instance)
     } else {
@@ -252,9 +288,11 @@ fn reverse_and_finalize(
             ..deployment
         };
         failed.save(instance)?;
-        Err(plugins_restore
+        let restore_err = plugins_restore
             .err()
-            .map_or(ApplyError::RecoveryFailed { path }, ApplyError::from))
+            .map(ApplyError::from)
+            .or_else(|| save_restore.err().map(ApplyError::from));
+        Err(restore_err.unwrap_or(ApplyError::RecoveryFailed { path }))
     }
 }
 
@@ -268,6 +306,19 @@ fn prepare_load_order(
     order.reconcile(&discovered);
     order.save(instance)?;
     Ok(order)
+}
+
+/// This profile's `Fallout4Custom.ini` and `Saves/<profile>/` folder, both under
+/// the instance's My Games (INI) directory.
+fn save_paths(
+    instance: &Instance,
+    profile: &str,
+) -> Result<(Utf8PathBuf, Utf8PathBuf), ApplyError> {
+    let ini_dir = instance.ini_dir()?;
+    let stem = instance.config.game.ini_stem();
+    let custom_ini = ini_dir.join(format!("{stem}Custom.ini"));
+    let saves_dir = ini_dir.join("Saves").join(profile);
+    Ok((custom_ini, saves_dir))
 }
 
 // Dont start a deploy when the backup dir survives from a previous run
@@ -831,6 +882,146 @@ mod tests {
         assert_eq!(
             Deployment::load(&instance).expect("load").status,
             Status::RecoveryFailed
+        );
+    }
+
+    // --- per-profile saves ---
+
+    /// `Fallout4Custom.ini` under the instance's (temp) My Games dir.
+    fn custom_ini(instance: &Instance) -> Utf8PathBuf {
+        let stem = instance.config.game.ini_stem();
+        instance
+            .ini_dir()
+            .expect("ini dir")
+            .join(format!("{stem}Custom.ini"))
+    }
+
+    /// The live `SLocalSavePath` value, if any.
+    fn save_path(instance: &Instance) -> Option<String> {
+        let text = std::fs::read_to_string(custom_ini(instance)).ok()?;
+        crate::ini::Ini::parse(&text)
+            .get("General", "SLocalSavePath")
+            .map(str::to_owned)
+    }
+
+    /// Save `Default` with a single enabled mod and per-profile saves switched on.
+    fn deploy_profile_with_local_saves(instance: &Instance) {
+        install_mod(instance, "CoolMod", &[("Textures/a.dds", "pix")]);
+        save_profile(instance, "Default", &[("CoolMod", true)]);
+        let mut profile = Profile::load(instance, "Default").expect("load");
+        profile.local_saves = true;
+        profile.save(instance).expect("save");
+    }
+
+    #[test]
+    fn deploy_with_local_saves_redirects_saves_and_purge_restores() {
+        let (_tmp, instance) = temp_instance();
+        deploy_profile_with_local_saves(&instance);
+
+        deploy_profile(&instance, "Default", &NullSink).expect("deploy");
+
+        assert_eq!(
+            save_path(&instance).as_deref(),
+            Some("Saves\\Default\\"),
+            "redirect written into Fallout4Custom.ini"
+        );
+        assert!(
+            instance
+                .ini_dir()
+                .unwrap()
+                .join("Saves")
+                .join("Default")
+                .is_dir(),
+            "the profile's saves folder is pre-created"
+        );
+
+        // Nothing to put back: the user had no prior value.
+        let journal = Deployment::load(&instance).expect("journal");
+        assert_eq!(
+            journal.save_redirect.expect("redirect journalled").original,
+            None
+        );
+
+        purge(&instance, &NullSink).expect("purge");
+        assert_eq!(save_path(&instance), None, "our redirect removed on purge");
+    }
+
+    #[test]
+    fn deploy_without_local_saves_never_touches_saves() {
+        let (_tmp, instance) = temp_instance();
+        install_mod(&instance, "CoolMod", &[("Textures/a.dds", "pix")]);
+        // save_profile leaves local_saves off.
+        save_profile(&instance, "Default", &[("CoolMod", true)]);
+
+        deploy_profile(&instance, "Default", &NullSink).expect("deploy");
+
+        assert!(
+            Deployment::load(&instance)
+                .expect("journal")
+                .save_redirect
+                .is_none(),
+            "no redirect journalled when the profile opts out"
+        );
+        assert!(
+            !custom_ini(&instance).exists(),
+            "the custom INI is never created"
+        );
+    }
+
+    #[test]
+    fn deploy_captures_the_users_prior_save_path_and_purge_restores_it() {
+        let (_tmp, instance) = temp_instance();
+        deploy_profile_with_local_saves(&instance);
+
+        // The user already had a custom save path.
+        let ini = custom_ini(&instance);
+        std::fs::create_dir_all(ini.parent().unwrap()).unwrap();
+        std::fs::write(&ini, "[General]\r\nSLocalSavePath=Saves\\Mine\\\r\n").unwrap();
+
+        deploy_profile(&instance, "Default", &NullSink).expect("deploy");
+        assert_eq!(
+            Deployment::load(&instance)
+                .unwrap()
+                .save_redirect
+                .expect("journalled")
+                .original
+                .as_deref(),
+            Some("Saves\\Mine\\"),
+            "the prior value is captured"
+        );
+        assert_eq!(save_path(&instance).as_deref(), Some("Saves\\Default\\"));
+
+        purge(&instance, &NullSink).expect("purge");
+        assert_eq!(
+            save_path(&instance).as_deref(),
+            Some("Saves\\Mine\\"),
+            "the user's original save path is restored on purge"
+        );
+    }
+
+    #[test]
+    fn purge_keeps_a_save_path_changed_after_deployment() {
+        let (_tmp, instance) = temp_instance();
+        deploy_profile_with_local_saves(&instance);
+
+        deploy_profile(&instance, "Default", &NullSink).expect("deploy");
+
+        // The user re-points their save path while deployed.
+        std::fs::write(
+            custom_ini(&instance),
+            "[General]\r\nSLocalSavePath=Saves\\Manual\\\r\n",
+        )
+        .unwrap();
+
+        purge(&instance, &NullSink).expect("purge");
+        assert_eq!(
+            save_path(&instance).as_deref(),
+            Some("Saves\\Manual\\"),
+            "a value the user changed after deploy is left alone"
+        );
+        assert!(
+            !Deployment::exists(&instance),
+            "purge still completes and clears the journal"
         );
     }
 }

@@ -36,6 +36,19 @@ pub struct Deployment {
     /// reversal can tell our file apart from one a tool or the user changed afterward
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub plugins_txt_intended: Option<Vec<u8>>,
+
+    /// Present only when the deployed profile uses local saves: the user's prior
+    /// `SLocalSavePath` (if any), captured so a reversal can put it back
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub save_redirect: Option<SaveRedirect>,
+}
+
+/// Journalled record that a deployment redirected the game's save path
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SaveRedirect {
+    /// The user's `SLocalSavePath` before we wrote ours, if they had one
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub original: Option<String>,
 }
 
 impl Deployment {
