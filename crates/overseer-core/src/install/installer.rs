@@ -1,6 +1,7 @@
 use super::archive::extract;
 use super::error::{InstallError, io_err};
 use super::root::find_content_root;
+use crate::error::non_utf8;
 use crate::instance::{InstalledMod, Instance};
 use camino::Utf8Path;
 use walkdir::WalkDir;
@@ -18,7 +19,7 @@ pub fn install(
 
     let staging = tempfile::tempdir().map_err(|e| io_err(&instance.mods_dir(), e))?;
     let staging_root = Utf8Path::from_path(staging.path())
-        .ok_or_else(|| InstallError::NonUtf8Path(staging.path().display().to_string()))?;
+        .ok_or_else(|| InstallError::NonUtf8Path(non_utf8(staging.path())))?;
 
     extract(archive, staging_root)?;
     let content_root = find_content_root(staging_root)?;
@@ -27,9 +28,7 @@ pub fn install(
         return Err(InstallError::EmptyArchive);
     }
 
-    if let Some(parent) = dest.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| io_err(parent, e))?;
-    }
+    crate::fs::ensure_dir(dest.parent().unwrap_or(&dest))?;
     move_dir(&content_root, &dest)?;
 
     Ok(InstalledMod {
@@ -57,7 +56,7 @@ fn copy_dir(from: &Utf8Path, to: &Utf8Path) -> Result<(), InstallError> {
     for entry in WalkDir::new(from) {
         let entry = entry.map_err(|e| io_err(from, e.into()))?;
         let src = Utf8Path::from_path(entry.path())
-            .ok_or_else(|| InstallError::NonUtf8Path(entry.path().display().to_string()))?;
+            .ok_or_else(|| InstallError::NonUtf8Path(non_utf8(entry.path())))?;
         let relative = src
             .strip_prefix(from)
             .expect("walked entry is under `from`");

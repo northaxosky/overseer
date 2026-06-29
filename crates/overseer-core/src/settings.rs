@@ -1,9 +1,7 @@
 //! Persistent, app-level settings (not the same as per instance `overseer.toml`)
 
-use atomicwrites::{AtomicFile, OverwriteBehavior};
 use camino::{Utf8Path, Utf8PathBuf};
 use serde::{Deserialize, Serialize};
-use std::io::Write;
 use thiserror::Error;
 
 /// How many recent instances to remember
@@ -29,8 +27,6 @@ pub enum SettingsError {
         source: Box<toml::ser::Error>,
     },
 }
-
-pub(crate) use crate::error::io_err;
 
 /// Persistent app level settings: The schema is intentionally open & every field has a default
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
@@ -59,12 +55,8 @@ impl Settings {
 
     /// Load from a specific file (missing file is defaults)
     pub fn load_from(path: &Utf8Path) -> Result<Self, SettingsError> {
-        let text = match std::fs::read_to_string(path) {
-            Ok(text) => text,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Self::default()),
-            Err(source) => {
-                return Err(io_err(path, source).into());
-            }
+        let Some(text) = crate::fs::read_to_string_opt(path)? else {
+            return Ok(Self::default());
         };
         toml::from_str(&text).map_err(|source| SettingsError::Parse {
             path: path.to_owned(),
@@ -78,12 +70,8 @@ impl Settings {
             path: path.to_owned(),
             source: Box::new(e),
         })?;
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).map_err(|source| io_err(path, source))?;
-        }
-        let file = AtomicFile::new(path, OverwriteBehavior::AllowOverwrite);
-        file.write(|f| f.write_all(text.as_bytes()))
-            .map_err(|e: atomicwrites::Error<std::io::Error>| io_err(path, e.into()).into())
+        crate::fs::write_atomic(path, text.as_bytes())?;
+        Ok(())
     }
 
     /// The most recently opened instance, if any

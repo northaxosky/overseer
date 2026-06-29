@@ -1,6 +1,6 @@
 //! The real game load order: writing the game's `Plugins.txt` via libloadorder
 
-use super::error::{PluginError, io_err};
+use super::error::PluginError;
 use super::loadorder::PluginEntry;
 use camino::{Utf8Path, Utf8PathBuf};
 use loadorder::{GameId, GameSettings};
@@ -48,12 +48,7 @@ fn plugins_txt_path(local_dir: &Utf8Path) -> Utf8PathBuf {
 
 /// Read the current real `Plugins.txt` so it can be restored later
 pub fn read_plugins_txt(local_dir: &Utf8Path) -> Result<Option<Vec<u8>>, PluginError> {
-    let path = plugins_txt_path(local_dir);
-    match std::fs::read(&path) {
-        Ok(bytes) => Ok(Some(bytes)),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(source) => Err(io_err(&path, source).into()),
-    }
+    Ok(crate::fs::read_opt(&plugins_txt_path(local_dir))?)
 }
 
 /// Restore `Plugins.txt`: `Some(bytes)` rewrites original; `None` removes the file we created
@@ -63,13 +58,10 @@ pub(crate) fn restore_plugins_txt(
 ) -> Result<(), PluginError> {
     let path = plugins_txt_path(local_dir);
     match backup {
-        Some(bytes) => std::fs::write(&path, bytes).map_err(|source| io_err(&path, source).into()),
-        None => match std::fs::remove_file(&path) {
-            Ok(()) => Ok(()),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            Err(source) => Err(io_err(&path, source).into()),
-        },
+        Some(bytes) => crate::fs::write(&path, bytes)?,
+        None => crate::fs::remove_file_opt(&path)?,
     }
+    Ok(())
 }
 
 /// Whether a content aware restore put the original back, or left a diverged file alone

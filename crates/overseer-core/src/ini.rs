@@ -137,11 +137,9 @@ pub fn read_game_inis(instance: &Instance) -> Result<GameInis, IniError> {
 
     let read = |name: String| -> Result<Ini, IniError> {
         let path = dir.join(name);
-        match std::fs::read_to_string(&path) {
-            Ok(text) => Ok(Ini::parse(&text)),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Ini::default()),
-            Err(source) => Err(IniError::Io(crate::error::IoError::new(&path, source))),
-        }
+        Ok(crate::fs::read_to_string_opt(&path)?
+            .map(|t| Ini::parse(&t))
+            .unwrap_or_default())
     };
 
     let mut settings = read(format!("{stem}.ini"))?;

@@ -1549,6 +1549,7 @@ dependencies = [
  "esplugin",
  "libloadorder",
  "overseer-core",
+ "overseer-diagnostics",
  "pelite",
  "same-file",
  "serde",

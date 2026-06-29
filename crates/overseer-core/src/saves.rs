@@ -1,6 +1,7 @@
 //! Per profile save-game redirection via the game's `SLocalSavePath` INI key
 
 use crate::error::IoError;
+use crate::fs;
 use crate::ini::{self, Ini};
 use camino::Utf8Path;
 
@@ -27,20 +28,13 @@ pub fn apply_save_redirect(
     saves_dir: &Utf8Path,
     profile: &str,
 ) -> Result<Option<String>, IoError> {
-    let text = match std::fs::read_to_string(custom_ini) {
-        Ok(t) => t,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
-        Err(e) => return Err(IoError::new(custom_ini, e)),
-    };
+    let text = fs::read_to_string_opt(custom_ini)?.unwrap_or_default();
 
     let original = Ini::parse(&text).get(SECTION, KEY).map(str::to_owned);
     let updated = ini::set_key(&text, SECTION, KEY, &save_redirect_value(profile));
 
-    if let Some(parent) = custom_ini.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| IoError::new(parent, e))?;
-    }
-    std::fs::write(custom_ini, updated).map_err(|e| IoError::new(custom_ini, e))?;
-    std::fs::create_dir_all(saves_dir).map_err(|e| IoError::new(saves_dir, e))?;
+    fs::write_atomic(custom_ini, updated.as_bytes())?;
+    fs::ensure_dir(saves_dir)?;
     Ok(original)
 }
 
@@ -50,10 +44,8 @@ pub fn restore_save_redirect(
     profile: &str,
     original: Option<&str>,
 ) -> Result<SaveRestore, IoError> {
-    let text = match std::fs::read_to_string(custom_ini) {
-        Ok(t) => t,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(SaveRestore::Restored),
-        Err(e) => return Err(IoError::new(custom_ini, e)),
+    let Some(text) = fs::read_to_string_opt(custom_ini)? else {
+        return Ok(SaveRestore::Restored);
     };
 
     let current = Ini::parse(&text).get(SECTION, KEY).map(str::to_owned);
@@ -65,7 +57,7 @@ pub fn restore_save_redirect(
         Some(value) => ini::set_key(&text, SECTION, KEY, value),
         None => ini::unset_key(&text, SECTION, KEY),
     };
-    std::fs::write(custom_ini, updated).map_err(|e| IoError::new(custom_ini, e))?;
+    fs::write_atomic(custom_ini, updated.as_bytes())?;
     Ok(SaveRestore::Restored)
 }
 

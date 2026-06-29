@@ -38,3 +38,8 @@ impl IoError {
 pub(crate) fn io_err(path: &Utf8Path, source: std::io::Error) -> IoError {
     IoError::new(path, source)
 }
+
+/// Render a non-UTF-8 path as the lossy string our `NonUtf8Path`-style variants carry.
+pub(crate) fn non_utf8(path: &std::path::Path) -> String {
+    path.display().to_string()
+}

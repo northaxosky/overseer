@@ -1,5 +1,6 @@
-use super::error::{PluginError, io_err};
+use super::error::PluginError;
 use super::metadata::PluginMeta;
+use crate::fs;
 use crate::instance::Instance;
 
 /// One line of a profiles's plugin load order: plugin name and whether it's active
@@ -20,11 +21,7 @@ impl PluginLoadOrder {
     /// Load a profile's `plugins.txt`
     pub fn load(instance: &Instance, profile: &str) -> Result<Self, PluginError> {
         let path = instance.profile_dir(profile).join("plugins.txt");
-        let text = match std::fs::read_to_string(&path) {
-            Ok(text) => text,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
-            Err(source) => return Err(io_err(&path, source).into()),
-        };
+        let text = fs::read_to_string_opt(&path)?.unwrap_or_default();
 
         Ok(Self {
             profile: profile.to_owned(),
@@ -34,11 +31,9 @@ impl PluginLoadOrder {
 
     /// Write the profile's `plugins.txt`, creating the profile dir if necessary
     pub fn save(&self, instance: &Instance) -> Result<(), PluginError> {
-        let dir = instance.profile_dir(&self.profile);
-        std::fs::create_dir_all(&dir).map_err(|source| io_err(&dir, source))?;
-        let path = dir.join("plugins.txt");
-        std::fs::write(&path, self.to_plugins_string())
-            .map_err(|source| io_err(&path, source).into())
+        let path = instance.profile_dir(&self.profile).join("plugins.txt");
+        fs::write_atomic(&path, self.to_plugins_string().as_bytes())?;
+        Ok(())
     }
 
     /// Serialize to `plugins.txt` text: `*name` for active, `name` for inactive

@@ -1,6 +1,7 @@
-use super::error::{InstanceError, io_err};
+use super::error::InstanceError;
 use super::model::Instance;
 use crate::deploy::ModSource;
+use crate::fs;
 use camino::{Utf8Path, Utf8PathBuf};
 
 /// What kind of `modlist.txt` line an entry is
@@ -34,12 +35,7 @@ impl Profile {
     /// Read a profile's `modlist.txt` + `settings.ini`. A missing modlist = empty profile.
     pub fn load(instance: &Instance, name: &str) -> Result<Self, InstanceError> {
         let dir = instance.profile_dir(name);
-        let modlist = dir.join("modlist.txt");
-        let text = match std::fs::read_to_string(&modlist) {
-            Ok(text) => text,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
-            Err(e) => return Err(io_err(&modlist, e).into()),
-        };
+        let text = fs::read_to_string_opt(&dir.join("modlist.txt"))?.unwrap_or_default();
         Ok(Self {
             name: name.to_owned(),
             mods: parse_modlist(&text),
@@ -50,9 +46,10 @@ impl Profile {
     /// Write the profile's `modlist.txt` + `settings.ini`, creating the dir if needed
     pub fn save(&self, instance: &Instance) -> Result<(), InstanceError> {
         let dir = instance.profile_dir(&self.name);
-        std::fs::create_dir_all(&dir).map_err(|e| io_err(&dir, e))?;
-        let modlist = dir.join("modlist.txt");
-        std::fs::write(&modlist, self.to_modlist_string()).map_err(|e| io_err(&modlist, e))?;
+        fs::write_atomic(
+            &dir.join("modlist.txt"),
+            self.to_modlist_string().as_bytes(),
+        )?;
         write_local_saves(&dir, self.local_saves)?;
         Ok(())
     }
@@ -217,11 +214,8 @@ fn settings_path(profile_dir: &Utf8Path) -> Utf8PathBuf {
 
 /// Read `[General] LocalSaves` (MO2-compatible). Missing file or key means false.
 fn read_local_saves(profile_dir: &Utf8Path) -> Result<bool, InstanceError> {
-    let path = settings_path(profile_dir);
-    let text = match std::fs::read_to_string(&path) {
-        Ok(text) => text,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(false),
-        Err(e) => return Err(io_err(&path, e).into()),
+    let Some(text) = fs::read_to_string_opt(&settings_path(profile_dir))? else {
+        return Ok(false);
     };
     Ok(crate::ini::Ini::parse(&text)
         .get("General", "LocalSaves")
@@ -231,14 +225,10 @@ fn read_local_saves(profile_dir: &Utf8Path) -> Result<bool, InstanceError> {
 /// Set `[General] LocalSaves`, preserving any other MO2 keys already in the file.
 fn write_local_saves(profile_dir: &Utf8Path, local_saves: bool) -> Result<(), InstanceError> {
     let path = settings_path(profile_dir);
-    let text = match std::fs::read_to_string(&path) {
-        Ok(text) => text,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
-        Err(e) => return Err(io_err(&path, e).into()),
-    };
+    let text = fs::read_to_string_opt(&path)?.unwrap_or_default();
     let value = if local_saves { "true" } else { "false" };
     let updated = crate::ini::set_key(&text, "General", "LocalSaves", value);
-    std::fs::write(&path, updated).map_err(|e| io_err(&path, e))?;
+    fs::write_atomic(&path, updated.as_bytes())?;
     Ok(())
 }
 

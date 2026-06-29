@@ -9,6 +9,7 @@ pub mod deploy;
 pub mod detect;
 mod error;
 pub mod f4se;
+mod fs;
 pub mod game;
 pub mod ini;
 pub mod install;
