@@ -36,7 +36,7 @@ pub(super) fn render_doctor_body(app: &mut App, frame: &mut Frame, area: Rect) {
     let detail = selected_detail(report, app.doctor_state.selected());
     let detail_pane = Paragraph::new(detail)
         .wrap(Wrap { trim: true })
-        .block(Block::new().borders(Borders::TOP).title(" detail "));
+        .block(Block::new().borders(Borders::TOP).title(" details "));
     frame.render_widget(detail_pane, rows[2]);
 }
 
