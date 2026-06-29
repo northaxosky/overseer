@@ -83,7 +83,8 @@ impl Settings {
 
     /// Record that `instance` was opened, move to front
     pub fn record_opened(&mut self, instance: &Utf8Path) {
-        self.recent_instances.retain(|p| p.as_path() != instance);
+        self.recent_instances
+            .retain(|p| !p.as_str().eq_ignore_ascii_case(instance.as_str()));
         self.recent_instances.insert(0, instance.to_owned());
         self.recent_instances.truncate(MAX_RECENT);
     }
@@ -151,6 +152,14 @@ mod tests {
             s.last_instance(),
             Some(Utf8Path::new(&format!("/i{}", MAX_RECENT + 4)))
         );
+    }
+
+    #[test]
+    fn record_opened_dedupes_case_insensitively() {
+        let mut s = Settings::default();
+        s.record_opened(Utf8Path::new("C:/Games/Inst"));
+        s.record_opened(Utf8Path::new("c:/games/inst")); // same path, different case
+        assert_eq!(s.recent_instances, vec![Utf8PathBuf::from("c:/games/inst")]);
     }
 
     #[test]

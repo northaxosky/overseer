@@ -67,6 +67,13 @@ pub(crate) fn find_plugin_files(dir: &Utf8Path) -> Result<Vec<camino::Utf8PathBu
             found.push(path.to_owned());
         }
     }
+    // WalkDir yields filesystem order; sort so a mod's plugins deploy deterministically.
+    found.sort_by(|a, b| {
+        a.file_name()
+            .unwrap_or_default()
+            .to_ascii_lowercase()
+            .cmp(&b.file_name().unwrap_or_default().to_ascii_lowercase())
+    });
     Ok(found)
 }
 
@@ -194,6 +201,18 @@ mod tests {
 
         let found = discover_plugins(&instance, &profile).expect("discover");
         assert_eq!(found[0].masters, ["Fallout4.esm"]);
+    }
+
+    #[test]
+    fn plugins_within_a_mod_are_sorted_deterministically() {
+        let (_t, instance) = temp_instance();
+        // Written out of order; discovery must return them name-sorted, not in FS order.
+        write_plugin(&instance.mods_dir().join("ModA"), "Zeta.esp", 0, &[]);
+        write_plugin(&instance.mods_dir().join("ModA"), "alpha.esp", 0, &[]);
+        let profile = profile(vec![entry("ModA", true)]);
+
+        let found = discover_plugins(&instance, &profile).expect("discover");
+        assert_eq!(names(&found), ["alpha.esp", "Zeta.esp"]);
     }
 
     #[test]
