@@ -12,7 +12,15 @@ use overseer_core::instance::{Instance, Profile};
 use overseer_core::plugins::{PluginLoadOrder, PluginMeta, discover_plugins};
 use overseer_core::settings::Settings;
 use overseer_diagnostics::Report;
+use overseer_frontend::style::Role;
 use ratatui::widgets::ListState;
+
+/// A transient footer message with a severity for coloring.
+#[derive(Debug)]
+pub(crate) struct Notice {
+    pub(crate) text: String,
+    pub(crate) role: Role,
+}
 
 /// Which pane has keyboard focus.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -62,7 +70,7 @@ pub(crate) struct App {
     pub(crate) should_quit: bool,
     pub(crate) popup: Option<Popup>,
     pub(crate) focus: Focus,
-    pub(crate) message: Option<String>,
+    pub(crate) message: Option<Notice>,
     pub(crate) settings: Settings,
     pub(crate) session: Session,
     pub(crate) mods_state: ListState,
@@ -102,6 +110,30 @@ impl App {
             settings,
             session,
         })
+    }
+
+    /// Footer message: success (green).
+    pub(crate) fn ok(&mut self, text: impl Into<String>) {
+        self.message = Some(Notice {
+            text: text.into(),
+            role: Role::Success,
+        });
+    }
+
+    /// Footer message: failure (red).
+    pub(crate) fn fail(&mut self, text: impl Into<String>) {
+        self.message = Some(Notice {
+            text: text.into(),
+            role: Role::Failure,
+        });
+    }
+
+    /// Footer message: neutral notice (muted).
+    pub(crate) fn note(&mut self, text: impl Into<String>) {
+        self.message = Some(Notice {
+            text: text.into(),
+            role: Role::Muted,
+        });
     }
 }
 

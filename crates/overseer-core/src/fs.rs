@@ -60,6 +60,16 @@ pub(crate) fn remove_file_opt(path: &Utf8Path) -> Result<(), IoError> {
     }
 }
 
+/// Move a corrupt file aside to `<path>.bak` so a later write won't clobber it. No-op if absent.
+pub(crate) fn backup_corrupt(path: &Utf8Path) -> Result<(), IoError> {
+    let bak = format!("{path}.bak");
+    match std::fs::rename(path, &bak) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(io_err(path, e)),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -96,5 +106,21 @@ mod tests {
         write(&root.join("real"), "x").unwrap();
         remove_file_opt(&root.join("real")).unwrap();
         assert!(read_opt(&root.join("real")).unwrap().is_none());
+    }
+
+    #[test]
+    fn backup_corrupt_moves_aside_and_is_noop_when_absent() {
+        let (_t, root) = temp();
+        backup_corrupt(&root.join("ghost")).unwrap(); // absent: fine
+        write(&root.join("c.toml"), "garbage").unwrap();
+        backup_corrupt(&root.join("c.toml")).unwrap();
+        assert!(
+            read_opt(&root.join("c.toml")).unwrap().is_none(),
+            "original moved"
+        );
+        assert_eq!(
+            read_opt(&root.join("c.toml.bak")).unwrap().unwrap(),
+            b"garbage"
+        );
     }
 }

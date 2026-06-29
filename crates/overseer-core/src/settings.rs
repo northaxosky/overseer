@@ -42,6 +42,10 @@ impl Settings {
         match Self::load_from(&config_path()) {
             Ok(settings) => settings,
             Err(e) => {
+                // Defaults would overwrite recents on next save; keep a copy first.
+                if let SettingsError::Parse { path, .. } = &e {
+                    let _ = crate::fs::backup_corrupt(path);
+                }
                 tracing::warn!(error = %e, "using default settings");
                 Self::default()
             }

@@ -106,11 +106,11 @@ pub(crate) fn draw_main(app: &mut App, frame: &mut Frame) {
     );
 
     let foot = Layout::horizontal([Constraint::Fill(1), Constraint::Fill(1)]).split(rows[2]);
-    let left = app
-        .message
-        .clone()
-        .unwrap_or_else(|| status_summary(app.session.status.as_ref()));
-    frame.render_widget(Paragraph::new(left), foot[0]);
+    let left = match &app.message {
+        Some(n) => Paragraph::new(n.text.clone()).style(theme::style(n.role)),
+        None => Paragraph::new(status_summary(app.session.status.as_ref())),
+    };
+    frame.render_widget(left, foot[0]);
     frame.render_widget(
         Paragraph::new("s settings · d doctor · ? help · q quit ").alignment(Alignment::Right),
         foot[1],
@@ -245,7 +245,7 @@ mod tests {
     #[test]
     fn footer_prefers_a_message_over_status() {
         let mut app = App::sample();
-        app.message = Some("Saved".to_owned());
+        app.ok("Saved");
         let out = render(&mut app, 80, 12);
         assert!(out.contains("Saved"), "footer shows the message");
     }

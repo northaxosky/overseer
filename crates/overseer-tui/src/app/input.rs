@@ -1,6 +1,7 @@
 //! Keyboard handling and the actions it drives on [`App`].
 
 use anyhow::Result;
+use overseer_core::instance::ModKind;
 use overseer_core::plugins::discover_plugins;
 use overseer_diagnostics::diagnose;
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -113,7 +114,7 @@ impl App {
                     self.report = Some(report);
                 }
                 Err(e) => {
-                    self.message = Some(format!("Error: {e}"));
+                    self.fail(format!("Error: {e}"));
                     return;
                 }
             },
@@ -156,9 +157,9 @@ impl App {
                 if let Err(e) = self.settings.save() {
                     tracing::warn!(error = %e, "could not save settings");
                 }
-                self.message = Some("Switched instance".to_owned());
+                self.ok("Switched instance");
             }
-            Err(e) => self.message = Some(format!("Error: {e}")),
+            Err(e) => self.fail(format!("Error: {e}")),
         }
         self.popup = None;
     }
@@ -168,10 +169,10 @@ impl App {
         if !self.flip_selected() {
             return;
         }
-        self.message = Some(match self.persist() {
-            Ok(()) => "Saved".to_owned(),
-            Err(e) => format!("Error: {e}"),
-        });
+        match self.persist() {
+            Ok(()) => self.ok("Saved"),
+            Err(e) => self.fail(format!("Error: {e}")),
+        }
     }
 
     /// Move the selected mod up or down in priority
@@ -179,10 +180,10 @@ impl App {
         if !self.shift_selected_mod(delta) {
             return;
         }
-        self.message = Some(match self.session.profile.save(&self.session.instance) {
-            Ok(()) => "Saved".to_owned(),
-            Err(e) => format!("Error: {e}"),
-        });
+        match self.session.profile.save(&self.session.instance) {
+            Ok(()) => self.ok("Saved"),
+            Err(e) => self.fail(format!("Error: {e}")),
+        }
     }
 
     /// Move the selected mod one step in priority
@@ -215,6 +216,12 @@ impl App {
             Focus::Mods => {
                 if let Some(i) = self.mods_state.selected() {
                     let m = &mut self.session.profile.mods[i];
+                    // Only Managed mods serialize an enabled flag; flipping a DLC/CC
+                    // (Foreign) or Separator would be a silent no-op on save.
+                    if m.kind != ModKind::Managed {
+                        self.note("Only managed mods can be toggled");
+                        return false;
+                    }
                     m.enabled = !m.enabled;
                     return true;
                 }
@@ -272,6 +279,25 @@ fn move_in_list(state: &mut ListState, len: usize, delta: isize) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn toggling_a_non_managed_mod_is_refused() {
+        use overseer_core::instance::ModKind;
+        let mut app = App::sample();
+        app.session
+            .profile
+            .mods
+            .push(overseer_core::instance::ModListEntry {
+                name: "DLCRobot".to_owned(),
+                enabled: true,
+                kind: ModKind::Foreign,
+            });
+        let foreign = app.session.profile.mods.len() - 1;
+        app.mods_state.select(Some(foreign));
+        assert!(!app.flip_selected(), "foreign entries can't be flipped");
+        assert!(app.session.profile.mods[foreign].enabled, "left unchanged");
+        assert!(app.message.is_some(), "user is told why");
+    }
 
     #[test]
     fn tab_toggles_focus() {
