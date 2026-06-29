@@ -280,6 +280,24 @@ fn deploy_purge_roundtrip_leaves_testbed_pristine() {
         status.verified.missing
     );
 
+    // --- Diagnose the live install --- the doctor pipeline must run end-to-end on a real
+    // game without panicking. We don't assert "no errors" (our hermetic empty ini dir legitimately
+    // trips ini-config); we assert it produced findings and the F4SE binary checks stayed clean.
+    let report = overseer_diagnostics::diagnose(&instance, "e2e").expect("diagnose live install");
+    assert!(!report.findings.is_empty(), "doctor produced no findings");
+    assert!(
+        !report
+            .findings
+            .iter()
+            .any(|f| f.check == "f4se" && f.severity == overseer_diagnostics::Severity::Error),
+        "f4se flagged a runtime mismatch on the base testbed: {:?}",
+        report
+            .findings
+            .iter()
+            .filter(|f| f.check == "f4se")
+            .collect::<Vec<_>>()
+    );
+
     // --- Purge ---
     apply::purge(&instance, &NullSink).expect("purge");
 
