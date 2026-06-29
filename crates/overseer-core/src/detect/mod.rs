@@ -2,7 +2,7 @@
 
 mod fallout4;
 
-pub use fallout4::Edition;
+pub use fallout4::{Edition, RuntimeFamily, address_library_name, loader_family, runtime_family};
 
 use crate::game::GameKind;
 use camino::Utf8Path;
@@ -52,7 +52,7 @@ pub fn detect(game: GameKind, game_dir: &Utf8Path) -> GameInstall {
     GameInstall {
         game,
         store: classify_store(probe_store_markers(game, game_dir)),
-        version: read_exe_version(game, game_dir),
+        version: file_version(&game_dir.join(game.executable())),
     }
 }
 
@@ -105,10 +105,9 @@ fn steam_appmanifest_exists(game_dir: &Utf8Path, appid: u32) -> bool {
         .is_some_and(|steamapps| steamapps.join(format!("appmanifest_{appid}.acf")).exists())
 }
 
-/// Read the game's executable's 4 part PE file version
-fn read_exe_version(game: GameKind, game_dir: &Utf8Path) -> Option<ExeVersion> {
-    let bytes = std::fs::read(game_dir.join(game.executable())).ok()?;
-    pe_file_version(&bytes)
+/// The PE file version of any on-disk binary, or `None` if unreadable / version-less
+pub fn file_version(path: &Utf8Path) -> Option<ExeVersion> {
+    pe_file_version(&std::fs::read(path).ok()?)
 }
 
 /// Extract the PE `VS_FIXEDFILEINFO` file version from raw bytes

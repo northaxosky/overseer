@@ -28,6 +28,41 @@ pub enum Edition {
     Undetermined,
 }
 
+/// The runtime an exe/loader targets, for F4SE & plugin compatibility
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RuntimeFamily {
+    OldGen,
+    NextGen,
+    Anniversary,
+}
+
+pub fn runtime_family(v: ExeVersion) -> Option<RuntimeFamily> {
+    match (v.major, v.minor, v.patch) {
+        (1, 10, 163) => Some(RuntimeFamily::OldGen),
+        (1, 10, 980 | 984) => Some(RuntimeFamily::NextGen),
+        (1, 11, _) => Some(RuntimeFamily::Anniversary),
+        _ => None,
+    }
+}
+
+/// The runtime family an `f4se_loader.exe` build targets (OG 0.6.x, NG 0.7.2, AE 0.7.7+)
+pub fn loader_family(v: ExeVersion) -> Option<RuntimeFamily> {
+    match (v.major, v.minor, v.patch) {
+        (0, 6, _) => Some(RuntimeFamily::OldGen),
+        (0, 7, 0..=6) => Some(RuntimeFamily::NextGen),
+        (0, 7, _) => Some(RuntimeFamily::Anniversary),
+        _ => None,
+    }
+}
+
+/// The address Library filename the engine expects for `v`, under `Data/F4SE/Plugins`
+pub fn address_library_name(v: ExeVersion) -> String {
+    format!(
+        "version-{}-{}-{}-{}.bin",
+        v.major, v.minor, v.patch, v.build
+    )
+}
+
 /// How confident we are that the base-game `Startup.ba2` is the NG one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum StartupBa2Signature {
@@ -106,6 +141,61 @@ mod tests {
             patch,
             build: 0,
         })
+    }
+
+    #[test]
+    fn runtime_family_maps_each_generation() {
+        assert_eq!(
+            runtime_family(v(1, 10, 163).unwrap()),
+            Some(RuntimeFamily::OldGen)
+        );
+        assert_eq!(
+            runtime_family(v(1, 10, 980).unwrap()),
+            Some(RuntimeFamily::NextGen)
+        );
+        assert_eq!(
+            runtime_family(v(1, 10, 984).unwrap()),
+            Some(RuntimeFamily::NextGen)
+        );
+        assert_eq!(
+            runtime_family(v(1, 11, 191).unwrap()),
+            Some(RuntimeFamily::Anniversary)
+        );
+        assert_eq!(
+            runtime_family(v(1, 11, 221).unwrap()),
+            Some(RuntimeFamily::Anniversary)
+        );
+        assert_eq!(runtime_family(v(1, 10, 120).unwrap()), None);
+    }
+
+    #[test]
+    fn loader_family_maps_f4se_build_lines() {
+        assert_eq!(
+            loader_family(v(0, 6, 23).unwrap()),
+            Some(RuntimeFamily::OldGen)
+        );
+        assert_eq!(
+            loader_family(v(0, 7, 2).unwrap()),
+            Some(RuntimeFamily::NextGen)
+        );
+        assert_eq!(
+            loader_family(v(0, 7, 7).unwrap()),
+            Some(RuntimeFamily::Anniversary)
+        );
+        assert_eq!(loader_family(v(9, 9, 9).unwrap()), None);
+    }
+
+    #[test]
+    fn address_library_name_uses_the_full_version() {
+        assert_eq!(
+            address_library_name(ExeVersion {
+                major: 1,
+                minor: 10,
+                patch: 163,
+                build: 0
+            }),
+            "version-1-10-163-0.bin"
+        );
     }
 
     #[test]

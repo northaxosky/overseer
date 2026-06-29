@@ -4,6 +4,9 @@ use crate::error::DiagnosticError;
 use camino::{Utf8Path, Utf8PathBuf};
 use overseer_core::archive::{Ba2Error, Ba2Header};
 use overseer_core::deploy::{DATA_DIR, DeployPlan, strip_data_prefix};
+use overseer_core::detect::{
+    self, RuntimeFamily, address_library_name, file_version, loader_family,
+};
 use overseer_core::ini::{GameInis, read_game_inis};
 use overseer_core::instance::{Instance, Profile};
 use overseer_core::plugins::{
@@ -29,6 +32,24 @@ pub struct GameContext {
     pub sadd_records: Vec<SaddCount>,
     /// BA2 archives in the profile's deploy set, with their headers
     pub archives: Vec<ArchiveInfo>,
+    /// Runtime family the game exe targets (OG/NG/AE), if recognised
+    pub runtime_family: Option<RuntimeFamily>,
+    /// Runtime family the installed F4SE loader targets, if present and recognised
+    pub loader_family: Option<RuntimeFamily>,
+    /// Whether the Address Library version file is present (only when F4SE plugins are deployed)
+    pub address_library: AddressLibraryStatus,
+}
+
+/// Whether the F4SE Address Library is in place. Only meaningful when F4SE plugins are deployed
+#[derive(Default, PartialEq, Eq)]
+pub enum AddressLibraryStatus {
+    /// No F4SE plugins are deployed, so it isn't needed
+    #[default]
+    NotApplicable,
+    /// The expected `version-*.bin` was found
+    Present,
+    /// F4SE plugins are deployed but the expected file is missing
+    Missing { expected: String },
 }
 
 /// A file that will deploy under the game's `Data/` folder, and the mod it came from
@@ -101,7 +122,7 @@ impl GameContext {
         // deploys to the game root rather than Data/, so it's dropped here.
         let sources = profile.deploy_sources(instance);
         let plan = DeployPlan::from_rooted_mods(&instance.config.game_dir, &sources)?;
-        let data_files = plan
+        let data_files: Vec<DataFile> = plan
             .files()
             .iter()
             .filter_map(|f| {
@@ -130,6 +151,19 @@ impl GameContext {
         }
         loaded_plugins.extend(active_plugins.iter().cloned());
 
+        // F4SE health: the game's runtime family, the installed loader's family, and whether the
+        // matching Address Library is present (only relevant once F4SE plugins are deployed).
+        let install = detect::detect(instance.config.game, &instance.config.game_dir);
+        let runtime_family = install.version.and_then(detect::runtime_family);
+        let loader_family = file_version(
+            &instance
+                .config
+                .game_dir
+                .join(instance.config.game.script_extender_loader()),
+        )
+        .and_then(loader_family);
+        let address_library = address_library_status(&data_files, install.version);
+
         Ok(Self {
             active_plugins,
             data_files,
@@ -138,7 +172,41 @@ impl GameContext {
             sadd_records,
             loaded_plugins,
             archives,
+            runtime_family,
+            loader_family,
+            address_library,
         })
+    }
+}
+
+/// Gate the Address Library on actual need: only deployed F4SE plugins require it. If any
+/// `F4SE/Plugins/*.dll` is deployed, the matching `version-*.bin` must be too.
+fn address_library_status(
+    data_files: &[DataFile],
+    version: Option<overseer_core::detect::ExeVersion>,
+) -> AddressLibraryStatus {
+    let under_plugins = |f: &DataFile| f.path.starts_with("F4SE/Plugins");
+    let has_plugin = data_files.iter().any(|f| {
+        under_plugins(f)
+            && f.path
+                .extension()
+                .is_some_and(|e| e.eq_ignore_ascii_case("dll"))
+    });
+    if !has_plugin {
+        return AddressLibraryStatus::NotApplicable;
+    }
+    let Some(expected) = version.map(address_library_name) else {
+        return AddressLibraryStatus::NotApplicable;
+    };
+    let present = data_files.iter().any(|f| {
+        f.path
+            .file_name()
+            .is_some_and(|n| n.eq_ignore_ascii_case(&expected))
+    });
+    if present {
+        AddressLibraryStatus::Present
+    } else {
+        AddressLibraryStatus::Missing { expected }
     }
 }
 
