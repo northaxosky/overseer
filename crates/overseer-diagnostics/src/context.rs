@@ -7,6 +7,7 @@ use overseer_core::deploy::{DATA_DIR, DeployPlan, strip_data_prefix};
 use overseer_core::detect::{
     self, RuntimeFamily, address_library_name, file_version, loader_family,
 };
+use overseer_core::f4se::{F4seDll, F4sePlugin, parse_f4se_dll};
 use overseer_core::ini::{GameInis, read_game_inis};
 use overseer_core::instance::{Instance, Profile};
 use overseer_core::plugins::{
@@ -38,6 +39,20 @@ pub struct GameContext {
     pub loader_family: Option<RuntimeFamily>,
     /// Whether the Address Library version file is present (only when F4SE plugins are deployed)
     pub address_library: AddressLibraryStatus,
+    /// Deployed F4SE plugin DLLs and what runtime each advertises
+    pub f4se_plugins: Vec<F4sePluginScan>,
+    /// The game exe's runtime packed for matching plugin `compatibleVersions`, if known
+    pub runtime_packed: Option<u32>,
+}
+
+/// A deployed F4SE plugin DLL and the runtime support it advertises
+pub struct F4sePluginScan {
+    /// File name, e.g. `Buffout4.dll`
+    pub name: String,
+    /// The mod that owns it
+    pub mod_name: String,
+    /// What its PE exports / version data reveal
+    pub plugin: F4sePlugin,
 }
 
 /// Whether the F4SE Address Library is in place. Only meaningful when F4SE plugins are deployed
@@ -163,6 +178,8 @@ impl GameContext {
         )
         .and_then(loader_family);
         let address_library = address_library_status(&data_files, install.version);
+        let f4se_plugins = scan_f4se_plugins(&plan);
+        let runtime_packed = install.version.map(detect::packed_runtime);
 
         Ok(Self {
             active_plugins,
@@ -175,8 +192,31 @@ impl GameContext {
             runtime_family,
             loader_family,
             address_library,
+            f4se_plugins,
+            runtime_packed,
         })
     }
+}
+
+/// Parse every `F4SE/Plugins/*.dll` the profile would deploy, attributed to its mod
+fn scan_f4se_plugins(plan: &DeployPlan) -> Vec<F4sePluginScan> {
+    plan.files()
+        .iter()
+        .filter(|f| {
+            f.relative
+                .extension()
+                .is_some_and(|e| e.eq_ignore_ascii_case("dll"))
+                && strip_data_prefix(&f.relative).is_some_and(|p| p.starts_with("F4SE/Plugins"))
+        })
+        .filter_map(|f| match parse_f4se_dll(&std::fs::read(&f.source).ok()?) {
+            F4seDll::Plugin(plugin) => Some(F4sePluginScan {
+                name: f.relative.file_name().unwrap_or_default().to_owned(),
+                mod_name: f.winner.clone(),
+                plugin,
+            }),
+            _ => None,
+        })
+        .collect()
 }
 
 /// Gate the Address Library on actual need: only deployed F4SE plugins require it. If any

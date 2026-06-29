@@ -63,6 +63,11 @@ pub fn address_library_name(v: ExeVersion) -> String {
     )
 }
 
+/// The exe version packed the way F4SE stores it in a plugin's `compatibleVersions`
+pub fn packed_runtime(v: ExeVersion) -> u32 {
+    (u32::from(v.major) << 24) | (u32::from(v.minor) << 16) | (u32::from(v.patch) << 4)
+}
+
 /// How confident we are that the base-game `Startup.ba2` is the NG one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum StartupBa2Signature {

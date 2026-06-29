@@ -4,6 +4,7 @@
 use super::Check;
 use crate::context::{AddressLibraryStatus, GameContext};
 use crate::finding::{Finding, Severity};
+use overseer_core::detect::RuntimeFamily;
 
 /// Reports F4SE setup problems: a loader for the wrong runtime, or a missing Address Library
 pub struct F4se;
@@ -36,6 +37,27 @@ impl Check for F4se {
             ));
         }
 
+        // A deployed F4SE plugin that doesn't advertise the installed runtime won't load.
+        if let (Some(packed), Some(game)) = (ctx.runtime_packed, ctx.runtime_family) {
+            for p in &ctx.f4se_plugins {
+                let advertises = if p.plugin.supports_ngae {
+                    p.plugin.supports(packed) // exact-runtime match in compatibleVersions
+                } else {
+                    game == RuntimeFamily::OldGen // OG-only plugins (Query, no Version)
+                };
+                if !advertises {
+                    findings.push(Finding::new(
+                        Severity::Warning,
+                        format!(
+                            "`{}` (from `{}`) may not support {game:?}",
+                            p.name, p.mod_name
+                        ),
+                        Some("Update the plugin for your F4SE/runtime version".to_owned()),
+                    ));
+                }
+            }
+        }
+
         findings
     }
 }
@@ -47,7 +69,9 @@ impl Check for F4se {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::context::F4sePluginScan;
     use overseer_core::detect::RuntimeFamily;
+    use overseer_core::f4se::F4sePlugin;
 
     fn run(
         game: Option<RuntimeFamily>,
@@ -128,6 +152,65 @@ mod tests {
                 AddressLibraryStatus::Present
             )
             .is_empty()
+        );
+    }
+
+    fn plugin_ctx(scans: Vec<F4sePluginScan>, packed: Option<u32>) -> GameContext {
+        GameContext {
+            runtime_family: Some(RuntimeFamily::Anniversary),
+            runtime_packed: packed,
+            f4se_plugins: scans,
+            ..GameContext::default()
+        }
+    }
+
+    fn scan(name: &str, supports_ngae: bool, compatible: &[u32]) -> F4sePluginScan {
+        F4sePluginScan {
+            name: name.to_owned(),
+            mod_name: "ModA".to_owned(),
+            plugin: F4sePlugin {
+                supports_og: !supports_ngae,
+                supports_ngae,
+                compatible: compatible.to_vec(),
+            },
+        }
+    }
+
+    #[test]
+    fn a_plugin_advertising_the_runtime_is_silent() {
+        let findings = plugin_ctx(
+            vec![scan("ok.dll", true, &[0x010B_0DD0])],
+            Some(0x010B_0DD0),
+        );
+        assert!(F4se.run(&findings).is_empty());
+    }
+
+    #[test]
+    fn a_plugin_missing_the_runtime_warns() {
+        let findings = F4se.run(&plugin_ctx(
+            vec![scan("old.dll", true, &[0x010A_3D80])],
+            Some(0x010B_0DD0),
+        ));
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].severity, Severity::Warning);
+        assert!(findings[0].title.contains("old.dll"));
+    }
+
+    #[test]
+    fn an_og_only_plugin_warns_on_anniversary() {
+        let findings = F4se.run(&plugin_ctx(
+            vec![scan("legacy.dll", false, &[])],
+            Some(0x010B_0DD0),
+        ));
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].severity, Severity::Warning);
+    }
+
+    #[test]
+    fn plugins_are_silent_when_runtime_unknown() {
+        assert!(
+            F4se.run(&plugin_ctx(vec![scan("x.dll", true, &[0x010A_3D80])], None))
+                .is_empty()
         );
     }
 }
