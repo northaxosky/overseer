@@ -66,6 +66,7 @@ impl App {
             settings_state: ListState::default(),
             help_state: ListState::default(),
             doctor_state: ListState::default(),
+            launch_state: ListState::default(),
         }
     }
 }

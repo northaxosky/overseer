@@ -5,6 +5,7 @@
 
 mod doctor;
 mod help;
+mod launcher;
 mod overlay;
 mod settings;
 
@@ -112,7 +113,7 @@ pub(crate) fn draw_main(app: &mut App, frame: &mut Frame) {
     };
     frame.render_widget(left, foot[0]);
     frame.render_widget(
-        Paragraph::new("s settings · d doctor · ? help · q quit ").alignment(Alignment::Right),
+        Paragraph::new("s settings · ? help · q quit ").alignment(Alignment::Right),
         foot[1],
     );
 }

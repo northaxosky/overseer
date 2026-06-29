@@ -1,8 +1,10 @@
 //! Keyboard handling and the actions it drives on [`App`].
 
 use anyhow::Result;
+use overseer_core::deploy::NullSink;
 use overseer_core::instance::ModKind;
 use overseer_core::plugins::discover_plugins;
+use overseer_core::{apply, launch};
 use overseer_diagnostics::diagnose;
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::widgets::ListState;
@@ -30,6 +32,7 @@ impl App {
             KeyCode::Char('?') => self.focus_tab(Popup::Help),
             KeyCode::Char('s') => self.focus_tab(Popup::Settings),
             KeyCode::Char('d') => self.focus_tab(Popup::Doctor),
+            KeyCode::Char('l') => self.focus_tab(Popup::Launcher),
 
             // Main view related controls
             KeyCode::Char(' ') | KeyCode::Enter => self.toggle_selected(),
@@ -38,6 +41,8 @@ impl App {
             KeyCode::Up | KeyCode::Char('k') => self.move_main_selection(-1),
             KeyCode::Char('J') => self.reorder_selected(1),
             KeyCode::Char('K') => self.reorder_selected(-1),
+            KeyCode::Char('D') => self.deploy(),
+            KeyCode::Char('P') => self.purge(),
             _ => {}
         }
     }
@@ -51,6 +56,7 @@ impl App {
                 Popup::Help => self.handle_help_key(key),
                 Popup::Settings => self.handle_settings_key(key),
                 Popup::Doctor => self.handle_doctor_key(key),
+                Popup::Launcher => self.handle_launcher_key(key),
             },
         }
     }
@@ -99,6 +105,18 @@ impl App {
         }
     }
 
+    /// Handle a key press in the launch popup
+    fn handle_launcher_key(&mut self, key: KeyEvent) {
+        let n = launch::targets(&self.session.instance).len();
+        match key.code {
+            KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('l') => self.popup = None,
+            KeyCode::Down | KeyCode::Char('j') => move_in_list(&mut self.launch_state, n, 1),
+            KeyCode::Up | KeyCode::Char('k') => move_in_list(&mut self.launch_state, n, -1),
+            KeyCode::Enter => self.launch_selected(),
+            _ => {}
+        }
+    }
+
     /// Show `tab`, preparing its selection (for doctor: its fresh report)
     fn focus_tab(&mut self, tab: Popup) {
         match tab {
@@ -118,6 +136,10 @@ impl App {
                     return;
                 }
             },
+            Popup::Launcher => {
+                let n = launch::targets(&self.session.instance).len();
+                self.launch_state.select((n > 0).then_some(0));
+            }
         }
         self.popup = Some(tab);
     }
@@ -162,6 +184,38 @@ impl App {
             Err(e) => self.fail(format!("Error: {e}")),
         }
         self.popup = None;
+    }
+
+    fn launch_selected(&mut self) {
+        let targets = launch::targets(&self.session.instance);
+        match self.launch_state.selected().and_then(|i| targets.get(i)) {
+            Some(name) => match launch::launch(&self.session.instance, name) {
+                Ok(()) => self.ok(format!("Launched {name}")),
+                Err(e) => self.fail(format!("Launch failed: {e}")),
+            },
+            None => self.note("No launch targets — add one with `overseer exe add`"),
+        }
+        self.popup = None;
+    }
+
+    fn deploy(&mut self) {
+        match apply::deploy_profile(
+            &self.session.instance,
+            &self.session.profile.name,
+            &NullSink,
+        ) {
+            Ok(d) => self.ok(format!("Deployed {} files", d.record.entries.len())),
+            Err(e) => self.fail(format!("Deploy failed: {e}")),
+        }
+        self.session.status = apply::status(&self.session.instance).unwrap_or(None);
+    }
+
+    fn purge(&mut self) {
+        match apply::purge(&self.session.instance, &NullSink) {
+            Ok(()) => self.ok("Purged the live deployment"),
+            Err(e) => self.fail(format!("Purge failed: {e}")),
+        }
+        self.session.status = apply::status(&self.session.instance).unwrap_or(None);
     }
 
     /// Toggle the selected item in the focused pane & report the outcome
@@ -297,6 +351,24 @@ mod tests {
         assert!(!app.flip_selected(), "foreign entries can't be flipped");
         assert!(app.session.profile.mods[foreign].enabled, "left unchanged");
         assert!(app.message.is_some(), "user is told why");
+    }
+
+    #[test]
+    fn l_opens_the_launcher_and_l_again_closes_it() {
+        let mut app = App::sample();
+        app.handle_key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE));
+        assert_eq!(app.popup, Some(Popup::Launcher));
+        app.handle_key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE));
+        assert_eq!(app.popup, None);
+    }
+
+    #[test]
+    fn launching_with_no_targets_notes_and_closes() {
+        let mut app = App::sample(); // sample instance configures no exes
+        app.handle_key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE));
+        app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert_eq!(app.popup, None, "picker closes");
+        assert!(app.message.is_some(), "user is told there are none");
     }
 
     #[test]

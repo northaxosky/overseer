@@ -79,6 +79,7 @@ pub(crate) struct App {
     pub(crate) help_state: ListState,
     pub(crate) report: Option<Report>,
     pub(crate) doctor_state: ListState,
+    pub(crate) launch_state: ListState,
 }
 
 impl App {
@@ -107,6 +108,7 @@ impl App {
             help_state: ListState::default(),
             report: None,
             doctor_state: ListState::default(),
+            launch_state: ListState::default(),
             settings,
             session,
         })

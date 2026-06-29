@@ -6,6 +6,7 @@ pub(crate) enum Popup {
     Help,
     Settings,
     Doctor,
+    Launcher,
     // ModActions, etc... later
 }
 
@@ -15,6 +16,8 @@ pub(crate) const HELP_ENTRIES: &[(&str, &str)] = &[
     ("Tab", "switch pane"),
     ("Space / Enter", "toggle enabled / active"),
     ("J / K", "reorder mod (priority)"),
+    ("D / P", "deploy / purge"),
+    ("l", "launch a target"),
     ("s", "open settings"),
     ("d", "run diagnostics"),
     ("?", "toggle this help"),
@@ -36,6 +39,7 @@ impl Popup {
             Popup::Doctor => "Doctor",
             Popup::Settings => "Settings",
             Popup::Help => "Help",
+            Popup::Launcher => "Launcher",
         }
     }
 
