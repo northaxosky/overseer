@@ -9,10 +9,17 @@ use overseer_diagnostics::diagnose;
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::widgets::ListState;
 
-use super::{App, Focus, HELP_ENTRIES, Popup, Session, initial_selection};
+use super::{
+    App, Focus, HELP_ENTRIES, Modal, Popup, Select, SelectKind, Session, initial_selection,
+};
 
 impl App {
     pub(crate) fn handle_key(&mut self, key: KeyEvent) {
+        // A modal blocks everything beneath it: it gets keys before popup or main
+        if self.modal.is_some() {
+            self.handle_modal_key(key);
+            return;
+        }
         match self.popup {
             None => self.handle_main_key(key),
             Some(tab) => self.handle_overlay_key(tab, key),
@@ -32,7 +39,7 @@ impl App {
             KeyCode::Char('?') => self.focus_tab(Popup::Help),
             KeyCode::Char('s') => self.focus_tab(Popup::Settings),
             KeyCode::Char('d') => self.focus_tab(Popup::Doctor),
-            KeyCode::Char('l') => self.focus_tab(Popup::Launcher),
+            KeyCode::Char('l') => self.open_select(SelectKind::Launch),
 
             // Main view related controls
             KeyCode::Char(' ') | KeyCode::Enter => self.toggle_selected(),
@@ -47,6 +54,30 @@ impl App {
         }
     }
 
+    /// Route a key while a model is open
+    fn handle_modal_key(&mut self, key: KeyEvent) {
+        if matches!(self.modal, Some(Modal::Select(_))) {
+            self.handle_select_key(key);
+        }
+    }
+
+    /// Keys for Select modal: navigate the list, submit, or cancel
+    fn handle_select_key(&mut self, key: KeyEvent) {
+        let Some(Modal::Select(select)) = &self.modal else {
+            return;
+        };
+        let toggle = select.kind.toggle_key();
+        match key.code {
+            // Esc/q always cancel
+            KeyCode::Esc | KeyCode::Char('q') => self.modal = None,
+            KeyCode::Char(c) if c == toggle => self.modal = None,
+            KeyCode::Down | KeyCode::Char('j') => self.move_in_select(1),
+            KeyCode::Up | KeyCode::Char('k') => self.move_in_select(-1),
+            KeyCode::Enter => self.submit_modal(),
+            _ => {}
+        }
+    }
+
     /// Route a key while a popup is open: Tab cycles tabs, everything else goes to the active tab
     fn handle_overlay_key(&mut self, tab: Popup, key: KeyEvent) {
         match key.code {
@@ -56,7 +87,6 @@ impl App {
                 Popup::Help => self.handle_help_key(key),
                 Popup::Settings => self.handle_settings_key(key),
                 Popup::Doctor => self.handle_doctor_key(key),
-                Popup::Launcher => self.handle_launcher_key(key),
             },
         }
     }
@@ -105,18 +135,6 @@ impl App {
         }
     }
 
-    /// Handle a key press in the launch popup
-    fn handle_launcher_key(&mut self, key: KeyEvent) {
-        let n = launch::targets(&self.session.instance).len();
-        match key.code {
-            KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('l') => self.popup = None,
-            KeyCode::Down | KeyCode::Char('j') => move_in_list(&mut self.launch_state, n, 1),
-            KeyCode::Up | KeyCode::Char('k') => move_in_list(&mut self.launch_state, n, -1),
-            KeyCode::Enter => self.launch_selected(),
-            _ => {}
-        }
-    }
-
     /// Show `tab`, preparing its selection (for doctor: its fresh report)
     fn focus_tab(&mut self, tab: Popup) {
         match tab {
@@ -136,10 +154,6 @@ impl App {
                     return;
                 }
             },
-            Popup::Launcher => {
-                let n = launch::targets(&self.session.instance).len();
-                self.launch_state.select((n > 0).then_some(0));
-            }
         }
         self.popup = Some(tab);
     }
@@ -158,6 +172,54 @@ impl App {
             Focus::Plugins => (&mut self.plugins_state, self.session.order.plugins.len()),
         };
         move_in_list(state, len, delta);
+    }
+
+    /// Move the active Select modal's selection by `delta`, clamped to its items
+    fn move_in_select(&mut self, delta: isize) {
+        let Some(Modal::Select(select)) = self.modal.as_ref() else {
+            return;
+        };
+        let len = self.select_items(&select.kind).len();
+        if let Some(Modal::Select(select)) = self.modal.as_mut() {
+            move_in_list(&mut select.state, len, delta);
+        }
+    }
+
+    /// Open a Select modal of `kind`, selecting its first item
+    fn open_select(&mut self, kind: SelectKind) {
+        let state = initial_selection(self.select_items(&kind).len());
+        self.modal = Some(Modal::Select(Select { kind, state }));
+    }
+
+    /// The items a Select modal of `kind` lists: single source of truth
+    pub(crate) fn select_items(&self, kind: &SelectKind) -> Vec<String> {
+        match kind {
+            SelectKind::Launch => launch::targets(&self.session.instance),
+        }
+    }
+
+    /// Act on the active modal's submission, then close it
+    fn submit_modal(&mut self) {
+        let Some(modal) = self.modal.take() else {
+            return;
+        };
+        match modal {
+            Modal::Select(select) => match select.kind {
+                SelectKind::Launch => self.launch(select.state.selected()),
+            },
+        }
+    }
+
+    /// Launch the target at `selected` or note when there is none
+    fn launch(&mut self, selected: Option<usize>) {
+        let targets = self.select_items(&SelectKind::Launch);
+        match selected.and_then(|i| targets.get(i)) {
+            Some(name) => match launch::launch(&self.session.instance, name) {
+                Ok(()) => self.ok(format!("Launched {name}")),
+                Err(e) => self.fail(format!("Launch failed: {e}")),
+            },
+            None => self.note("No launch targets — add one with `overseer exe add`"),
+        }
     }
 
     /// Switch to the instance selected in the settings popup
@@ -182,18 +244,6 @@ impl App {
                 self.ok("Switched instance");
             }
             Err(e) => self.fail(format!("Error: {e}")),
-        }
-        self.popup = None;
-    }
-
-    fn launch_selected(&mut self) {
-        let targets = launch::targets(&self.session.instance);
-        match self.launch_state.selected().and_then(|i| targets.get(i)) {
-            Some(name) => match launch::launch(&self.session.instance, name) {
-                Ok(()) => self.ok(format!("Launched {name}")),
-                Err(e) => self.fail(format!("Launch failed: {e}")),
-            },
-            None => self.note("No launch targets — add one with `overseer exe add`"),
         }
         self.popup = None;
     }
@@ -334,6 +384,14 @@ fn move_in_list(state: &mut ListState, len: usize, delta: isize) {
 mod tests {
     use super::*;
 
+    /// The selected index of an open Select modal, or `None`
+    fn modal_selection(app: &App) -> Option<usize> {
+        match &app.modal {
+            Some(Modal::Select(s)) => s.state.selected(),
+            None => None,
+        }
+    }
+
     #[test]
     fn toggling_a_non_managed_mod_is_refused() {
         use overseer_core::instance::ModKind;
@@ -357,9 +415,18 @@ mod tests {
     fn l_opens_the_launcher_and_l_again_closes_it() {
         let mut app = App::sample();
         app.handle_key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE));
-        assert_eq!(app.popup, Some(Popup::Launcher));
+        assert!(
+            matches!(
+                app.modal,
+                Some(Modal::Select(Select {
+                    kind: SelectKind::Launch,
+                    ..
+                }))
+            ),
+            "l opens the launch select modal"
+        );
         app.handle_key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE));
-        assert_eq!(app.popup, None);
+        assert!(app.modal.is_none(), "l again closes it");
     }
 
     #[test]
@@ -367,8 +434,44 @@ mod tests {
         let mut app = App::sample(); // sample instance configures no exes
         app.handle_key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE));
         app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-        assert_eq!(app.popup, None, "picker closes");
+        assert!(app.modal.is_none(), "picker closes");
         assert!(app.message.is_some(), "user is told there are none");
+    }
+
+    #[test]
+    fn esc_closes_the_launch_modal() {
+        let mut app = App::sample();
+        app.handle_key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE));
+        assert!(app.modal.is_some());
+        app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        assert!(app.modal.is_none(), "Esc cancels the modal");
+    }
+
+    #[test]
+    fn launch_modal_navigates_and_clamps() {
+        use camino::Utf8PathBuf;
+        use overseer_core::instance::Executable;
+        let mut app = App::sample();
+        app.session.instance.config.executables = vec![
+            Executable {
+                name: "game".to_owned(),
+                path: Utf8PathBuf::from("game.exe"),
+                args: Vec::new(),
+            },
+            Executable {
+                name: "script-extender".to_owned(),
+                path: Utf8PathBuf::from("f4se.exe"),
+                args: Vec::new(),
+            },
+        ];
+        app.handle_key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE));
+        assert_eq!(modal_selection(&app), Some(0), "opens on the first target");
+        app.handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
+        assert_eq!(modal_selection(&app), Some(1), "j moves down");
+        app.handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
+        assert_eq!(modal_selection(&app), Some(1), "clamps at the end");
+        app.handle_key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE));
+        assert_eq!(modal_selection(&app), Some(0), "k moves up");
     }
 
     #[test]

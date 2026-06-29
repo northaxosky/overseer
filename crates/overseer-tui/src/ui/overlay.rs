@@ -7,7 +7,7 @@ use ratatui::{
     widgets::{Block, BorderType, Clear, Padding, Paragraph, Tabs},
 };
 
-use super::{centered_rect, doctor, help, launcher, settings};
+use super::{centered_rect, doctor, help, settings};
 use crate::app::{App, Popup};
 use crate::theme;
 
@@ -35,11 +35,8 @@ pub(super) fn render_overlay(app: &mut App, tab: Popup, frame: &mut Frame) {
         Popup::Help => help::render_help_body(app, frame, rows[2]),
         Popup::Settings => settings::render_settings_body(app, frame, rows[2]),
         Popup::Doctor => doctor::render_doctor_body(app, frame, rows[2]),
-        Popup::Launcher => launcher::render_launcher_body(app, frame, rows[2]),
     }
-    if tab != Popup::Launcher {
-        render_tab_bar(tab, frame, rows[0]);
-    }
+    render_tab_bar(tab, frame, rows[0]);
 
     let hint =
         Paragraph::new(" Tab / Shift+Tab  switch · Esc  close ").style(theme::style(Role::Muted));

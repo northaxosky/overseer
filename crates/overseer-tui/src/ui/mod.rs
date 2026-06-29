@@ -5,7 +5,7 @@
 
 mod doctor;
 mod help;
-mod launcher;
+mod modal;
 mod overlay;
 mod settings;
 
@@ -27,6 +27,9 @@ pub(crate) fn draw(app: &mut App, frame: &mut Frame) {
     draw_main(app, frame);
     if let Some(tab) = app.popup {
         overlay::render_overlay(app, tab, frame);
+    }
+    if app.modal.is_some() {
+        modal::render_modal(app, frame);
     }
 }
 
@@ -303,6 +306,34 @@ mod tests {
         assert!(
             out.contains("No problems found."),
             "detail pane shows the clean bill"
+        );
+    }
+
+    #[test]
+    fn launch_modal_lists_targets_when_open() {
+        use overseer_core::instance::Executable;
+        use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+        let mut app = App::sample();
+        app.session.instance.config.executables = vec![Executable {
+            name: "FO4Edit".to_owned(),
+            path: camino::Utf8PathBuf::from("FO4Edit.exe"),
+            args: Vec::new(),
+        }];
+        app.handle_key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE));
+        let out = render(&mut app, 80, 24);
+        assert!(out.contains("FO4Edit"), "modal lists the launch target");
+        assert!(out.contains("Enter launch"), "modal shows the submit hint");
+    }
+
+    #[test]
+    fn launch_modal_shows_empty_state_with_no_targets() {
+        use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+        let mut app = App::sample(); // sample instance configures no exes
+        app.handle_key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE));
+        let out = render(&mut app, 80, 24);
+        assert!(
+            out.contains("No launch targets"),
+            "modal shows the empty state"
         );
     }
 }

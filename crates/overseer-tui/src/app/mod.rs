@@ -1,8 +1,10 @@
 //! Application state and update logic.
 
 mod input;
+mod modal;
 mod popup;
 
+pub(crate) use modal::{Modal, Select, SelectKind};
 pub(crate) use popup::{HELP_ENTRIES, Popup};
 
 use anyhow::Result;
@@ -69,6 +71,7 @@ impl Session {
 pub(crate) struct App {
     pub(crate) should_quit: bool,
     pub(crate) popup: Option<Popup>,
+    pub(crate) modal: Option<Modal>,
     pub(crate) focus: Focus,
     pub(crate) message: Option<Notice>,
     pub(crate) settings: Settings,
@@ -79,7 +82,6 @@ pub(crate) struct App {
     pub(crate) help_state: ListState,
     pub(crate) report: Option<Report>,
     pub(crate) doctor_state: ListState,
-    pub(crate) launch_state: ListState,
 }
 
 impl App {
@@ -100,6 +102,7 @@ impl App {
         Ok(Self {
             should_quit: false,
             popup: None,
+            modal: None,
             focus: Focus::Mods,
             message: None,
             mods_state: initial_selection(session.profile.mods.len()),
@@ -108,7 +111,6 @@ impl App {
             help_state: ListState::default(),
             report: None,
             doctor_state: ListState::default(),
-            launch_state: ListState::default(),
             settings,
             session,
         })

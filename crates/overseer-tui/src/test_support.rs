@@ -13,6 +13,7 @@ impl App {
         Self {
             should_quit: false,
             popup: None,
+            modal: None,
             focus: Focus::Mods,
             message: None,
             report: None,
@@ -66,7 +67,6 @@ impl App {
             settings_state: ListState::default(),
             help_state: ListState::default(),
             doctor_state: ListState::default(),
-            launch_state: ListState::default(),
         }
     }
 }

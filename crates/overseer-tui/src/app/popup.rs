@@ -6,7 +6,6 @@ pub(crate) enum Popup {
     Help,
     Settings,
     Doctor,
-    Launcher,
     // ModActions, etc... later
 }
 
@@ -39,7 +38,6 @@ impl Popup {
             Popup::Doctor => "Doctor",
             Popup::Settings => "Settings",
             Popup::Help => "Help",
-            Popup::Launcher => "Launcher",
         }
     }
 
