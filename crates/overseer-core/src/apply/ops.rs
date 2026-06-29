@@ -5,7 +5,7 @@ use super::lock::InstanceLock;
 use super::state::{Deployment, SaveRedirect, Status};
 
 use crate::deploy::{
-    DeployError, DeployPlan, DeployRecord, ModSource, NullSink, ProgressSink, ROOT_DIR,
+    BACKUP_DIR, DeployError, DeployPlan, DeployRecord, ModSource, NullSink, ProgressSink, ROOT_DIR,
     VerifyReport, deployer_for, strip_data_prefix,
 };
 use crate::instance::{Instance, Profile};
@@ -46,7 +46,7 @@ pub fn deploy_profile(
     let deployer = deployer_for(instance.config.deployer);
     deployer.check_supported(&plan)?;
 
-    let backup_root = instance.config.game_dir.join(".overseer-backup");
+    let backup_root = instance.config.game_dir.join(BACKUP_DIR);
     guard_no_orphaned_backup(&backup_root)?;
     let record = DeployRecord::from_plan(&plan, backup_root, instance.config.deployer)?;
 

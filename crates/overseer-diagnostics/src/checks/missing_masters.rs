@@ -69,12 +69,7 @@ mod tests {
     use super::*;
 
     fn meta(name: &str, masters: &[&str]) -> PluginMeta {
-        PluginMeta {
-            name: name.to_owned(),
-            is_master: false,
-            is_light: false,
-            masters: masters.iter().map(|m| (*m).to_owned()).collect(),
-        }
+        overseer_core::test_support::plugin_meta(name, false, false, masters)
     }
 
     fn ctx(active: Vec<PluginMeta>, present: &[&str]) -> GameContext {

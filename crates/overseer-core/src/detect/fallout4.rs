@@ -1,6 +1,7 @@
 //! fallout 4 specific edition detection: the exe version table and the `Startup.ba2` down-grade tripwire
 
 use super::ExeVersion;
+use crate::deploy::DATA_DIR;
 use camino::Utf8Path;
 
 const STARTUP_BA2: &str = "Fallout4 - Startup.ba2";
@@ -114,7 +115,7 @@ fn edition_from(version: Option<ExeVersion>, startup: StartupBa2Signature) -> Ed
 
 /// Fingerprint `Data/Fallout4 - Startup.ba2`: CRC32 of the bytes after the BA2 header
 fn startup_signature(game_dir: &Utf8Path) -> StartupBa2Signature {
-    let path = game_dir.join("Data").join(STARTUP_BA2);
+    let path = game_dir.join(DATA_DIR).join(STARTUP_BA2);
     let bytes = match std::fs::read(&path) {
         Ok(b) => b,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return StartupBa2Signature::Missing,

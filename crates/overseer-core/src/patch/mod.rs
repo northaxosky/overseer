@@ -74,20 +74,8 @@ pub fn set_version(path: &Utf8Path, new_version: u32) -> Result<VersionChange, B
 mod tests {
     use super::*;
     use crate::archive::Ba2Error;
-    use crate::test_support::temp;
+    use crate::test_support::{ba2_bytes, temp};
     use camino::{Utf8Path, Utf8PathBuf};
-
-    /// A 24-byte BA2 header (file_count 0, no name table) followed by `body`.
-    fn ba2_bytes(version: u32, tag: &[u8; 4], body: &[u8]) -> Vec<u8> {
-        let mut b = Vec::new();
-        b.extend_from_slice(b"BTDX");
-        b.extend_from_slice(&version.to_le_bytes());
-        b.extend_from_slice(tag);
-        b.extend_from_slice(&0u32.to_le_bytes());
-        b.extend_from_slice(&0u64.to_le_bytes());
-        b.extend_from_slice(body);
-        b
-    }
 
     fn write_ba2(root: &Utf8Path, version: u32, tag: &[u8; 4], body: &[u8]) -> Utf8PathBuf {
         let path = root.join("test.ba2");

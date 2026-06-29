@@ -85,7 +85,7 @@ pub fn set_edition(path: &Utf8Path, target: Ba2Edition) -> Result<PatchOutcome, 
 mod tests {
     use super::*;
     use crate::archive::{Ba2Header, Ba2Kind};
-    use crate::test_support::temp;
+    use crate::test_support::{ba2_bytes, temp};
     use camino::{Utf8Path, Utf8PathBuf};
 
     fn header(version: u32, kind: Ba2Kind) -> Ba2Header {
@@ -94,17 +94,6 @@ mod tests {
             kind,
             file_count: 0,
         }
-    }
-
-    fn ba2_bytes(version: u32, tag: &[u8; 4], body: &[u8]) -> Vec<u8> {
-        let mut b = Vec::new();
-        b.extend_from_slice(b"BTDX");
-        b.extend_from_slice(&version.to_le_bytes());
-        b.extend_from_slice(tag);
-        b.extend_from_slice(&0u32.to_le_bytes());
-        b.extend_from_slice(&0u64.to_le_bytes());
-        b.extend_from_slice(body);
-        b
     }
 
     fn write_ba2(root: &Utf8Path, version: u32, tag: &[u8; 4], body: &[u8]) -> Utf8PathBuf {

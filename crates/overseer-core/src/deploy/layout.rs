@@ -8,6 +8,12 @@ pub const DATA_DIR: &str = "Data";
 /// A mod's root-deploy folder; its contents map to the game root instead of `Data/`
 pub const ROOT_DIR: &str = "Root";
 
+/// Where F4SE script-extender plugins live, relative to `Data/`
+pub const F4SE_PLUGINS_DIR: &str = "F4SE/Plugins";
+
+/// Backup folder for files displaced during deploy, relative to the game root
+pub const BACKUP_DIR: &str = ".overseer-backup";
+
 /// If `game_relative` starts with a `Data` component, return the part after it
 pub fn strip_data_prefix(game_relative: &Utf8Path) -> Option<Utf8PathBuf> {
     let mut components = game_relative.components();

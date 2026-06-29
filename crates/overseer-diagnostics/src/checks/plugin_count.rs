@@ -57,12 +57,12 @@ mod tests {
     use overseer_core::plugins::PluginMeta;
 
     fn plugin(is_light: bool) -> PluginMeta {
-        PluginMeta {
-            name: if is_light { "Light.esl" } else { "Full.esp" }.to_owned(),
-            is_master: false,
+        overseer_core::test_support::plugin_meta(
+            if is_light { "Light.esl" } else { "Full.esp" },
+            false,
             is_light,
-            masters: Vec::new(),
-        }
+            &[],
+        )
     }
 
     fn ctx(full: usize, light: usize) -> GameContext {

@@ -117,3 +117,30 @@ pub fn save_profile(instance: &Instance, name: &str, mods: &[(&str, bool)]) {
     };
     profile.save(instance).expect("save profile");
 }
+
+/// A 24-byte BA2 header (`BTDX` + version + tag + file_count 0 + name-table 0) then `body`.
+pub fn ba2_bytes(version: u32, tag: &[u8; 4], body: &[u8]) -> Vec<u8> {
+    let mut b = Vec::with_capacity(24 + body.len());
+    b.extend_from_slice(b"BTDX");
+    b.extend_from_slice(&version.to_le_bytes());
+    b.extend_from_slice(tag);
+    b.extend_from_slice(&0u32.to_le_bytes());
+    b.extend_from_slice(&0u64.to_le_bytes());
+    b.extend_from_slice(body);
+    b
+}
+
+/// An in-memory `PluginMeta`, defaulting non-master/non-light with the given masters.
+pub fn plugin_meta(
+    name: &str,
+    is_master: bool,
+    is_light: bool,
+    masters: &[&str],
+) -> crate::plugins::PluginMeta {
+    crate::plugins::PluginMeta {
+        name: name.to_owned(),
+        is_master,
+        is_light,
+        masters: masters.iter().map(|m| (*m).to_owned()).collect(),
+    }
+}

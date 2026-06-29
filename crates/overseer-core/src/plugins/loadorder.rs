@@ -146,12 +146,7 @@ mod tests {
     use crate::test_support::temp_instance;
 
     fn meta(name: &str, is_master: bool) -> PluginMeta {
-        PluginMeta {
-            name: name.to_owned(),
-            is_master,
-            is_light: false,
-            masters: vec![],
-        }
+        crate::test_support::plugin_meta(name, is_master, false, &[])
     }
 
     fn order_of(lo: &PluginLoadOrder) -> Vec<&str> {

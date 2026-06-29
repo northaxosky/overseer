@@ -317,18 +317,8 @@ fn profile_saves_toggle_redirects_saves_on_deploy() {
     );
 }
 
-/// A minimal BA2: 24-byte header (`BTDX`, `version`, `tag`, count 0, name-table offset 0)
-/// plus a body whose bytes a version flip must never touch.
-fn ba2_bytes(version: u32, tag: &[u8; 4], body: &[u8]) -> Vec<u8> {
-    let mut b = Vec::new();
-    b.extend_from_slice(b"BTDX");
-    b.extend_from_slice(&version.to_le_bytes());
-    b.extend_from_slice(tag);
-    b.extend_from_slice(&0u32.to_le_bytes());
-    b.extend_from_slice(&0u64.to_le_bytes());
-    b.extend_from_slice(body);
-    b
-}
+/// A minimal BA2 the patch tests flip the version byte on. Reuses the shared core builder.
+use overseer_core::test_support::ba2_bytes;
 
 #[test]
 fn patch_ba2_downgrades_a_single_file_and_preserves_the_body() {

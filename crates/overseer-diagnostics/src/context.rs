@@ -3,7 +3,7 @@
 use crate::error::DiagnosticError;
 use camino::{Utf8Path, Utf8PathBuf};
 use overseer_core::archive::{Ba2Error, Ba2Header};
-use overseer_core::deploy::{DATA_DIR, DeployPlan, strip_data_prefix};
+use overseer_core::deploy::{DATA_DIR, DeployPlan, F4SE_PLUGINS_DIR, strip_data_prefix};
 use overseer_core::detect::{
     self, RuntimeFamily, address_library_name, file_version, loader_family,
 };
@@ -206,7 +206,7 @@ fn scan_f4se_plugins(plan: &DeployPlan) -> Vec<F4sePluginScan> {
             f.relative
                 .extension()
                 .is_some_and(|e| e.eq_ignore_ascii_case("dll"))
-                && strip_data_prefix(&f.relative).is_some_and(|p| p.starts_with("F4SE/Plugins"))
+                && strip_data_prefix(&f.relative).is_some_and(|p| p.starts_with(F4SE_PLUGINS_DIR))
         })
         .filter_map(|f| match parse_f4se_dll(&std::fs::read(&f.source).ok()?) {
             F4seDll::Plugin(plugin) => Some(F4sePluginScan {
@@ -225,7 +225,7 @@ fn address_library_status(
     data_files: &[DataFile],
     version: Option<overseer_core::detect::ExeVersion>,
 ) -> AddressLibraryStatus {
-    let under_plugins = |f: &DataFile| f.path.starts_with("F4SE/Plugins");
+    let under_plugins = |f: &DataFile| f.path.starts_with(F4SE_PLUGINS_DIR);
     let has_plugin = data_files.iter().any(|f| {
         under_plugins(f)
             && f.path
@@ -348,12 +348,7 @@ mod tests {
     }
 
     fn meta(name: &str) -> PluginMeta {
-        PluginMeta {
-            name: name.to_owned(),
-            is_master: false,
-            is_light: false,
-            masters: Vec::new(),
-        }
+        overseer_core::test_support::plugin_meta(name, false, false, &[])
     }
 
     // --- active_plugins_name (pure) ---
