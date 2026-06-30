@@ -87,6 +87,24 @@ pub fn write(path: &Utf8Path, contents: &str) {
     std::fs::write(path, contents).expect("write file");
 }
 
+/// Build a throwaway `.zip` at `path` from `(entry path, bytes)` pairs, creating
+/// parent directories first. Nested entry paths (`Data/Textures/a.dds`) create
+/// their directories on extraction. For install/download tests.
+pub fn write_zip(path: &Utf8Path, entries: &[(&str, &[u8])]) {
+    use std::io::Write;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).expect("create parents");
+    }
+    let file = std::fs::File::create(path).expect("create zip");
+    let mut zip = zip::ZipWriter::new(file);
+    let opts = zip::write::SimpleFileOptions::default();
+    for &(name, data) in entries {
+        zip.start_file(name.to_owned(), opts).expect("start file");
+        zip.write_all(data).expect("write entry");
+    }
+    zip.finish().expect("finish zip");
+}
+
 /// Create a mod folder under `mods/` holding the given relative files and contents.
 pub fn install_mod(instance: &Instance, name: &str, files: &[(&str, &str)]) {
     for (rel, contents) in files {

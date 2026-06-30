@@ -16,7 +16,7 @@ use ratatui::{
     Frame,
     layout::{Alignment, Constraint, Layout, Rect},
     text::{Line, Span},
-    widgets::{Block, BorderType, List, ListItem, ListState, Paragraph},
+    widgets::{Block, BorderType, List, ListItem, ListState, Paragraph, Wrap},
 };
 
 use crate::app::{App, ConflictsStatus, Focus, Workspace};
@@ -24,6 +24,9 @@ use crate::theme;
 
 /// The shared title for the Conflicts workspace pane, scan or message alike.
 const CONFLICTS_TITLE: &str = " Conflicts — all enabled mods ";
+
+/// The shared title for the Downloads workspace pane, list or message alike.
+const DOWNLOADS_TITLE: &str = " Downloads — archives in downloads/ ";
 
 /// Draw the main view, plus any popup floating on top
 pub(crate) fn draw(app: &mut App, frame: &mut Frame) {
@@ -99,7 +102,8 @@ pub(crate) fn draw_main(app: &mut App, frame: &mut Frame) {
     };
     frame.render_widget(status, rows[3]);
     frame.render_widget(
-        Paragraph::new("1/2 workspace · s settings · ? help · q quit ").alignment(Alignment::Right),
+        Paragraph::new("1/2/3 workspace · s settings · ? help · q quit ")
+            .alignment(Alignment::Right),
         rows[3],
     );
 }
@@ -110,15 +114,17 @@ fn render_workspace(app: &mut App, frame: &mut Frame, area: Rect) {
     match app.workspace {
         Workspace::Plugins => render_plugins(app, frame, area),
         Workspace::Conflicts => render_conflicts(app, frame, area),
+        Workspace::Downloads => render_downloads(app, frame, area),
     }
 }
 
-/// The switcher line: both workspace names with the active one emphasised, plus its scope.
+/// The switcher line: every workspace name with the active one emphasised, plus its scope.
 fn workspace_header(active: Workspace) -> Paragraph<'static> {
     let role = |on: bool| if on { Role::Heading } else { Role::Muted };
     let scope = match active {
         Workspace::Plugins => "load order",
         Workspace::Conflicts => "all enabled mods",
+        Workspace::Downloads => "archives in downloads/",
     };
     let line = Line::from(vec![
         Span::styled(" Workspace  ", theme::style(Role::Muted)),
@@ -130,6 +136,11 @@ fn workspace_header(active: Workspace) -> Paragraph<'static> {
         Span::styled(
             "2 Conflicts",
             theme::style(role(active == Workspace::Conflicts)),
+        ),
+        Span::raw("  "),
+        Span::styled(
+            "3 Downloads",
+            theme::style(role(active == Workspace::Downloads)),
         ),
         Span::styled(format!("  · {scope}"), theme::style(Role::Muted)),
     ]);
@@ -167,18 +178,20 @@ fn render_conflicts(app: &mut App, frame: &mut Frame, area: Rect) {
             return render_workspace_message(
                 frame,
                 area,
+                CONFLICTS_TITLE,
                 "Press r to scan for conflicts.",
                 focused,
             );
         }
         ConflictsStatus::Error(msg) => {
             let text = format!("Conflict scan failed: {msg} — press r to retry.");
-            return render_workspace_message(frame, area, &text, focused);
+            return render_workspace_message(frame, area, CONFLICTS_TITLE, &text, focused);
         }
         ConflictsStatus::Ready(found) if found.is_empty() => {
             return render_workspace_message(
                 frame,
                 area,
+                CONFLICTS_TITLE,
                 "No file conflicts among enabled mods.",
                 focused,
             );
@@ -199,18 +212,52 @@ fn render_conflicts(app: &mut App, frame: &mut Frame, area: Rect) {
     );
 }
 
-/// A short, centered message inside the Conflicts pane frame (stale / error / empty).
-fn render_workspace_message(frame: &mut Frame, area: Rect, msg: &str, focused: bool) {
+/// The downloads workspace: installable archives, or a hint to drop files in.
+fn render_downloads(app: &mut App, frame: &mut Frame, area: Rect) {
+    let focused = app.focus == Focus::Workspace;
+    if app.downloads.entries.is_empty() {
+        let text = format!(
+            "No archives. Drop .7z/.zip files in {}.",
+            app.session.instance.downloads_dir()
+        );
+        return render_workspace_message(frame, area, DOWNLOADS_TITLE, &text, focused);
+    }
+    let rows: Vec<ListItem<'static>> = app
+        .downloads
+        .entries
+        .iter()
+        .map(|e| {
+            // Installed archives are muted with a suffix, like inactive rows elsewhere.
+            if e.installed {
+                ListItem::new(format!("{} (installed)", e.name)).style(theme::style(Role::Muted))
+            } else {
+                ListItem::new(e.name.clone())
+            }
+        })
+        .collect();
+    render_pane(
+        frame,
+        area,
+        DOWNLOADS_TITLE.to_owned(),
+        rows,
+        &mut app.downloads.list,
+        focused,
+    );
+}
+
+/// A short, centered message inside a workspace pane frame (stale / error / empty).
+fn render_workspace_message(frame: &mut Frame, area: Rect, title: &str, msg: &str, focused: bool) {
     let block = Block::bordered()
         .border_type(if focused {
             BorderType::Thick
         } else {
             BorderType::Plain
         })
-        .title(CONFLICTS_TITLE);
+        .title(title.to_owned());
     frame.render_widget(
         Paragraph::new(msg.to_owned())
             .block(block)
+            .wrap(Wrap { trim: true })
             .alignment(Alignment::Center),
         area,
     );
@@ -359,7 +406,7 @@ mod tests {
     }
 
     #[test]
-    fn workspace_header_names_both_workspaces() {
+    fn workspace_header_names_every_workspace() {
         let mut app = App::sample();
         let out = render(&mut app, 80, 24);
         assert!(
@@ -369,6 +416,10 @@ mod tests {
         assert!(
             out.contains("2 Conflicts"),
             "header names the conflicts workspace"
+        );
+        assert!(
+            out.contains("3 Downloads"),
+            "header names the downloads workspace"
         );
     }
 
@@ -395,6 +446,66 @@ mod tests {
         let out = render(&mut app, 80, 24);
         assert!(out.contains("shared.dds"), "the conflicting path is shown");
         assert!(out.contains("Low < High"), "providers render winner-last");
+    }
+
+    #[test]
+    fn downloads_workspace_lists_archives_and_marks_installed() {
+        use crate::app::Workspace;
+        use camino::Utf8PathBuf;
+        use overseer_core::install::DownloadEntry;
+        let mut app = App::sample();
+        app.workspace = Workspace::Downloads;
+        app.downloads.entries = vec![
+            DownloadEntry {
+                name: "Alpha.zip".to_owned(),
+                path: Utf8PathBuf::from("downloads/Alpha.zip"),
+                installed: false,
+            },
+            DownloadEntry {
+                name: "Beta.7z".to_owned(),
+                path: Utf8PathBuf::from("downloads/Beta.7z"),
+                installed: true,
+            },
+        ];
+        app.downloads.list.select(Some(0));
+        let out = render(&mut app, 80, 24);
+        assert!(
+            out.contains("Alpha.zip"),
+            "an installable archive is listed"
+        );
+        assert!(out.contains("Beta.7z"), "every archive is listed");
+        assert!(
+            out.contains("(installed)"),
+            "an installed archive is tagged"
+        );
+    }
+
+    #[test]
+    fn downloads_workspace_empty_state_points_at_the_folder() {
+        use crate::app::Workspace;
+        let mut app = App::sample();
+        app.workspace = Workspace::Downloads;
+        let out = render(&mut app, 80, 24);
+        assert!(
+            out.contains("archives"),
+            "the empty state explains the pane"
+        );
+        assert!(out.contains("Drop"), "it tells the user to drop files in");
+    }
+
+    #[test]
+    fn confirm_modal_shows_its_message_and_choices() {
+        use crate::app::{Confirm, ConfirmAction, Modal};
+        use camino::Utf8PathBuf;
+        let mut app = App::sample();
+        app.modal = Some(Modal::Confirm(Confirm {
+            message: "Install Mod.zip? Creates mods/Mod.".to_owned(),
+            action: ConfirmAction::InstallDownload(Utf8PathBuf::from("downloads/Mod.zip")),
+        }));
+        let out = render(&mut app, 80, 24);
+        assert!(out.contains("Confirm"), "the modal is titled");
+        assert!(out.contains("Install Mod.zip"), "it shows the message");
+        assert!(out.contains("y / N"), "it offers the yes/no choice");
     }
 
     #[test]

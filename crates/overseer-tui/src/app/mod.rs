@@ -4,13 +4,14 @@ mod input;
 mod modal;
 mod popup;
 
-pub(crate) use modal::{Modal, Prompt, PromptKind, Select, SelectKind};
+pub(crate) use modal::{Confirm, ConfirmAction, Modal, Prompt, PromptKind, Select, SelectKind};
 pub(crate) use popup::{HELP_ENTRIES, Popup};
 
 use anyhow::Result;
 use camino::Utf8Path;
 use overseer_core::apply::{self, DeploymentStatus};
 use overseer_core::deploy::FileConflict;
+use overseer_core::install::DownloadEntry;
 use overseer_core::instance::{Instance, Profile};
 use overseer_core::plugins::{PluginLoadOrder, PluginMeta, discover_plugins};
 use overseer_core::settings::Settings;
@@ -39,11 +40,16 @@ pub(crate) enum Workspace {
     #[default]
     Plugins,
     Conflicts,
+    Downloads,
 }
 
 impl Workspace {
     /// All workspaces in switch order: `[`/`]` cycle through these
-    const ALL: &'static [Workspace] = &[Workspace::Plugins, Workspace::Conflicts];
+    const ALL: &'static [Workspace] = &[
+        Workspace::Plugins,
+        Workspace::Conflicts,
+        Workspace::Downloads,
+    ];
 
     /// The workspace `delta` steps away, wrapping at the ends
     pub(crate) fn cycle(self, delta: isize) -> Workspace {
@@ -66,6 +72,13 @@ pub(crate) enum ConflictsStatus {
 #[derive(Debug, Default)]
 pub(crate) struct ConflictsState {
     pub(crate) status: ConflictsStatus,
+    pub(crate) list: ListState,
+}
+
+/// The downloads workspace's own state
+#[derive(Debug, Default)]
+pub(crate) struct DownloadsState {
+    pub(crate) entries: Vec<DownloadEntry>,
     pub(crate) list: ListState,
 }
 
@@ -112,6 +125,7 @@ pub(crate) struct App {
     pub(crate) focus: Focus,
     pub(crate) workspace: Workspace,
     pub(crate) conflicts: ConflictsState,
+    pub(crate) downloads: DownloadsState,
     pub(crate) message: Option<Notice>,
     pub(crate) settings: Settings,
     pub(crate) session: Session,
@@ -145,6 +159,7 @@ impl App {
             focus: Focus::Mods,
             workspace: Workspace::default(),
             conflicts: ConflictsState::default(),
+            downloads: DownloadsState::default(),
             message: None,
             mods_state: initial_selection(session.profile.mods.len()),
             plugins_state: initial_selection(session.order.plugins.len()),

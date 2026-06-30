@@ -1,6 +1,8 @@
 //! Keyboard handling and the actions it drives on [`App`].
 
 mod actions;
+mod confirm;
+mod downloads;
 mod overlay;
 mod prompt;
 mod select;
@@ -41,14 +43,22 @@ impl App {
             KeyCode::Char('l') => self.open_select(SelectKind::Launch),
             KeyCode::Char('p') => self.open_select(SelectKind::Profile),
 
+            // Workspace view related controls
+            KeyCode::Char(']') => self.switch_workspace(self.workspace.cycle(1)),
+            KeyCode::Char('[') => self.switch_workspace(self.workspace.cycle(-1)),
+            KeyCode::Char('1') => self.switch_workspace(Workspace::Plugins),
+            KeyCode::Char('2') => self.switch_workspace(Workspace::Conflicts),
+            KeyCode::Char('3') => self.switch_workspace(Workspace::Downloads),
+            // `r` refreshes the active workspace's data; inert in Plugins.
+            KeyCode::Char('r') => match self.workspace {
+                Workspace::Conflicts => self.scan_conflicts(),
+                Workspace::Downloads => self.refresh_downloads(),
+                Workspace::Plugins => {}
+            },
+
             // Main view related controls
             KeyCode::Char(' ') | KeyCode::Enter => self.toggle_selected(),
             KeyCode::Tab => self.toggle_focus(),
-            KeyCode::Char(']') => self.workspace = self.workspace.cycle(1),
-            KeyCode::Char('[') => self.workspace = self.workspace.cycle(-1),
-            KeyCode::Char('1') => self.workspace = Workspace::Plugins,
-            KeyCode::Char('2') => self.workspace = Workspace::Conflicts,
-            KeyCode::Char('r') if self.workspace == Workspace::Conflicts => self.scan_conflicts(),
             KeyCode::Down | KeyCode::Char('j') => self.move_main_selection(1),
             KeyCode::Up | KeyCode::Char('k') => self.move_main_selection(-1),
             KeyCode::Char('J') => self.reorder_selected(1),
@@ -64,6 +74,7 @@ impl App {
         match self.modal {
             Some(Modal::Select(_)) => self.handle_select_key(key),
             Some(Modal::Prompt(_)) => self.handle_prompt_key(key),
+            Some(Modal::Confirm(_)) => self.handle_confirm_key(key),
             None => {}
         }
     }
@@ -88,6 +99,14 @@ impl App {
         };
     }
 
+    /// Switch the active workspace, lazily listing downloads when entering it
+    fn switch_workspace(&mut self, ws: Workspace) {
+        self.workspace = ws;
+        if ws == Workspace::Downloads {
+            self.refresh_downloads();
+        }
+    }
+
     /// Move the selection within the focused pane, clamped to its bounds.
     fn move_main_selection(&mut self, delta: isize) {
         let (state, len) = match self.focus {
@@ -101,6 +120,7 @@ impl App {
                     };
                     (&mut self.conflicts.list, len)
                 }
+                Workspace::Downloads => (&mut self.downloads.list, self.downloads.entries.len()),
             },
         };
         move_in_list(state, len, delta);
@@ -159,7 +179,7 @@ pub(crate) mod test_helpers {
     pub(crate) fn modal_selection(app: &App) -> Option<usize> {
         match &app.modal {
             Some(Modal::Select(s)) => s.state.selected(),
-            Some(Modal::Prompt(_)) | None => None,
+            Some(Modal::Prompt(_)) | Some(Modal::Confirm(_)) | None => None,
         }
     }
 
@@ -255,9 +275,11 @@ mod tests {
         app.handle_key(KeyEvent::new(KeyCode::Char(']'), KeyModifiers::NONE));
         assert_eq!(app.workspace, Workspace::Conflicts, "] goes to the next");
         app.handle_key(KeyEvent::new(KeyCode::Char(']'), KeyModifiers::NONE));
+        assert_eq!(app.workspace, Workspace::Downloads, "] keeps going");
+        app.handle_key(KeyEvent::new(KeyCode::Char(']'), KeyModifiers::NONE));
         assert_eq!(app.workspace, Workspace::Plugins, "] wraps around");
         app.handle_key(KeyEvent::new(KeyCode::Char('['), KeyModifiers::NONE));
-        assert_eq!(app.workspace, Workspace::Conflicts, "[ wraps backward");
+        assert_eq!(app.workspace, Workspace::Downloads, "[ wraps backward");
     }
 
     #[test]

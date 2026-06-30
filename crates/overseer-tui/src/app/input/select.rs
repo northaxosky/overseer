@@ -56,8 +56,8 @@ impl App {
     fn submit_modal(&mut self) {
         let select = match self.modal.take() {
             Some(Modal::Select(select)) => select,
-            // A Prompt submits via its own handler, never here.
-            Some(Modal::Prompt(_)) | None => return,
+            // A Prompt submits via its own handler; a Confirm via `handle_confirm_key`.
+            Some(Modal::Prompt(_)) | Some(Modal::Confirm(_)) | None => return,
         };
         let chosen = select
             .state

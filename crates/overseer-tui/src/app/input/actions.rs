@@ -87,6 +87,10 @@ impl App {
                     self.note("Conflicts are read-only");
                     return false;
                 }
+                Workspace::Downloads => {
+                    self.begin_install_selected();
+                    return false;
+                }
             },
         }
         false

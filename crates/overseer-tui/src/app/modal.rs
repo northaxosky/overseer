@@ -1,5 +1,6 @@
 //! Modal surfaces: views that block the main view and end in submit or cancel
 
+use camino::Utf8PathBuf;
 use ratatui::widgets::ListState;
 
 /// A surface that blocks the main view and ends in submit or cancel
@@ -7,6 +8,7 @@ use ratatui::widgets::ListState;
 pub(crate) enum Modal {
     Select(Select),
     Prompt(Prompt),
+    Confirm(Confirm),
 }
 
 /// A single-line text input that ends in submit or cancel
@@ -79,4 +81,18 @@ impl SelectKind {
             SelectKind::Profile => " · n new",
         }
     }
+}
+
+/// A yes/no confirmation that runs its [`ConfirmAction`] when accpeted
+#[derive(Debug)]
+pub(crate) struct Confirm {
+    pub(crate) message: String,
+    pub(crate) action: ConfirmAction,
+}
+
+/// What a confirmed [`Confirm`] does
+#[derive(Debug)]
+pub(crate) enum ConfirmAction {
+    /// Install the archive at this path into the instance's `mods/`
+    InstallDownload(Utf8PathBuf),
 }
