@@ -3,7 +3,7 @@ use super::error::{InstallError, io_err};
 use super::root::find_content_root;
 use crate::error::non_utf8;
 use crate::instance::{InstalledMod, Instance};
-use camino::Utf8Path;
+use camino::{Utf8Path, Utf8PathBuf};
 use walkdir::WalkDir;
 
 /// Install a mod from an archive into the instance's `mods/<name>/` directory
@@ -24,6 +24,10 @@ pub fn install(
     extract(archive, staging_root)?;
     let content_root = find_content_root(staging_root)?;
 
+    if fomod_in_chain(staging_root, &content_root)? {
+        return Err(InstallError::Fomod);
+    }
+
     if read_dir_is_empty(&content_root)? {
         return Err(InstallError::EmptyArchive);
     }
@@ -39,6 +43,47 @@ pub fn install(
 fn read_dir_is_empty(dir: &Utf8Path) -> Result<bool, InstallError> {
     let mut entries = std::fs::read_dir(dir).map_err(|e| io_err(dir, e))?;
     Ok(entries.next().is_none())
+}
+
+/// Whether any directory from `content_root` up to `top` is a FOMOD root
+fn fomod_in_chain(top: &Utf8Path, content_root: &Utf8Path) -> Result<bool, InstallError> {
+    for dir in content_root.ancestors() {
+        if is_fomod(dir)? {
+            return Ok(true);
+        }
+        if dir == top {
+            break;
+        }
+    }
+    Ok(false)
+}
+
+/// Whether `content_root` looks like a FOMOD installer: `fomod` dir holding `ModuleConfig.xml`
+fn is_fomod(content_root: &Utf8Path) -> Result<bool, InstallError> {
+    let Some(fomod) = child_named(content_root, "fomod", true)? else {
+        return Ok(false);
+    };
+    Ok(child_named(&fomod, "ModuleConfig.xml", false)?.is_some())
+}
+
+/// The path of `dir`'s child named `name` of the wanted kind
+fn child_named(
+    dir: &Utf8Path,
+    name: &str,
+    want_dir: bool,
+) -> Result<Option<Utf8PathBuf>, InstallError> {
+    for entry in std::fs::read_dir(dir).map_err(|e| io_err(dir, e))? {
+        let entry = entry.map_err(|e| io_err(dir, e))?;
+        if entry.file_type().map_err(|e| io_err(dir, e))?.is_dir() != want_dir {
+            continue;
+        }
+        let file_name = entry.file_name();
+        let file_name = file_name.to_string_lossy();
+        if file_name.eq_ignore_ascii_case(name) {
+            return Ok(Some(dir.join(file_name.as_ref())));
+        }
+    }
+    Ok(None)
 }
 
 /// Move `from` to `to`, falling back to a recursive copy + remove when rename doesnt work
@@ -192,5 +237,84 @@ mod tests {
 
         let err = install(&instance, &archive, "X").expect_err("should reject");
         assert!(matches!(err, InstallError::UnsupportedFormat { extension } if extension == "rar"));
+    }
+
+    #[test]
+    fn refuses_a_fomod_installer_and_stages_nothing() {
+        let (_t, base) = temp();
+        let instance = instance_in(&base);
+        let archive = base.join("Scripted.zip");
+        // A `fomod/ModuleConfig.xml` at the content root marks a scripted installer;
+        // the sibling Textures/ keeps find_content_root from descending past it.
+        make_zip(
+            &archive,
+            &[
+                ("fomod/ModuleConfig.xml", b"<config/>"),
+                ("Textures/a.dds", b"tex"),
+            ],
+        );
+
+        let err = install(&instance, &archive, "Scripted").expect_err("should refuse");
+        assert!(matches!(err, InstallError::Fomod), "got {err:?}");
+        assert!(
+            !instance.mods_dir().join("Scripted").exists(),
+            "a refused FOMOD stages nothing"
+        );
+    }
+
+    #[test]
+    fn fomod_detection_is_case_insensitive() {
+        let (_t, base) = temp();
+        let instance = instance_in(&base);
+        let archive = base.join("Loud.zip");
+        make_zip(
+            &archive,
+            &[
+                ("FOMOD/MODULECONFIG.XML", b"<config/>"),
+                ("Textures/a.dds", b"tex"),
+            ],
+        );
+
+        let err = install(&instance, &archive, "Loud").expect_err("should refuse");
+        assert!(matches!(err, InstallError::Fomod), "got {err:?}");
+    }
+
+    #[test]
+    fn refuses_a_fomod_wrapped_beside_a_data_folder() {
+        // find_content_root descends into Data/, stepping past the fomod/ marker;
+        // the refusal must still fire by scanning the whole wrapper chain.
+        let (_t, base) = temp();
+        let instance = instance_in(&base);
+        let archive = base.join("Wrapped.zip");
+        make_zip(
+            &archive,
+            &[
+                ("fomod/ModuleConfig.xml", b"<config/>"),
+                ("Data/Textures/a.dds", b"tex"),
+            ],
+        );
+
+        let err = install(&instance, &archive, "Wrapped").expect_err("should refuse");
+        assert!(matches!(err, InstallError::Fomod), "got {err:?}");
+        assert!(
+            !instance.mods_dir().join("Wrapped").exists(),
+            "a wrapped FOMOD stages nothing"
+        );
+    }
+
+    #[test]
+    fn a_fomod_folder_without_module_config_still_installs() {
+        // Only a `fomod/ModuleConfig.xml` triggers the refusal; a stray fomod/ folder
+        // without it is just data and installs normally.
+        let (_t, base) = temp();
+        let instance = instance_in(&base);
+        let archive = base.join("Plain.zip");
+        make_zip(
+            &archive,
+            &[("fomod/readme.txt", b"notes"), ("Plain.esp", b"plugin")],
+        );
+
+        install(&instance, &archive, "Plain").expect("install");
+        assert!(instance.mods_dir().join("Plain").join("Plain.esp").exists());
     }
 }

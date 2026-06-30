@@ -36,6 +36,9 @@ pub enum InstallError {
 
     #[error("path is not valid UTF-8: `{0}`")]
     NonUtf8Path(String),
+
+    #[error("FOMOD installers aren't supported yet")]
+    Fomod,
 }
 
 pub(crate) use crate::error::io_err;
