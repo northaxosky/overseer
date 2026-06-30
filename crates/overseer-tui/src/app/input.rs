@@ -40,6 +40,7 @@ impl App {
             KeyCode::Char('s') => self.focus_tab(Popup::Settings),
             KeyCode::Char('d') => self.focus_tab(Popup::Doctor),
             KeyCode::Char('l') => self.open_select(SelectKind::Launch),
+            KeyCode::Char('p') => self.open_select(SelectKind::Profile),
 
             // Main view related controls
             KeyCode::Char(' ') | KeyCode::Enter => self.toggle_selected(),
@@ -176,45 +177,50 @@ impl App {
 
     /// Move the active Select modal's selection by `delta`, clamped to its items
     fn move_in_select(&mut self, delta: isize) {
-        let Some(Modal::Select(select)) = self.modal.as_ref() else {
-            return;
-        };
-        let len = self.select_items(&select.kind).len();
         if let Some(Modal::Select(select)) = self.modal.as_mut() {
-            move_in_list(&mut select.state, len, delta);
+            move_in_list(&mut select.state, select.items.len(), delta);
         }
     }
 
     /// Open a Select modal of `kind`, selecting its first item
     fn open_select(&mut self, kind: SelectKind) {
-        let state = initial_selection(self.select_items(&kind).len());
-        self.modal = Some(Modal::Select(Select { kind, state }));
+        match self.load_select_items(kind) {
+            Ok(items) => {
+                let state = initial_selection(items.len());
+                self.modal = Some(Modal::Select(Select { kind, items, state }));
+            }
+            Err(e) => self.fail(format!("Error: {e}")),
+        }
     }
 
-    /// The items a Select modal of `kind` lists: single source of truth
-    pub(crate) fn select_items(&self, kind: &SelectKind) -> Vec<String> {
-        match kind {
+    /// Load a kind's items; fallible so a real listing error surfaces
+    fn load_select_items(&self, kind: SelectKind) -> Result<Vec<String>> {
+        Ok(match kind {
             SelectKind::Launch => launch::targets(&self.session.instance),
-        }
+            SelectKind::Profile => self.session.instance.profiles()?,
+        })
     }
 
     /// Act on the active modal's submission, then close it
     fn submit_modal(&mut self) {
-        let Some(modal) = self.modal.take() else {
-            return;
+        let select = match self.modal.take() {
+            Some(Modal::Select(select)) => select,
+            None => return,
         };
-        match modal {
-            Modal::Select(select) => match select.kind {
-                SelectKind::Launch => self.launch(select.state.selected()),
-            },
+        let chosen = select
+            .state
+            .selected()
+            .and_then(|i| select.items.get(i).cloned());
+        match select.kind {
+            SelectKind::Launch => self.launch(chosen),
+            SelectKind::Profile => self.switch_profile(chosen),
         }
     }
 
     /// Launch the target at `selected` or note when there is none
-    fn launch(&mut self, selected: Option<usize>) {
-        let targets = self.select_items(&SelectKind::Launch);
-        match selected.and_then(|i| targets.get(i)) {
-            Some(name) => match launch::launch(&self.session.instance, name) {
+    fn launch(&mut self, selected: Option<String>) {
+        match selected {
+            Some(name) => match launch::launch(&self.session.instance, &name) {
                 Ok(()) => self.ok(format!("Launched {name}")),
                 Err(e) => self.fail(format!("Launch failed: {e}")),
             },
@@ -246,6 +252,25 @@ impl App {
             Err(e) => self.fail(format!("Error: {e}")),
         }
         self.popup = None;
+    }
+
+    /// Switch the active profile to the one at `selected`, reloading the session
+    fn switch_profile(&mut self, selected: Option<String>) {
+        let Some(name) = selected else {
+            self.note("No profiles to switch to");
+            return;
+        };
+        let dir = self.session.instance.root.clone();
+        match Session::load(&dir, &name) {
+            Ok(session) => {
+                self.session = session;
+                self.mods_state = initial_selection(self.session.profile.mods.len());
+                self.plugins_state = initial_selection(self.session.order.plugins.len());
+                self.focus = Focus::Mods;
+                self.ok(format!("Switched to {name}"));
+            }
+            Err(e) => self.fail(format!("Error: {e}")),
+        }
     }
 
     fn deploy(&mut self) {

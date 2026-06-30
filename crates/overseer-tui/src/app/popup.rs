@@ -17,6 +17,7 @@ pub(crate) const HELP_ENTRIES: &[(&str, &str)] = &[
     ("J / K", "reorder mod (priority)"),
     ("D / P", "deploy / purge"),
     ("l", "launch a target"),
+    ("p", "switch profile"),
     ("s", "open settings"),
     ("d", "run diagnostics"),
     ("?", "toggle this help"),

@@ -13,11 +13,11 @@ use crate::theme;
 
 /// Draw the active modal centered over the main view
 pub(super) fn render_modal(app: &mut App, frame: &mut Frame) {
-    let kind = match &app.modal {
-        Some(Modal::Select(select)) => select.kind,
+    let select = match app.modal.as_mut() {
+        Some(Modal::Select(select)) => select,
         None => return,
     };
-    let items = app.select_items(&kind);
+    let kind = select.kind;
 
     let area = centered_rect(60, 40, frame.area());
     frame.render_widget(Clear, area);
@@ -34,19 +34,18 @@ pub(super) fn render_modal(app: &mut App, frame: &mut Frame) {
     ])
     .split(inner);
 
-    if items.is_empty() {
-        let msg = Paragraph::new("No launch targets. Add with `overseer exe add`.")
+    if select.items.is_empty() {
+        let msg = Paragraph::new(kind.empty_message())
             .style(theme::style(Role::Warning))
             .wrap(Wrap { trim: true });
         frame.render_widget(msg, rows[0]);
     } else {
-        let list_items: Vec<ListItem> = items.into_iter().map(ListItem::new).collect();
+        let list_items: Vec<ListItem> = select.items.iter().cloned().map(ListItem::new).collect();
         let list = List::new(list_items).highlight_style(theme::style(Role::Heading));
-        if let Some(Modal::Select(select)) = app.modal.as_mut() {
-            frame.render_stateful_widget(list, rows[0], &mut select.state);
-        }
+        frame.render_stateful_widget(list, rows[0], &mut select.state);
     }
 
-    let hint = Paragraph::new(" Enter launch · Esc close ").style(theme::style(Role::Muted));
+    let hint = Paragraph::new(format!(" Enter {} · Esc close ", kind.action_verb()))
+        .style(theme::style(Role::Muted));
     frame.render_widget(hint, rows[1]);
 }
