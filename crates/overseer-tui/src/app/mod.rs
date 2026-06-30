@@ -41,6 +41,18 @@ pub(crate) enum Workspace {
     Conflicts,
 }
 
+impl Workspace {
+    /// All workspaces in switch order: `[`/`]` cycle through these
+    const ALL: &'static [Workspace] = &[Workspace::Plugins, Workspace::Conflicts];
+
+    /// The workspace `delta` steps away, wrapping at the ends
+    pub(crate) fn cycle(self, delta: isize) -> Workspace {
+        let i = Self::ALL.iter().position(|&w| w == self).unwrap_or(0) as isize;
+        let n = Self::ALL.len() as isize;
+        Self::ALL[(i + delta).rem_euclid(n) as usize]
+    }
+}
+
 /// The Conflicts workspace's scan state: not just `Vec`
 #[derive(Debug, Default)]
 pub(crate) enum ConflictsStatus {

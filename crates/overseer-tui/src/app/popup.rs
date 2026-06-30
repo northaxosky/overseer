@@ -16,6 +16,7 @@ pub(crate) const HELP_ENTRIES: &[(&str, &str)] = &[
     ("Space / Enter", "toggle enabled / active"),
     ("J / K", "reorder mod (priority)"),
     ("1 / 2", "switch workspace"),
+    ("[ / ]", "cycle workspace"),
     ("r", "scan conflicts (Conflicts workspace)"),
     ("D / P", "deploy / purge"),
     ("l", "launch a target"),

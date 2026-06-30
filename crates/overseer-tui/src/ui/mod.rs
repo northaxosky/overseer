@@ -40,6 +40,7 @@ pub(crate) fn draw(app: &mut App, frame: &mut Frame) {
 pub(crate) fn draw_main(app: &mut App, frame: &mut Frame) {
     let rows = Layout::vertical([
         Constraint::Length(1), // header
+        Constraint::Length(1), // workspace switcher
         Constraint::Fill(1),   // body
         Constraint::Length(1), // footer
     ])
@@ -54,7 +55,11 @@ pub(crate) fn draw_main(app: &mut App, frame: &mut Frame) {
     ]);
     frame.render_widget(Paragraph::new(header), rows[0]);
 
-    let cols = Layout::horizontal([Constraint::Fill(1), Constraint::Fill(1)]).split(rows[1]);
+    // Workspace switcher spans the full width above both panes so the two bordered
+    // panes line up (it used to sit inside the right column, offsetting it by a row).
+    frame.render_widget(workspace_header(app.workspace), rows[1]);
+
+    let cols = Layout::horizontal([Constraint::Fill(1), Constraint::Fill(1)]).split(rows[2]);
 
     let mods_focused = app.focus == Focus::Mods;
     let mods_title = format!(
@@ -92,20 +97,19 @@ pub(crate) fn draw_main(app: &mut App, frame: &mut Frame) {
         Some(n) => Paragraph::new(n.text.clone()).style(theme::style(n.role)),
         None => Paragraph::new(status_summary(app.session.status.as_ref())),
     };
-    frame.render_widget(status, rows[2]);
+    frame.render_widget(status, rows[3]);
     frame.render_widget(
         Paragraph::new("1/2 workspace · s settings · ? help · q quit ").alignment(Alignment::Right),
-        rows[2],
+        rows[3],
     );
 }
 
-/// Draw the right pane: a workspace switcher line plus the active workspace's body.
+/// Draw the right pane: the active workspace's body. The switcher line is drawn
+/// full-width by `draw_main` so both panes align.
 fn render_workspace(app: &mut App, frame: &mut Frame, area: Rect) {
-    let rows = Layout::vertical([Constraint::Length(1), Constraint::Fill(1)]).split(area);
-    frame.render_widget(workspace_header(app.workspace), rows[0]);
     match app.workspace {
-        Workspace::Plugins => render_plugins(app, frame, rows[1]),
-        Workspace::Conflicts => render_conflicts(app, frame, rows[1]),
+        Workspace::Plugins => render_plugins(app, frame, area),
+        Workspace::Conflicts => render_conflicts(app, frame, area),
     }
 }
 
@@ -117,7 +121,7 @@ fn workspace_header(active: Workspace) -> Paragraph<'static> {
         Workspace::Conflicts => "all enabled mods",
     };
     let line = Line::from(vec![
-        Span::styled("Workspace  ", theme::style(Role::Muted)),
+        Span::styled(" Workspace  ", theme::style(Role::Muted)),
         Span::styled(
             "1 Plugins",
             theme::style(role(active == Workspace::Plugins)),

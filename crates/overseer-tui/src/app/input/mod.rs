@@ -44,6 +44,8 @@ impl App {
             // Main view related controls
             KeyCode::Char(' ') | KeyCode::Enter => self.toggle_selected(),
             KeyCode::Tab => self.toggle_focus(),
+            KeyCode::Char(']') => self.workspace = self.workspace.cycle(1),
+            KeyCode::Char('[') => self.workspace = self.workspace.cycle(-1),
             KeyCode::Char('1') => self.workspace = Workspace::Plugins,
             KeyCode::Char('2') => self.workspace = Workspace::Conflicts,
             KeyCode::Char('r') if self.workspace == Workspace::Conflicts => self.scan_conflicts(),
@@ -244,6 +246,18 @@ mod tests {
         app.handle_key(KeyEvent::new(KeyCode::Char('1'), KeyModifiers::NONE));
         assert_eq!(app.workspace, Workspace::Plugins);
         assert_eq!(app.focus, Focus::Workspace, "switching never moves focus");
+    }
+
+    #[test]
+    fn brackets_cycle_through_the_workspaces() {
+        let mut app = App::sample();
+        assert_eq!(app.workspace, Workspace::Plugins);
+        app.handle_key(KeyEvent::new(KeyCode::Char(']'), KeyModifiers::NONE));
+        assert_eq!(app.workspace, Workspace::Conflicts, "] goes to the next");
+        app.handle_key(KeyEvent::new(KeyCode::Char(']'), KeyModifiers::NONE));
+        assert_eq!(app.workspace, Workspace::Plugins, "] wraps around");
+        app.handle_key(KeyEvent::new(KeyCode::Char('['), KeyModifiers::NONE));
+        assert_eq!(app.workspace, Workspace::Conflicts, "[ wraps backward");
     }
 
     #[test]
