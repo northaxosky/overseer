@@ -7,7 +7,7 @@ use overseer_core::instance::ModKind;
 use overseer_core::plugins::discover_plugins;
 
 use super::clamp_selection;
-use crate::app::{App, Focus};
+use crate::app::{App, Focus, Workspace};
 
 impl App {
     /// Toggle the selected item in the focused pane & report the outcome
@@ -52,6 +52,7 @@ impl App {
         };
         if moved {
             self.mods_state.select(Some(target as usize));
+            self.mark_conflicts_stale();
         }
         moved
     }
@@ -69,16 +70,24 @@ impl App {
                         return false;
                     }
                     m.enabled = !m.enabled;
+                    // The enabled set drives conflict detection; invalidate the scan.
+                    self.mark_conflicts_stale();
                     return true;
                 }
             }
-            Focus::Plugins => {
-                if let Some(i) = self.plugins_state.selected() {
-                    let p = &mut self.session.order.plugins[i];
-                    p.active = !p.active;
-                    return true;
+            Focus::Workspace => match self.workspace {
+                Workspace::Plugins => {
+                    if let Some(i) = self.plugins_state.selected() {
+                        let p = &mut self.session.order.plugins[i];
+                        p.active = !p.active;
+                        return true;
+                    }
                 }
-            }
+                Workspace::Conflicts => {
+                    self.note("Conflicts are read-only");
+                    return false;
+                }
+            },
         }
         false
     }
@@ -148,10 +157,37 @@ mod tests {
     #[test]
     fn flip_toggles_the_selected_plugin() {
         let mut app = App::sample();
-        app.focus = Focus::Plugins;
+        app.focus = Focus::Workspace;
         assert!(app.session.order.plugins[0].active);
         assert!(app.flip_selected());
         assert!(!app.session.order.plugins[0].active);
+    }
+
+    #[test]
+    fn flip_in_the_conflicts_workspace_is_read_only() {
+        use crate::app::Workspace;
+        let mut app = App::sample();
+        app.focus = Focus::Workspace;
+        app.workspace = Workspace::Conflicts;
+        let before = app.session.order.plugins[0].active;
+        assert!(!app.flip_selected(), "conflicts mutate nothing");
+        assert_eq!(
+            app.session.order.plugins[0].active, before,
+            "plugin active flags are untouched"
+        );
+        assert!(app.message.is_some(), "the user is told it is read-only");
+    }
+
+    #[test]
+    fn flipping_a_mod_marks_the_conflicts_scan_stale() {
+        use crate::app::ConflictsStatus;
+        let mut app = App::sample();
+        app.conflicts.status = ConflictsStatus::Ready(Vec::new());
+        assert!(app.flip_selected(), "a managed mod flips");
+        assert!(
+            matches!(app.conflicts.status, ConflictsStatus::Stale),
+            "changing the enabled set invalidates the scan"
+        );
     }
 
     #[test]
@@ -170,7 +206,7 @@ mod tests {
         let mut app = App::sample();
         assert!(!app.shift_selected_mod(-1)); // at the top
         assert_eq!(app.mods_state.selected(), Some(0));
-        app.focus = Focus::Plugins;
+        app.focus = Focus::Workspace;
         assert!(!app.shift_selected_mod(1)); // unsupported pane
     }
 }

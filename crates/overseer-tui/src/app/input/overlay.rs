@@ -94,6 +94,7 @@ impl App {
                     tracing::warn!(error = %e, "could not save settings");
                 }
                 self.ok("Switched instance");
+                self.mark_conflicts_stale();
             }
             Err(e) => self.fail(format!("Error: {e}")),
         }

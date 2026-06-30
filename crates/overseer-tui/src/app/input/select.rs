@@ -94,6 +94,7 @@ impl App {
                 self.plugins_state = initial_selection(self.session.order.plugins.len());
                 self.focus = Focus::Mods;
                 self.ok(format!("Switched to {name}"));
+                self.mark_conflicts_stale();
             }
             Err(e) => self.fail(format!("Error: {e}")),
         }

@@ -19,8 +19,11 @@ use ratatui::{
     widgets::{Block, BorderType, List, ListItem, ListState, Paragraph},
 };
 
-use crate::app::{App, Focus};
+use crate::app::{App, ConflictsStatus, Focus, Workspace};
 use crate::theme;
+
+/// The shared title for the Conflicts workspace pane, scan or message alike.
+const CONFLICTS_TITLE: &str = " Conflicts — all enabled mods ";
 
 /// Draw the main view, plus any popup floating on top
 pub(crate) fn draw(app: &mut App, frame: &mut Frame) {
@@ -82,9 +85,58 @@ pub(crate) fn draw_main(app: &mut App, frame: &mut Frame) {
         mods_focused,
     );
 
-    let plugins_focused = app.focus == Focus::Plugins;
-    let plugins_title = format!(" plugins — {} ", app.session.order.plugins.len());
-    let plugins_items: Vec<ListItem<'static>> = app
+    render_workspace(app, frame, cols[1]);
+
+    // Status/message on the left, key hints on the right, sharing the footer row.
+    let status = match &app.message {
+        Some(n) => Paragraph::new(n.text.clone()).style(theme::style(n.role)),
+        None => Paragraph::new(status_summary(app.session.status.as_ref())),
+    };
+    frame.render_widget(status, rows[2]);
+    frame.render_widget(
+        Paragraph::new("1/2 workspace · s settings · ? help · q quit ").alignment(Alignment::Right),
+        rows[2],
+    );
+}
+
+/// Draw the right pane: a workspace switcher line plus the active workspace's body.
+fn render_workspace(app: &mut App, frame: &mut Frame, area: Rect) {
+    let rows = Layout::vertical([Constraint::Length(1), Constraint::Fill(1)]).split(area);
+    frame.render_widget(workspace_header(app.workspace), rows[0]);
+    match app.workspace {
+        Workspace::Plugins => render_plugins(app, frame, rows[1]),
+        Workspace::Conflicts => render_conflicts(app, frame, rows[1]),
+    }
+}
+
+/// The switcher line: both workspace names with the active one emphasised, plus its scope.
+fn workspace_header(active: Workspace) -> Paragraph<'static> {
+    let role = |on: bool| if on { Role::Heading } else { Role::Muted };
+    let scope = match active {
+        Workspace::Plugins => "load order",
+        Workspace::Conflicts => "all enabled mods",
+    };
+    let line = Line::from(vec![
+        Span::styled("Workspace  ", theme::style(Role::Muted)),
+        Span::styled(
+            "1 Plugins",
+            theme::style(role(active == Workspace::Plugins)),
+        ),
+        Span::raw("  "),
+        Span::styled(
+            "2 Conflicts",
+            theme::style(role(active == Workspace::Conflicts)),
+        ),
+        Span::styled(format!("  · {scope}"), theme::style(Role::Muted)),
+    ]);
+    Paragraph::new(line)
+}
+
+/// The plugins workspace: the load order, highlighted when the right pane has focus.
+fn render_plugins(app: &mut App, frame: &mut Frame, area: Rect) {
+    let focused = app.focus == Focus::Workspace;
+    let title = format!(" plugins — {} ", app.session.order.plugins.len());
+    let items: Vec<ListItem<'static>> = app
         .session
         .order
         .plugins
@@ -100,24 +152,63 @@ pub(crate) fn draw_main(app: &mut App, frame: &mut Frame) {
                 .style(theme::style(role))
         })
         .collect();
+    render_pane(frame, area, title, items, &mut app.plugins_state, focused);
+}
+
+/// The conflicts workspace: a scan result, or a short prompt in every other state.
+fn render_conflicts(app: &mut App, frame: &mut Frame, area: Rect) {
+    let focused = app.focus == Focus::Workspace;
+    let rows: Vec<ListItem<'static>> = match &app.conflicts.status {
+        ConflictsStatus::Stale => {
+            return render_workspace_message(
+                frame,
+                area,
+                "Press r to scan for conflicts.",
+                focused,
+            );
+        }
+        ConflictsStatus::Error(msg) => {
+            let text = format!("Conflict scan failed: {msg} — press r to retry.");
+            return render_workspace_message(frame, area, &text, focused);
+        }
+        ConflictsStatus::Ready(found) if found.is_empty() => {
+            return render_workspace_message(
+                frame,
+                area,
+                "No file conflicts among enabled mods.",
+                focused,
+            );
+        }
+        // Each row is a priority chain; providers are winner-last, so the rightmost wins.
+        ConflictsStatus::Ready(found) => found
+            .iter()
+            .map(|c| ListItem::new(format!("{} · {}", c.relative, c.providers.join(" < "))))
+            .collect(),
+    };
     render_pane(
         frame,
-        cols[1],
-        plugins_title,
-        plugins_items,
-        &mut app.plugins_state,
-        plugins_focused,
+        area,
+        CONFLICTS_TITLE.to_owned(),
+        rows,
+        &mut app.conflicts.list,
+        focused,
     );
+}
 
-    let foot = Layout::horizontal([Constraint::Fill(1), Constraint::Fill(1)]).split(rows[2]);
-    let left = match &app.message {
-        Some(n) => Paragraph::new(n.text.clone()).style(theme::style(n.role)),
-        None => Paragraph::new(status_summary(app.session.status.as_ref())),
-    };
-    frame.render_widget(left, foot[0]);
+/// A short, centered message inside the Conflicts pane frame (stale / error / empty).
+fn render_workspace_message(frame: &mut Frame, area: Rect, msg: &str, focused: bool) {
+    let block = Block::bordered()
+        .border_type(if focused {
+            BorderType::Thick
+        } else {
+            BorderType::Plain
+        })
+        .title(CONFLICTS_TITLE);
     frame.render_widget(
-        Paragraph::new("s settings · ? help · q quit ").alignment(Alignment::Right),
-        foot[1],
+        Paragraph::new(msg.to_owned())
+            .block(block)
+            .alignment(Alignment::Center),
+        area,
     );
 }
 
@@ -261,6 +352,45 @@ mod tests {
         assert!(out.contains("CoolMod"), "mods pane lists mods");
         assert!(out.contains("Cool.esp"), "plugins pane lists plugins");
         assert!(out.contains("(master)"), "master plugins are tagged");
+    }
+
+    #[test]
+    fn workspace_header_names_both_workspaces() {
+        let mut app = App::sample();
+        let out = render(&mut app, 80, 24);
+        assert!(
+            out.contains("1 Plugins"),
+            "header names the plugins workspace"
+        );
+        assert!(
+            out.contains("2 Conflicts"),
+            "header names the conflicts workspace"
+        );
+    }
+
+    #[test]
+    fn conflicts_workspace_stale_prompts_to_scan() {
+        use crate::app::Workspace;
+        let mut app = App::sample();
+        app.workspace = Workspace::Conflicts;
+        let out = render(&mut app, 80, 24);
+        assert!(out.contains("Press r"), "a stale scan prompts for r");
+    }
+
+    #[test]
+    fn conflicts_workspace_ready_row_shows_the_priority_chain() {
+        use crate::app::{ConflictsStatus, Workspace};
+        use camino::Utf8PathBuf;
+        use overseer_core::deploy::FileConflict;
+        let mut app = App::sample();
+        app.workspace = Workspace::Conflicts;
+        app.conflicts.status = ConflictsStatus::Ready(vec![FileConflict {
+            relative: Utf8PathBuf::from("shared.dds"),
+            providers: vec!["Low".to_owned(), "High".to_owned()],
+        }]);
+        let out = render(&mut app, 80, 24);
+        assert!(out.contains("shared.dds"), "the conflicting path is shown");
+        assert!(out.contains("Low < High"), "providers render winner-last");
     }
 
     #[test]

@@ -10,6 +10,7 @@ pub(crate) use popup::{HELP_ENTRIES, Popup};
 use anyhow::Result;
 use camino::Utf8Path;
 use overseer_core::apply::{self, DeploymentStatus};
+use overseer_core::deploy::FileConflict;
 use overseer_core::instance::{Instance, Profile};
 use overseer_core::plugins::{PluginLoadOrder, PluginMeta, discover_plugins};
 use overseer_core::settings::Settings;
@@ -29,7 +30,31 @@ pub(crate) struct Notice {
 pub(crate) enum Focus {
     #[default]
     Mods,
+    Workspace,
+}
+
+/// Which view fills the right (workspace) pane
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Workspace {
+    #[default]
     Plugins,
+    Conflicts,
+}
+
+/// The Conflicts workspace's scan state: not just `Vec`
+#[derive(Debug, Default)]
+pub(crate) enum ConflictsStatus {
+    #[default]
+    Stale,
+    Ready(Vec<FileConflict>),
+    Error(String),
+}
+
+/// The conflicts workspace's own state (grouped so `App` doesn't get loose fields)
+#[derive(Debug, Default)]
+pub(crate) struct ConflictsState {
+    pub(crate) status: ConflictsStatus,
+    pub(crate) list: ListState,
 }
 
 /// The loaded domain data for one instance — replaced wholesale on a switch.
@@ -73,6 +98,8 @@ pub(crate) struct App {
     pub(crate) popup: Option<Popup>,
     pub(crate) modal: Option<Modal>,
     pub(crate) focus: Focus,
+    pub(crate) workspace: Workspace,
+    pub(crate) conflicts: ConflictsState,
     pub(crate) message: Option<Notice>,
     pub(crate) settings: Settings,
     pub(crate) session: Session,
@@ -104,6 +131,8 @@ impl App {
             popup: None,
             modal: None,
             focus: Focus::Mods,
+            workspace: Workspace::default(),
+            conflicts: ConflictsState::default(),
             message: None,
             mods_state: initial_selection(session.profile.mods.len()),
             plugins_state: initial_selection(session.order.plugins.len()),
