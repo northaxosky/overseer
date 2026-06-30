@@ -228,4 +228,26 @@ mod tests {
             "conflicts are sorted by lowercased relative path"
         );
     }
+
+    #[test]
+    fn per_mod_meta_ini_is_excluded_from_conflicts() {
+        let (_tmp, base) = temp();
+        let a = base.join("mods/A");
+        let b = base.join("mods/B");
+        // MO2 writes a meta.ini into every mod root; it must not register as a conflict.
+        write(&a.join("meta.ini"), "[General]");
+        write(&b.join("meta.ini"), "[General]");
+        write(&a.join("Textures/shared.dds"), "a");
+        write(&b.join("Textures/shared.dds"), "b");
+
+        let conflicts =
+            detect_conflicts(&[ModSource::new("A", &a), ModSource::new("B", &b)]).expect("detect");
+
+        // Only the real shared asset conflicts; the two meta.ini files are ignored.
+        assert_eq!(conflicts.len(), 1);
+        assert_eq!(
+            conflicts[0].relative,
+            Utf8Path::new("Textures").join("shared.dds")
+        );
+    }
 }

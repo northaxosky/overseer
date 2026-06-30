@@ -121,6 +121,11 @@ pub(super) fn walk_mod_files(
             .strip_prefix(&m.staging_dir)
             .expect("walked entry is always under a staging dir")
             .to_owned();
+
+        // Exclude per mod `meta.ini`: its metadata, not game content
+        if relative.as_str().eq_ignore_ascii_case("meta.ini") {
+            continue;
+        }
         f(relative, abs.to_owned())?;
     }
     Ok(())
