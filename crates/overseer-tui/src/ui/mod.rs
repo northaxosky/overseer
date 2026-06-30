@@ -336,4 +336,29 @@ mod tests {
             "modal shows the empty state"
         );
     }
+
+    #[test]
+    fn new_profile_prompt_renders_title_input_and_error() {
+        use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+        let mut app = App::sample();
+        app.handle_key(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::NONE));
+        app.handle_key(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE));
+        for c in ['A', 'b'] {
+            app.handle_key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE));
+        }
+        let out = render(&mut app, 80, 24);
+        assert!(out.contains("New profile"), "prompt shows its title");
+        assert!(out.contains("Ab"), "prompt echoes the typed input");
+        assert!(
+            out.contains("Enter confirm"),
+            "prompt shows the submit hint"
+        );
+
+        // Clearing the input and submitting surfaces the inline validation error.
+        app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
+        app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
+        app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        let out = render(&mut app, 80, 24);
+        assert!(out.contains("empty"), "the inline validation error renders");
+    }
 }

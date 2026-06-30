@@ -47,6 +47,9 @@ pub enum InstanceError {
 
     #[error("the Documents path is not valid UTF-8: `{0}`")]
     NonUtf8DocumentsPath(std::path::PathBuf),
+
+    #[error("a profile named `{0}` already exists")]
+    ProfileExists(String),
 }
 
 pub(crate) use crate::error::io_err;

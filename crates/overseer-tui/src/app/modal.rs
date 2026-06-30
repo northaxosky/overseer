@@ -6,6 +6,30 @@ use ratatui::widgets::ListState;
 #[derive(Debug)]
 pub(crate) enum Modal {
     Select(Select),
+    Prompt(Prompt),
+}
+
+/// A single-line text input that ends in submit or cancel
+#[derive(Debug)]
+pub(crate) struct Prompt {
+    pub(crate) kind: PromptKind,
+    pub(crate) input: String,
+    pub(crate) error: Option<String>,
+}
+
+/// Which prompt a [`Prompt`] drives; its title and what submitting it does
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PromptKind {
+    NewProfile,
+}
+
+impl PromptKind {
+    /// Heading shown on the prompt's frame
+    pub(crate) fn title(self) -> &'static str {
+        match self {
+            PromptKind::NewProfile => "New profile",
+        }
+    }
 }
 
 /// Pick one item from a list and act on it
@@ -45,6 +69,14 @@ impl SelectKind {
         match self {
             SelectKind::Launch => "launch",
             SelectKind::Profile => "switch",
+        }
+    }
+
+    /// Extra hint appended after the close hint, for kinds with a side-action
+    pub(crate) fn extra_hint(self) -> &'static str {
+        match self {
+            SelectKind::Launch => "",
+            SelectKind::Profile => " · n new",
         }
     }
 }

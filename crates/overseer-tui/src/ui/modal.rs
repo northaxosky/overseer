@@ -8,17 +8,19 @@ use ratatui::{
 };
 
 use super::centered_rect;
-use crate::app::{App, Modal};
+use crate::app::{App, Modal, Prompt, Select};
 use crate::theme;
 
 /// Draw the active modal centered over the main view
 pub(super) fn render_modal(app: &mut App, frame: &mut Frame) {
-    let select = match app.modal.as_mut() {
-        Some(Modal::Select(select)) => select,
-        None => return,
-    };
-    let kind = select.kind;
+    match app.modal.as_mut() {
+        Some(Modal::Select(select)) => render_select(select, frame),
+        Some(Modal::Prompt(prompt)) => render_prompt(prompt, frame),
+        None => {}
+    }
+}
 
+fn render_select(select: &mut Select, frame: &mut Frame) {
     let area = centered_rect(60, 40, frame.area());
     frame.render_widget(Clear, area);
     let block = Block::bordered()
@@ -35,7 +37,7 @@ pub(super) fn render_modal(app: &mut App, frame: &mut Frame) {
     .split(inner);
 
     if select.items.is_empty() {
-        let msg = Paragraph::new(kind.empty_message())
+        let msg = Paragraph::new(select.kind.empty_message())
             .style(theme::style(Role::Warning))
             .wrap(Wrap { trim: true });
         frame.render_widget(msg, rows[0]);
@@ -45,7 +47,57 @@ pub(super) fn render_modal(app: &mut App, frame: &mut Frame) {
         frame.render_stateful_widget(list, rows[0], &mut select.state);
     }
 
-    let hint = Paragraph::new(format!(" Enter {} · Esc close ", kind.action_verb()))
-        .style(theme::style(Role::Muted));
+    let hint = Paragraph::new(format!(
+        " Enter {} · Esc close{}",
+        select.kind.action_verb(),
+        select.kind.extra_hint()
+    ))
+    .style(theme::style(Role::Muted));
     frame.render_widget(hint, rows[1]);
+}
+
+fn render_prompt(prompt: &Prompt, frame: &mut Frame) {
+    let area = centered_rect(60, 30, frame.area());
+    frame.render_widget(Clear, area);
+    let block = Block::bordered()
+        .border_type(BorderType::Double)
+        .title(format!("  {}  ", prompt.kind.title()))
+        .padding(Padding::horizontal(1));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    let rows = Layout::vertical([
+        Constraint::Length(1), // input line
+        Constraint::Length(1), // inline error
+        Constraint::Fill(1),   // spacer
+        Constraint::Length(1), // hint
+    ])
+    .split(inner);
+
+    let room = (inner.width as usize).saturating_sub(1);
+    let line = format!("{}| ", tail(&prompt.input, room));
+    frame.render_widget(
+        Paragraph::new(line).style(theme::style(Role::Heading)),
+        rows[0],
+    );
+
+    if let Some(err) = &prompt.error {
+        let msg = Paragraph::new(err.clone())
+            .style(theme::style(Role::Failure))
+            .wrap(Wrap { trim: true });
+        frame.render_widget(msg, rows[1]);
+    }
+
+    let hint = Paragraph::new(" Enter confirm · Esc cancel ").style(theme::style(Role::Muted));
+    frame.render_widget(hint, rows[3]);
+}
+
+/// The last `max` characters of `s` for a tail-window text field
+fn tail(s: &str, max: usize) -> String {
+    let count = s.chars().count();
+    if count <= max {
+        s.to_owned()
+    } else {
+        s.chars().skip(count - max).collect()
+    }
 }

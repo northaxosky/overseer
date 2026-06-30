@@ -4,7 +4,7 @@ mod input;
 mod modal;
 mod popup;
 
-pub(crate) use modal::{Modal, Select, SelectKind};
+pub(crate) use modal::{Modal, Prompt, PromptKind, Select, SelectKind};
 pub(crate) use popup::{HELP_ENTRIES, Popup};
 
 use anyhow::Result;

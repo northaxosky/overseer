@@ -1,4 +1,5 @@
 use super::error::{InstanceError, io_err};
+use super::profile::Profile;
 use crate::deploy::DeployerKind;
 use crate::game::GameKind;
 use camino::{Utf8Path, Utf8PathBuf};
@@ -217,6 +218,26 @@ impl Instance {
     /// Profile names: the immediate subdirectories of `profiles/`, sorted
     pub fn profiles(&self) -> Result<Vec<String>, InstanceError> {
         read_subdirs(&self.profiles_dir())
+    }
+
+    /// Create a new & empty profile
+    pub fn create_profile(&self, name: &str) -> Result<Profile, InstanceError> {
+        let dir = self.profile_dir(name);
+        crate::fs::ensure_dir(&self.profiles_dir())?;
+        std::fs::create_dir(&dir).map_err(|source| {
+            if source.kind() == std::io::ErrorKind::AlreadyExists {
+                InstanceError::ProfileExists(name.to_owned())
+            } else {
+                io_err(&dir, source).into()
+            }
+        })?;
+        let profile = Profile {
+            name: name.to_owned(),
+            mods: Vec::new(),
+            local_saves: false,
+        };
+        profile.save(self)?;
+        Ok(profile)
     }
 }
 
@@ -444,5 +465,35 @@ mod tests {
         assert_eq!(loaded.config.default_profile, "Default");
         assert_eq!(loaded.config.local_dir, None);
         assert_eq!(loaded.config.deployer, DeployerKind::HardLink);
+    }
+
+    #[test]
+    fn create_profile_makes_an_empty_profile_on_disk() {
+        let (_tmp, instance) = temp_instance();
+        let profile = instance.create_profile("Survival").expect("create");
+
+        assert_eq!(profile.name, "Survival");
+        assert!(profile.mods.is_empty());
+        // The directory and an (empty) modlist are persisted...
+        assert!(instance.profile_dir("Survival").is_dir());
+        assert!(
+            instance
+                .profile_dir("Survival")
+                .join("modlist.txt")
+                .exists()
+        );
+        // ...and the profile now shows up in the listing.
+        assert_eq!(instance.profiles().expect("profiles"), ["Survival"]);
+    }
+
+    #[test]
+    fn create_profile_refuses_to_overwrite_an_existing_one() {
+        let (_tmp, instance) = temp_instance();
+        instance.create_profile("Default").expect("first create");
+
+        let err = instance
+            .create_profile("Default")
+            .expect_err("should refuse");
+        assert!(matches!(err, InstanceError::ProfileExists(name) if name == "Default"));
     }
 }
