@@ -40,9 +40,7 @@ pub struct DeployPlan {
 }
 
 impl DeployPlan {
-    /// Build a plan from an ordered list of mods. When two mods provide the same
-    /// relative path, the higher-priority (later) one wins. Path comparison is
-    /// case-insensitive, like the game filesystem.
+    /// Build a plan from an ordered list of mods. When two mods provide the same path, the higher-priority one wins
     pub fn from_mods(
         target_root: impl Into<Utf8PathBuf>,
         mods: &[ModSource],
@@ -51,38 +49,18 @@ impl DeployPlan {
         let mut winners: BTreeMap<String, PlannedFile> = BTreeMap::new();
 
         for m in mods {
-            if !m.staging_dir.is_dir() {
-                return Err(DeployError::MissingStaging {
-                    mod_name: m.name.clone(),
-                    path: m.staging_dir.clone(),
-                });
-            }
-            for entry in WalkDir::new(&m.staging_dir) {
-                let entry = entry.map_err(|source| DeployError::Walk {
-                    path: m.staging_dir.clone(),
-                    source,
-                })?;
-                if !entry.file_type().is_file() {
-                    continue;
-                }
-
-                let abs = Utf8Path::from_path(entry.path())
-                    .ok_or_else(|| DeployError::NonUtf8Path(entry.path().display().to_string()))?;
-                let relative = abs
-                    .strip_prefix(&m.staging_dir)
-                    .expect("walked entry is always under staging dir")
-                    .to_owned();
+            walk_mod_files(m, |relative, abs| {
                 let key = relative.as_str().to_lowercase();
-
                 winners.insert(
                     key,
                     PlannedFile {
                         relative,
-                        source: abs.to_owned(),
+                        source: abs,
                         winner: m.name.clone(),
                     },
                 );
-            }
+                Ok(())
+            })?;
         }
 
         Ok(Self {
@@ -91,15 +69,11 @@ impl DeployPlan {
         })
     }
 
-    /// Build a plan rooted at the game directory, honouring the `Root/` convention:
-    /// a mod's top-level `Root/` folder deploys to the game root, everything else
-    /// under `Data/`.
+    /// Build a plan rooted at the game directory, honouring the `Root/` convention
     pub fn from_rooted_mods(
         game_dir: impl Into<Utf8PathBuf>,
         mods: &[ModSource],
     ) -> Result<Self, DeployError> {
-        // Plan as usual (target = the game dir), then rewrite each file's relative
-        // path to its real destination: strip a leading `Root/`, or prefix `Data/`.
         let mut plan = Self::from_mods(game_dir, mods)?;
         for file in &mut plan.files {
             let dest = map_root_relative(&file.winner, &file.relative)?;
@@ -119,6 +93,37 @@ impl DeployPlan {
     pub fn is_empty(&self) -> bool {
         self.files.is_empty()
     }
+}
+
+/// Walk a mod's staging dir, invoking `f(relative, absolute)` for every file in `WalkDir` order
+pub(super) fn walk_mod_files(
+    m: &ModSource,
+    mut f: impl FnMut(Utf8PathBuf, Utf8PathBuf) -> Result<(), DeployError>,
+) -> Result<(), DeployError> {
+    if !m.staging_dir.is_dir() {
+        return Err(DeployError::MissingStaging {
+            mod_name: m.name.clone(),
+            path: m.staging_dir.clone(),
+        });
+    }
+    for entry in WalkDir::new(&m.staging_dir) {
+        let entry = entry.map_err(|source| DeployError::Walk {
+            path: m.staging_dir.clone(),
+            source,
+        })?;
+        if !entry.file_type().is_file() {
+            continue;
+        }
+
+        let abs = Utf8Path::from_path(entry.path())
+            .ok_or_else(|| DeployError::NonUtf8Path(entry.path().display().to_string()))?;
+        let relative = abs
+            .strip_prefix(&m.staging_dir)
+            .expect("walked entry is always under a staging dir")
+            .to_owned();
+        f(relative, abs.to_owned())?;
+    }
+    Ok(())
 }
 
 /// Map a staged file's path to its deploy destination, relative to the game root

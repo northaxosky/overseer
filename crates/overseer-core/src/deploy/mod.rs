@@ -1,5 +1,6 @@
 //! Mod Deployment: Turning an ordered set of mods into files visible in the game directory
 
+mod conflict;
 mod deployer;
 mod error;
 mod hardlink;
@@ -8,6 +9,7 @@ mod plan;
 mod progress;
 mod record;
 
+pub use conflict::{FileConflict, detect_conflicts};
 pub use deployer::{Deployer, DeployerKind, LaunchTarget, deployer_for};
 pub use error::DeployError;
 pub use hardlink::HardlinkDeployer;
