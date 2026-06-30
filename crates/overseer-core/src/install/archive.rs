@@ -22,7 +22,7 @@ impl ArchiveFormat {
     }
 
     /// Recognize a format from a path's extension (case-insensitive)
-    fn from_path(path: &Utf8Path) -> Option<Self> {
+    pub(super) fn from_path(path: &Utf8Path) -> Option<Self> {
         let ext = path.extension()?.to_ascii_lowercase();
         Self::ALL.iter().copied().find(|f| f.extension() == ext)
     }
