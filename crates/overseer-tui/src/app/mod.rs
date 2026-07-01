@@ -19,6 +19,7 @@ use overseer_core::settings::Settings;
 use overseer_diagnostics::Report;
 use overseer_frontend::style::Role;
 use ratatui::widgets::ListState;
+use strum::IntoEnumIterator;
 
 /// A transient footer message with a severity for coloring.
 #[derive(Debug)]
@@ -36,7 +37,7 @@ pub(crate) enum Focus {
 }
 
 /// Which view fills the right (workspace) pane
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, strum::EnumIter)]
 pub(crate) enum Workspace {
     #[default]
     Plugins,
@@ -46,19 +47,37 @@ pub(crate) enum Workspace {
 }
 
 impl Workspace {
-    /// All workspaces in switch order: `[`/`]` cycle through these
-    const ALL: &'static [Workspace] = &[
-        Workspace::Plugins,
-        Workspace::Conflicts,
-        Workspace::Downloads,
-        Workspace::Saves,
-    ];
-
-    /// The workspace `delta` steps away, wrapping at the ends
+    /// The workspace `delta` steps away in `Workspace::iter()` order, wrapping at the ends.
     pub(crate) fn cycle(self, delta: isize) -> Workspace {
-        let i = Self::ALL.iter().position(|&w| w == self).unwrap_or(0) as isize;
-        let n = Self::ALL.len() as isize;
-        Self::ALL[(i + delta).rem_euclid(n) as usize]
+        let all: Vec<Workspace> = Workspace::iter().collect();
+        let i = all.iter().position(|&w| w == self).unwrap_or(0) as isize;
+        let n = all.len() as isize;
+        all[(i + delta).rem_euclid(n) as usize]
+    }
+
+    /// The digit key that switches to this workspace (`1`..`4`).
+    pub(crate) fn key(self) -> char {
+        match self {
+            Workspace::Plugins => '1',
+            Workspace::Conflicts => '2',
+            Workspace::Downloads => '3',
+            Workspace::Saves => '4',
+        }
+    }
+
+    /// The workspace a digit key selects, if any.
+    pub(crate) fn from_key(c: char) -> Option<Workspace> {
+        Workspace::iter().find(|w| w.key() == c)
+    }
+
+    /// The switcher label for this workspace.
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            Workspace::Plugins => "Plugins",
+            Workspace::Conflicts => "Conflicts",
+            Workspace::Downloads => "Downloads",
+            Workspace::Saves => "Saves",
+        }
     }
 }
 

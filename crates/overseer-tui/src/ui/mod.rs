@@ -18,6 +18,7 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, BorderType, List, ListItem, ListState, Paragraph, Wrap},
 };
+use strum::IntoEnumIterator;
 
 use crate::app::{App, ConflictsStatus, Focus, Workspace};
 use crate::theme;
@@ -114,44 +115,52 @@ pub(crate) fn draw_main(app: &mut App, frame: &mut Frame) {
 /// Draw the right pane: the active workspace's body. The switcher line is drawn
 /// full-width by `draw_main` so both panes align.
 fn render_workspace(app: &mut App, frame: &mut Frame, area: Rect) {
-    match app.workspace {
-        Workspace::Plugins => render_plugins(app, frame, area),
-        Workspace::Conflicts => render_conflicts(app, frame, area),
-        Workspace::Downloads => render_downloads(app, frame, area),
-        Workspace::Saves => render_saves(app, frame, area),
+    let ws = app.workspace;
+    ws.render(app, frame, area);
+}
+
+impl Workspace {
+    /// Draw this workspace's body into `area`.
+    fn render(self, app: &mut App, frame: &mut Frame, area: Rect) {
+        match self {
+            Workspace::Plugins => render_plugins(app, frame, area),
+            Workspace::Conflicts => render_conflicts(app, frame, area),
+            Workspace::Downloads => render_downloads(app, frame, area),
+            Workspace::Saves => render_saves(app, frame, area),
+        }
+    }
+
+    /// The header's scope tag: what this workspace shows (Saves is per-profile).
+    fn scope(self, profile: &str) -> String {
+        match self {
+            Workspace::Plugins => "load order".to_owned(),
+            Workspace::Conflicts => "all enabled mods".to_owned(),
+            Workspace::Downloads => "archives in downloads/".to_owned(),
+            Workspace::Saves => format!("{profile}'s saves"),
+        }
     }
 }
 
 /// The switcher line: every workspace name with the active one emphasised, plus its scope.
 fn workspace_header(active: Workspace, profile: &str) -> Paragraph<'static> {
     let role = |on: bool| if on { Role::Heading } else { Role::Muted };
-    let scope = match active {
-        Workspace::Plugins => "load order".to_owned(),
-        Workspace::Conflicts => "all enabled mods".to_owned(),
-        Workspace::Downloads => "archives in downloads/".to_owned(),
-        Workspace::Saves => format!("{profile}'s saves"),
-    };
-    let line = Line::from(vec![
-        Span::styled(" Workspace  ", theme::style(Role::Muted)),
-        Span::styled(
-            "1 Plugins",
-            theme::style(role(active == Workspace::Plugins)),
-        ),
-        Span::raw("  "),
-        Span::styled(
-            "2 Conflicts",
-            theme::style(role(active == Workspace::Conflicts)),
-        ),
-        Span::raw("  "),
-        Span::styled(
-            "3 Downloads",
-            theme::style(role(active == Workspace::Downloads)),
-        ),
-        Span::raw("  "),
-        Span::styled("4 Saves", theme::style(role(active == Workspace::Saves))),
-        Span::styled(format!("  · {scope}"), theme::style(Role::Muted)),
-    ]);
-    Paragraph::new(line)
+    let scope = active.scope(profile);
+    // One `key label` span per workspace, two-space separated, active one emphasised.
+    let mut spans = vec![Span::styled(" Workspace  ", theme::style(Role::Muted))];
+    for (i, w) in Workspace::iter().enumerate() {
+        if i > 0 {
+            spans.push(Span::raw("  "));
+        }
+        spans.push(Span::styled(
+            format!("{} {}", w.key(), w.label()),
+            theme::style(role(w == active)),
+        ));
+    }
+    spans.push(Span::styled(
+        format!("  · {scope}"),
+        theme::style(Role::Muted),
+    ));
+    Paragraph::new(Line::from(spans))
 }
 
 /// The plugins workspace: the load order, highlighted when the right pane has focus.

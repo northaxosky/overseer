@@ -75,27 +75,10 @@ impl App {
                     return true;
                 }
             }
-            Focus::Workspace => match self.workspace {
-                Workspace::Plugins => {
-                    if let Some(i) = self.plugins_state.selected() {
-                        let p = &mut self.session.order.plugins[i];
-                        p.active = !p.active;
-                        return true;
-                    }
-                }
-                Workspace::Conflicts => {
-                    self.note("Conflicts are read-only");
-                    return false;
-                }
-                Workspace::Downloads => {
-                    self.begin_install_selected();
-                    return false;
-                }
-                Workspace::Saves => {
-                    self.note("Press x to delete a save");
-                    return false;
-                }
-            },
+            Focus::Workspace => {
+                let ws = self.workspace;
+                return ws.primary(self);
+            }
         }
         false
     }
@@ -128,6 +111,35 @@ impl App {
             Err(e) => self.fail(format!("Purge failed: {e}")),
         }
         self.session.status = apply::status(&self.session.instance).unwrap_or(None);
+    }
+}
+
+impl Workspace {
+    /// The Enter/Space primary action for this workspace. Returns `true` when it
+    /// changed persistent state (so the caller should save), `false` otherwise.
+    fn primary(self, app: &mut App) -> bool {
+        match self {
+            Workspace::Plugins => {
+                if let Some(i) = app.plugins_state.selected() {
+                    let p = &mut app.session.order.plugins[i];
+                    p.active = !p.active;
+                    return true;
+                }
+                false
+            }
+            Workspace::Conflicts => {
+                app.note("Conflicts are read-only");
+                false
+            }
+            Workspace::Downloads => {
+                app.begin_install_selected();
+                false
+            }
+            Workspace::Saves => {
+                app.note("Press x to delete a save");
+                false
+            }
+        }
     }
 }
 

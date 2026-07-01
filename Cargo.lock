@@ -1593,6 +1593,7 @@ dependencies = [
  "overseer-diagnostics",
  "overseer-frontend",
  "ratatui",
+ "strum",
  "tempfile",
  "tracing",
 ]

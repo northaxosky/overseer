@@ -47,17 +47,15 @@ impl App {
             // Workspace view related controls
             KeyCode::Char(']') => self.switch_workspace(self.workspace.cycle(1)),
             KeyCode::Char('[') => self.switch_workspace(self.workspace.cycle(-1)),
-            KeyCode::Char('1') => self.switch_workspace(Workspace::Plugins),
-            KeyCode::Char('2') => self.switch_workspace(Workspace::Conflicts),
-            KeyCode::Char('3') => self.switch_workspace(Workspace::Downloads),
-            KeyCode::Char('4') => self.switch_workspace(Workspace::Saves),
+            KeyCode::Char(c) if Workspace::from_key(c).is_some() => {
+                let ws = Workspace::from_key(c).expect("guard ensured a workspace key");
+                self.switch_workspace(ws);
+            }
             // `r` refreshes the active workspace's data; inert in Plugins.
-            KeyCode::Char('r') => match self.workspace {
-                Workspace::Conflicts => self.scan_conflicts(),
-                Workspace::Downloads => self.refresh_downloads(),
-                Workspace::Saves => self.refresh_saves(),
-                Workspace::Plugins => {}
-            },
+            KeyCode::Char('r') => {
+                let ws = self.workspace;
+                ws.on_refresh(self);
+            }
 
             // `x` deletes the selected save; self-guards to the focused Saves pane.
             KeyCode::Char('x') => self.begin_delete_selected_save(),
@@ -105,13 +103,20 @@ impl App {
         };
     }
 
-    /// Switch the active workspace, lazily listing downloads when entering it
+    /// Switch the active workspace, loading its lazily-listed data the first time it shows.
     fn switch_workspace(&mut self, ws: Workspace) {
         self.workspace = ws;
-        match ws {
+        self.refresh_visible_lazy_data();
+    }
+
+    /// Reload the active workspace's lazily-listed data. Panes without a lazy list
+    /// (Plugins, Conflicts) do nothing here; Conflicts is rescanned on `r` instead.
+    fn refresh_visible_lazy_data(&mut self) {
+        match self.workspace {
+            Workspace::Plugins => {}
+            Workspace::Conflicts => {}
             Workspace::Downloads => self.refresh_downloads(),
             Workspace::Saves => self.refresh_saves(),
-            _ => {}
         }
     }
 
@@ -119,18 +124,10 @@ impl App {
     fn move_main_selection(&mut self, delta: isize) {
         let (state, len) = match self.focus {
             Focus::Mods => (&mut self.mods_state, self.session.profile.mods.len()),
-            Focus::Workspace => match self.workspace {
-                Workspace::Plugins => (&mut self.plugins_state, self.session.order.plugins.len()),
-                Workspace::Conflicts => {
-                    let len = match &self.conflicts.status {
-                        ConflictsStatus::Ready(v) => v.len(),
-                        _ => 0,
-                    };
-                    (&mut self.conflicts.list, len)
-                }
-                Workspace::Downloads => (&mut self.downloads.list, self.downloads.entries.len()),
-                Workspace::Saves => (&mut self.saves.list, self.saves.entries.len()),
-            },
+            Focus::Workspace => {
+                let ws = self.workspace;
+                ws.selection(self)
+            }
         };
         move_in_list(state, len, delta);
     }
@@ -157,10 +154,44 @@ impl App {
         self.mods_state = initial_selection(self.session.profile.mods.len());
         self.plugins_state = initial_selection(self.session.order.plugins.len());
         self.mark_conflicts_stale();
-        match self.workspace {
-            Workspace::Downloads => self.refresh_downloads(),
-            Workspace::Saves => self.refresh_saves(),
-            _ => {}
+        self.refresh_visible_lazy_data();
+    }
+}
+
+impl Workspace {
+    /// Handle `r` in this workspace: rescan conflicts or re-list downloads/saves.
+    /// Plugins has nothing to refresh.
+    fn on_refresh(self, app: &mut App) {
+        match self {
+            Workspace::Plugins => {}
+            Workspace::Conflicts => app.scan_conflicts(),
+            Workspace::Downloads => app.refresh_downloads(),
+            Workspace::Saves => app.refresh_saves(),
+        }
+    }
+
+    /// This workspace's list selection state and its row count, for cursor movement.
+    fn selection(self, app: &mut App) -> (&mut ListState, usize) {
+        match self {
+            Workspace::Plugins => {
+                let len = app.session.order.plugins.len();
+                (&mut app.plugins_state, len)
+            }
+            Workspace::Conflicts => {
+                let len = match &app.conflicts.status {
+                    ConflictsStatus::Ready(v) => v.len(),
+                    _ => 0,
+                };
+                (&mut app.conflicts.list, len)
+            }
+            Workspace::Downloads => {
+                let len = app.downloads.entries.len();
+                (&mut app.downloads.list, len)
+            }
+            Workspace::Saves => {
+                let len = app.saves.entries.len();
+                (&mut app.saves.list, len)
+            }
         }
     }
 }
@@ -229,7 +260,9 @@ pub(crate) mod test_helpers {
 
 #[cfg(test)]
 mod tests {
+    use super::test_helpers::key;
     use super::*;
+    use strum::IntoEnumIterator;
 
     #[test]
     fn tab_toggles_focus() {
@@ -390,5 +423,175 @@ mod tests {
             matches!(app.conflicts.status, ConflictsStatus::Stale),
             "r only scans in the Conflicts workspace"
         );
+    }
+
+    // --- Characterization tests: pin today's workspace-dispatch behavior so the
+    // upcoming enum-method refactor can't drift. ---
+
+    #[test]
+    fn workspace_iter_is_in_switch_order() {
+        let order: Vec<Workspace> = Workspace::iter().collect();
+        assert_eq!(
+            order,
+            vec![
+                Workspace::Plugins,
+                Workspace::Conflicts,
+                Workspace::Downloads,
+                Workspace::Saves,
+            ],
+        );
+    }
+
+    #[test]
+    fn number_keys_select_each_workspace() {
+        let mut app = App::sample();
+        for (c, ws) in [
+            ('1', Workspace::Plugins),
+            ('2', Workspace::Conflicts),
+            ('3', Workspace::Downloads),
+            ('4', Workspace::Saves),
+        ] {
+            app.handle_key(key(KeyCode::Char(c)));
+            assert_eq!(app.workspace, ws, "{c} selects its workspace");
+        }
+    }
+
+    #[test]
+    fn cycle_wraps_in_both_directions() {
+        assert_eq!(Workspace::Plugins.cycle(1), Workspace::Conflicts);
+        assert_eq!(
+            Workspace::Saves.cycle(1),
+            Workspace::Plugins,
+            "forward wraps to the front"
+        );
+        assert_eq!(
+            Workspace::Plugins.cycle(-1),
+            Workspace::Saves,
+            "backward wraps to the back"
+        );
+        assert_eq!(Workspace::Conflicts.cycle(-1), Workspace::Plugins);
+    }
+
+    #[test]
+    fn switching_to_conflicts_does_not_scan() {
+        let mut app = App::sample();
+        app.handle_key(key(KeyCode::Char('2')));
+        assert_eq!(app.workspace, Workspace::Conflicts);
+        assert!(
+            matches!(app.conflicts.status, ConflictsStatus::Stale),
+            "entering Conflicts must not scan (scanning is r-only)"
+        );
+    }
+
+    #[test]
+    fn conflicts_selection_length_tracks_the_scan_status() {
+        use overseer_core::deploy::FileConflict;
+        let conflict = |name: &str| FileConflict {
+            relative: camino::Utf8PathBuf::from(name),
+            providers: vec!["A".to_owned(), "B".to_owned()],
+        };
+        let mut app = App::sample();
+        app.focus = Focus::Workspace;
+        app.workspace = Workspace::Conflicts;
+
+        // Stale ⇒ zero rows: movement can select nothing.
+        app.conflicts.list.select(None);
+        app.move_main_selection(1);
+        assert_eq!(
+            app.conflicts.list.selected(),
+            None,
+            "a stale scan has no rows"
+        );
+
+        // Ready(n) ⇒ n rows: movement walks them.
+        app.conflicts.status = ConflictsStatus::Ready(vec![conflict("a.dds"), conflict("b.dds")]);
+        app.conflicts.list.select(Some(0));
+        app.move_main_selection(1);
+        assert_eq!(
+            app.conflicts.list.selected(),
+            Some(1),
+            "a ready scan has n rows"
+        );
+    }
+
+    #[test]
+    fn after_session_changed_resets_selection_and_marks_conflicts_stale() {
+        let mut app = App::sample();
+        app.mods_state.select(Some(1));
+        app.plugins_state.select(Some(1));
+        app.conflicts.status = ConflictsStatus::Ready(Vec::new());
+        app.workspace = Workspace::Plugins;
+
+        app.after_session_changed();
+
+        assert_eq!(
+            app.mods_state.selected(),
+            Some(0),
+            "mods selection resets to the top"
+        );
+        assert_eq!(
+            app.plugins_state.selected(),
+            Some(0),
+            "plugins selection resets to the top"
+        );
+        assert!(
+            matches!(app.conflicts.status, ConflictsStatus::Stale),
+            "a session change invalidates the conflicts scan"
+        );
+    }
+
+    #[test]
+    fn after_session_changed_refreshes_only_the_active_lazy_pane() {
+        use overseer_core::test_support::{self, temp_instance};
+
+        // On Downloads, a session change re-lists the archives.
+        let (_tmp_a, instance_a) = temp_instance();
+        test_support::write(&instance_a.downloads_dir().join("Mod.zip"), "fake");
+        let mut on_downloads = App::sample();
+        on_downloads.session.instance = instance_a;
+        on_downloads.workspace = Workspace::Downloads;
+        on_downloads.downloads.entries.clear();
+        on_downloads.after_session_changed();
+        assert_eq!(
+            on_downloads.downloads.entries.len(),
+            1,
+            "the active Downloads pane re-lists"
+        );
+
+        // On Plugins, the same change leaves the inactive Downloads pane empty.
+        let (_tmp_b, instance_b) = temp_instance();
+        test_support::write(&instance_b.downloads_dir().join("Mod.zip"), "fake");
+        let mut on_plugins = App::sample();
+        on_plugins.session.instance = instance_b;
+        on_plugins.workspace = Workspace::Plugins;
+        on_plugins.downloads.entries.clear();
+        on_plugins.after_session_changed();
+        assert!(
+            on_plugins.downloads.entries.is_empty(),
+            "an inactive pane is not eagerly listed"
+        );
+    }
+
+    #[test]
+    fn workspace_keys_are_unique() {
+        let mut keys: Vec<char> = Workspace::iter().map(Workspace::key).collect();
+        keys.sort_unstable();
+        keys.dedup();
+        assert_eq!(
+            keys.len(),
+            Workspace::iter().count(),
+            "every workspace has a distinct switch key"
+        );
+    }
+
+    #[test]
+    fn from_key_round_trips_every_workspace() {
+        for w in Workspace::iter() {
+            assert_eq!(
+                Workspace::from_key(w.key()),
+                Some(w),
+                "{w:?} round-trips through its key"
+            );
+        }
     }
 }

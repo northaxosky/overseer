@@ -17,6 +17,7 @@ overseer-core = { path = "../overseer-core" }
 overseer-diagnostics = { path = "../overseer-diagnostics" }
 anyhow.workspace = true
 ratatui.workspace = true
+strum.workspace = true
 tracing.workspace = true
 camino.workspace = true
 
