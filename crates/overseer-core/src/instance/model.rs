@@ -169,8 +169,7 @@ impl Instance {
         Ok(Utf8PathBuf::from(base).join(self.config.game.local_appdata_dir()))
     }
 
-    /// The directory the game reads its INIs from: the configured `ini_dir`,
-    /// else the standard `Documents\My Games\<game>` location.
+    /// The directory the game reads its INIs from: the configured `ini_dir`, else `Documents\My Games\<game>`
     pub fn ini_dir(&self) -> Result<Utf8PathBuf, InstanceError> {
         if let Some(dir) = &self.config.ini_dir {
             return Ok(dir.clone());
@@ -186,6 +185,11 @@ impl Instance {
         {
             Err(InstanceError::NoDocumentsDir)
         }
+    }
+
+    /// This profile's redirected saves folder: `<ini_dir>/Saves/<profile>`
+    pub fn saves_dir(&self, profile: &str) -> Result<Utf8PathBuf, InstanceError> {
+        Ok(self.ini_dir()?.join("Saves").join(profile))
     }
 
     pub fn mods_dir(&self) -> Utf8PathBuf {

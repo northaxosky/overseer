@@ -317,11 +317,11 @@ fn save_paths(
     let ini_dir = instance.ini_dir()?;
     let stem = instance.config.game.ini_stem();
     let custom_ini = ini_dir.join(format!("{stem}Custom.ini"));
-    let saves_dir = ini_dir.join("Saves").join(profile);
+    let saves_dir = instance.saves_dir(profile)?;
     Ok((custom_ini, saves_dir))
 }
 
-// Dont start a deploy when the backup dir survives from a previous run
+/// Dont start a deploy when the backup dir survives from a previous run
 fn guard_no_orphaned_backup(backup_root: &Utf8Path) -> Result<(), ApplyError> {
     if backup_root.exists() {
         return Err(ApplyError::OrphanedBackup {

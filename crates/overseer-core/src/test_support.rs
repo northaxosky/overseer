@@ -105,6 +105,54 @@ pub fn write_zip(path: &Utf8Path, entries: &[(&str, &[u8])]) {
     zip.finish().expect("finish zip");
 }
 
+/// Build the bytes of a valid, uncompressed Fallout 4 `.fos` save header: the
+/// `FO4_SAVEGAME` magic, a correct `headerSize`, then the version, save number,
+/// player name, level, location, and game-date fields `parse_header` reads.
+pub fn fos_bytes(
+    save_number: u32,
+    name: &str,
+    level: u32,
+    location: &str,
+    game_date: &str,
+) -> Vec<u8> {
+    // A Bethesda wstring: a u16 LE *byte length*, then that many UTF-8 bytes.
+    fn wstring(out: &mut Vec<u8>, s: &str) {
+        out.extend_from_slice(&(s.len() as u16).to_le_bytes());
+        out.extend_from_slice(s.as_bytes());
+    }
+
+    // Fields the header-size count covers: version onward, up to the game date.
+    let mut header = Vec::new();
+    header.extend_from_slice(&14u32.to_le_bytes()); // version, within FO4's 11..=15
+    header.extend_from_slice(&save_number.to_le_bytes());
+    wstring(&mut header, name);
+    header.extend_from_slice(&level.to_le_bytes());
+    wstring(&mut header, location);
+    wstring(&mut header, game_date);
+
+    let mut out = Vec::with_capacity(16 + header.len());
+    out.extend_from_slice(b"FO4_SAVEGAME"); // 12-byte magic, no length prefix
+    out.extend_from_slice(&(header.len() as u32).to_le_bytes());
+    out.extend_from_slice(&header);
+    out
+}
+
+/// Write a synthetic `.fos` save (see [`fos_bytes`]) to `path`, creating parents.
+pub fn write_fos(
+    path: &Utf8Path,
+    save_number: u32,
+    name: &str,
+    level: u32,
+    location: &str,
+    game_date: &str,
+) {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).expect("create parents");
+    }
+    let bytes = fos_bytes(save_number, name, level, location, game_date);
+    std::fs::write(path, bytes).expect("write fos");
+}
+
 /// Create a mod folder under `mods/` holding the given relative files and contents.
 pub fn install_mod(instance: &Instance, name: &str, files: &[(&str, &str)]) {
     for (rel, contents) in files {

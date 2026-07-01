@@ -60,6 +60,15 @@ pub(crate) fn remove_file_opt(path: &Utf8Path) -> Result<(), IoError> {
     }
 }
 
+/// Open a directory for iteration: `Ok(None` when it doesn't exist
+pub(crate) fn read_dir_opt(dir: &Utf8Path) -> Result<Option<std::fs::ReadDir>, IoError> {
+    match std::fs::read_dir(dir) {
+        Ok(entries) => Ok(Some(entries)),
+        Err(e) if e.kind() == ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(io_err(dir, e)),
+    }
+}
+
 /// Move a corrupt file aside to `<path>.bak` so a later write won't clobber it. No-op if absent.
 pub(crate) fn backup_corrupt(path: &Utf8Path) -> Result<(), IoError> {
     let bak = format!("{path}.bak");
