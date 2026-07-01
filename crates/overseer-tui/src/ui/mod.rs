@@ -56,7 +56,11 @@ pub(crate) fn draw_main(app: &mut App, frame: &mut Frame) {
     // Workspace switcher spans the full width above both panes so the two bordered
     // panes line up (it used to sit inside the right column, offsetting it by a row).
     frame.render_widget(
-        workspace_header(app.workspace, &app.session.profile.name),
+        workspace_header(
+            app.workspace,
+            &app.session.profile.name,
+            rows[1].width as usize,
+        ),
         rows[1],
     );
 
@@ -136,30 +140,52 @@ impl Workspace {
     }
 }
 
-/// The switcher line: every workspace name with the active one emphasised, plus its scope.
-fn workspace_header(active: Workspace, profile: &str) -> Paragraph<'static> {
+/// The switcher line, compacted to fit `width`: full labels when they fit, else
+/// numbers only — the active workspace keeps its label so you still know where you are.
+fn workspace_header(active: Workspace, profile: &str, width: usize) -> Paragraph<'static> {
+    let full = switcher_line(active, profile, true);
+    let line = if full.width() <= width {
+        full
+    } else {
+        switcher_line(active, profile, false)
+    };
+    Paragraph::new(line)
+}
+
+/// Build the switcher line. `verbose` shows every workspace's label plus the
+/// "Workspace" prefix and the active scope; the compact form drops those and
+/// shows bare numbers, labelling only the active workspace.
+fn switcher_line(active: Workspace, profile: &str, verbose: bool) -> Line<'static> {
     let role = |on: bool| if on { Role::Heading } else { Role::Muted };
-    let scope = active.scope(profile);
     // Bold "Workspace" label, the workspaces `|`-separated with the active one
     // emphasised, then the scope. `·` separates groups, `|` separates items.
-    let mut spans = vec![
-        Span::styled(" Workspace ", theme::style(Role::Heading)),
-        Span::styled("· ", theme::style(Role::Muted)),
-    ];
+    let mut spans = if verbose {
+        vec![
+            Span::styled(" Workspace ", theme::style(Role::Heading)),
+            Span::styled("· ", theme::style(Role::Muted)),
+        ]
+    } else {
+        vec![Span::raw(" ")]
+    };
     for (i, w) in Workspace::iter().enumerate() {
         if i > 0 {
             spans.push(Span::styled("| ", theme::style(Role::Muted)));
         }
+        // Compact mode keeps only the active workspace's label.
+        let text = if verbose || w == active {
+            format!("{} {} ", w.key(), w.label())
+        } else {
+            format!("{} ", w.key())
+        };
+        spans.push(Span::styled(text, theme::style(role(w == active))));
+    }
+    if verbose {
         spans.push(Span::styled(
-            format!("{} {} ", w.key(), w.label()),
-            theme::style(role(w == active)),
+            format!("· {}", active.scope(profile)),
+            theme::style(Role::Muted),
         ));
     }
-    spans.push(Span::styled(
-        format!("· {scope}"),
-        theme::style(Role::Muted),
-    ));
-    Paragraph::new(Line::from(spans))
+    Line::from(spans)
 }
 
 /// The plugins workspace: the load order, highlighted when the right pane has focus.
@@ -470,6 +496,21 @@ mod tests {
         assert!(
             out.contains('|'),
             "workspaces are separated by a pipe in the switcher"
+        );
+    }
+
+    #[test]
+    fn workspace_header_compacts_on_a_narrow_terminal() {
+        // App::sample() defaults to the Plugins workspace.
+        let mut app = App::sample();
+        let out = render(&mut app, 30, 24);
+        assert!(
+            out.contains("1 Plugins"),
+            "the active workspace keeps its label when compact"
+        );
+        assert!(
+            !out.contains("2 Conflicts"),
+            "inactive labels are dropped to fit a narrow terminal"
         );
     }
 
