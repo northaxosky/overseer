@@ -4,6 +4,7 @@ use super::archive::ArchiveFormat;
 use super::error::{InstallError, io_err};
 use crate::instance::Instance;
 use camino::Utf8PathBuf;
+use std::time::SystemTime;
 
 /// One installable archive sitting in an instance's `downloads/` directory
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -14,6 +15,10 @@ pub struct DownloadEntry {
     pub path: Utf8PathBuf,
     /// Whether `mods/<file stem>/` already exists; likely a prior install
     pub installed: bool,
+    /// Archive size in bytes, or 0 when filesystem metadata is unavailable
+    pub size: u64,
+    /// Archive modification time, or [`SystemTime::UNIX_EPOCH`] when unavailable
+    pub modified: SystemTime,
 }
 
 /// List the installable archives in `instance.downloads_dir()`, sorted by name
@@ -36,6 +41,19 @@ pub fn list_downloads(instance: &Instance) -> Result<Vec<DownloadEntry>, Install
         if ArchiveFormat::from_path(&path).is_none() {
             continue;
         }
+        let (size, modified) = match entry.metadata() {
+            Ok(metadata) => {
+                let modified = metadata.modified().unwrap_or_else(|e| {
+                    tracing::debug!(path = %path, error = %e, "download mtime unavailable; using epoch");
+                    SystemTime::UNIX_EPOCH
+                });
+                (metadata.len(), modified)
+            }
+            Err(e) => {
+                tracing::debug!(path = %path, error = %e, "download metadata unavailable; using defaults");
+                (0, SystemTime::UNIX_EPOCH)
+            }
+        };
         // The default install name is the file stem, matching `install`/CLI
         let installed = path
             .file_stem()
@@ -44,6 +62,8 @@ pub fn list_downloads(instance: &Instance) -> Result<Vec<DownloadEntry>, Install
             name,
             path,
             installed,
+            size,
+            modified,
         });
     }
     downloads.sort_by_key(|e| e.name.to_ascii_lowercase());
@@ -58,11 +78,20 @@ pub fn list_downloads(instance: &Instance) -> Result<Vec<DownloadEntry>, Install
 mod tests {
     use super::*;
     use crate::test_support::temp_instance;
+    use std::time::{Duration, SystemTime};
 
     /// Create a small file at `path`, making parent dirs as needed.
     fn touch(path: &camino::Utf8Path) {
         std::fs::create_dir_all(path.parent().expect("parent")).expect("mkdir");
         std::fs::write(path, b"x").expect("write");
+    }
+
+    fn set_mtime(path: &camino::Utf8Path, when: SystemTime) {
+        let file = std::fs::File::options()
+            .write(true)
+            .open(path)
+            .expect("open for mtime");
+        file.set_modified(when).expect("set mtime");
     }
 
     #[test]
@@ -103,5 +132,21 @@ mod tests {
             .map(|e| (e.name.as_str(), e.installed))
             .collect();
         assert_eq!(installed, [("CoolMod.zip", true), ("Other.zip", false)]);
+    }
+
+    #[test]
+    fn entries_include_size_and_modified_time() {
+        let (_tmp, instance) = temp_instance();
+        let archive = instance.downloads_dir().join("Sized.zip");
+        std::fs::create_dir_all(archive.parent().expect("parent")).expect("mkdir");
+        std::fs::write(&archive, b"abc").expect("write");
+        let modified = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000);
+        set_mtime(&archive, modified);
+
+        let entries = list_downloads(&instance).expect("list");
+
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].size, 3);
+        assert_eq!(entries[0].modified, modified);
     }
 }

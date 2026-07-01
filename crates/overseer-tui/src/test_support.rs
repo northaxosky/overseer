@@ -22,6 +22,7 @@ impl App {
                     Utf8Path::new("/alpha").to_owned(),
                     Utf8Path::new("/beta").to_owned(),
                 ],
+                ..Settings::default()
             },
             session: Session {
                 instance: Instance::new("test-instance", "test-game"),

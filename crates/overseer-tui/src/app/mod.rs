@@ -2,10 +2,12 @@
 
 mod input;
 mod modal;
+mod sort;
 
 pub(crate) use modal::{
     Confirm, ConfirmAction, DoctorReport, Info, Modal, Prompt, PromptKind, Select, SelectKind,
 };
+pub(crate) use sort::{downloads_sort_label, saves_sort_label};
 
 use anyhow::Result;
 use camino::Utf8Path;
@@ -30,6 +32,7 @@ pub(crate) const HELP_ENTRIES: &[(&str, &str)] = &[
     ("1 / 2 / 3 / 4", "switch workspace"),
     ("[ / ]", "cycle workspace"),
     ("r", "scan conflicts · refresh downloads"),
+    ("o / O", "cycle sort key · toggle direction"),
     ("D / P", "deploy / purge"),
     ("l", "launch a target"),
     ("p", "switch profile"),

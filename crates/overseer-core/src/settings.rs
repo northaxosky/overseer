@@ -1,7 +1,7 @@
 //! Persistent, app-level settings (not the same as per instance `overseer.toml`)
 
 use camino::{Utf8Path, Utf8PathBuf};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use thiserror::Error;
 
 /// How many recent instances to remember
@@ -34,6 +34,129 @@ pub enum SettingsError {
 pub struct Settings {
     /// Instances the user has opened, most recent first
     pub recent_instances: Vec<Utf8PathBuf>,
+    /// Sort preference for front ends that show saves
+    #[serde(default)]
+    pub saves_sort: SavesSort,
+    /// Sort preference for front ends that show downloads
+    #[serde(default)]
+    pub downloads_sort: DownloadsSort,
+}
+
+/// Sort direction for persisted list preferences
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SortDir {
+    #[default]
+    Asc,
+    Desc,
+}
+
+impl<'de> Deserialize<'de> for SortDir {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        Ok(match value.as_str() {
+            "asc" => Self::Asc,
+            "desc" => Self::Desc,
+            _ => Self::default(),
+        })
+    }
+}
+
+/// Sort key for persisted saves list preferences
+#[derive(
+    Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, strum::Display, strum::EnumIter,
+)]
+#[serde(rename_all = "snake_case")]
+#[strum(serialize_all = "snake_case")]
+pub enum SavesSortKey {
+    #[default]
+    Date,
+    Name,
+    Character,
+    Level,
+}
+
+impl<'de> Deserialize<'de> for SavesSortKey {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        Ok(match value.as_str() {
+            "date" => Self::Date,
+            "name" => Self::Name,
+            "character" => Self::Character,
+            "level" => Self::Level,
+            _ => Self::default(),
+        })
+    }
+}
+
+/// Sort key for persisted downloads list preferences
+#[derive(
+    Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, strum::Display, strum::EnumIter,
+)]
+#[serde(rename_all = "snake_case")]
+#[strum(serialize_all = "snake_case")]
+pub enum DownloadsSortKey {
+    #[default]
+    Name,
+    Date,
+    Size,
+    Installed,
+}
+
+impl<'de> Deserialize<'de> for DownloadsSortKey {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        Ok(match value.as_str() {
+            "name" => Self::Name,
+            "date" => Self::Date,
+            "size" => Self::Size,
+            "installed" => Self::Installed,
+            _ => Self::default(),
+        })
+    }
+}
+
+/// Persisted saves list sort preference
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SavesSort {
+    pub key: SavesSortKey,
+    pub dir: SortDir,
+}
+
+impl Default for SavesSort {
+    fn default() -> Self {
+        Self {
+            key: SavesSortKey::Date,
+            dir: SortDir::Desc,
+        }
+    }
+}
+
+/// Persisted downloads list sort preference
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DownloadsSort {
+    pub key: DownloadsSortKey,
+    pub dir: SortDir,
+}
+
+impl Default for DownloadsSort {
+    fn default() -> Self {
+        Self {
+            key: DownloadsSortKey::Name,
+            dir: SortDir::Asc,
+        }
+    }
 }
 
 impl Settings {
@@ -183,9 +306,19 @@ mod tests {
         let (_dir, path) = temp_config();
         let mut s = Settings::default();
         s.record_opened(Utf8Path::new("/x"));
+        s.saves_sort = SavesSort {
+            key: SavesSortKey::Character,
+            dir: SortDir::Asc,
+        };
+        s.downloads_sort = DownloadsSort {
+            key: DownloadsSortKey::Size,
+            dir: SortDir::Desc,
+        };
         s.save_to(&path).expect("save");
         let loaded = Settings::load_from(&path).expect("load");
         assert_eq!(loaded.recent_instances, s.recent_instances);
+        assert_eq!(loaded.saves_sort, s.saves_sort);
+        assert_eq!(loaded.downloads_sort, s.downloads_sort);
     }
 
     #[test]
@@ -193,5 +326,50 @@ mod tests {
         let (_dir, path) = temp_config();
         let loaded = Settings::load_from(&path).expect("load");
         assert!(loaded.recent_instances.is_empty());
+        assert_eq!(loaded.saves_sort, SavesSort::default());
+        assert_eq!(loaded.downloads_sort, DownloadsSort::default());
+    }
+
+    #[test]
+    fn old_toml_missing_sort_fields_loads_defaults() {
+        let (_dir, path) = temp_config();
+        std::fs::write(&path, r#"recent_instances = ["/old/instance"]"#).expect("write");
+
+        let loaded = Settings::load_from(&path).expect("load");
+
+        assert_eq!(
+            loaded.recent_instances,
+            vec![Utf8PathBuf::from("/old/instance")]
+        );
+        assert_eq!(loaded.saves_sort, SavesSort::default());
+        assert_eq!(loaded.downloads_sort, DownloadsSort::default());
+    }
+
+    #[test]
+    fn unknown_sort_key_degrades_to_default_without_losing_recents() {
+        let (_dir, path) = temp_config();
+        std::fs::write(
+            &path,
+            r#"
+recent_instances = ["/keep/me"]
+
+[saves_sort]
+key = "future_key"
+dir = "desc"
+
+[downloads_sort]
+key = "newer_key"
+dir = "asc"
+"#,
+        )
+        .expect("write");
+
+        let loaded = Settings::load_from(&path).expect("load");
+
+        assert_eq!(loaded.recent_instances, vec![Utf8PathBuf::from("/keep/me")]);
+        assert_eq!(loaded.saves_sort.key, SavesSortKey::Date);
+        assert_eq!(loaded.saves_sort.dir, SortDir::Desc);
+        assert_eq!(loaded.downloads_sort.key, DownloadsSortKey::Name);
+        assert_eq!(loaded.downloads_sort.dir, SortDir::Asc);
     }
 }

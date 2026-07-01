@@ -1,5 +1,6 @@
 //! The saves workspace's actions: listing the profile's `.fos` saves and deleting one
 
+use crate::app::sort::sort_saves;
 use crate::app::{App, Confirm, ConfirmAction, Focus, Modal, Workspace};
 use camino::Utf8Path;
 use overseer_core::saves::{self, SaveInfo};
@@ -9,7 +10,8 @@ impl App {
     pub(super) fn refresh_saves(&mut self) {
         match self.session.instance.saves_dir(&self.session.profile.name) {
             Ok(dir) => match saves::list_saves(&dir) {
-                Ok(entries) => {
+                Ok(mut entries) => {
+                    sort_saves(&mut entries, self.settings.saves_sort);
                     self.saves.list.select((!entries.is_empty()).then_some(0));
                     self.saves.entries = entries;
                 }
@@ -74,6 +76,7 @@ mod tests {
     use crate::app::input::test_helpers::key;
     use crate::app::{App, Focus, Modal, Session, Workspace};
     use overseer_core::instance::Instance;
+    use overseer_core::settings::{SavesSort, SavesSortKey, SortDir};
     use overseer_core::test_support::{self, temp_instance};
     use ratatui::crossterm::event::KeyCode;
 
@@ -188,18 +191,30 @@ mod tests {
             Instance::init(scaffold.root.clone(), scaffold.config.clone()).expect("init");
         instance.create_profile("Default").expect("default profile");
         instance.create_profile("Other").expect("other profile");
-        // Only the Other profile has a save on disk.
+        // Only the Other profile has saves on disk.
         test_support::write_fos(
-            &instance.saves_dir("Other").unwrap().join("S.fos"),
+            &instance.saves_dir("Other").unwrap().join("Low.fos"),
             1,
             "Nate",
             5,
             "Vault 111",
             "Day 0",
         );
+        test_support::write_fos(
+            &instance.saves_dir("Other").unwrap().join("High.fos"),
+            2,
+            "Nate",
+            10,
+            "Concord",
+            "Day 2",
+        );
 
         let mut app = App::sample();
         app.session = Session::load(&instance.root, "Default").expect("session");
+        app.settings.saves_sort = SavesSort {
+            key: SavesSortKey::Level,
+            dir: SortDir::Desc,
+        };
 
         app.handle_key(key(KeyCode::Char('4')));
         assert!(app.saves.entries.is_empty(), "Default has no saves yet");
@@ -211,10 +226,16 @@ mod tests {
 
         assert_eq!(app.session.profile.name, "Other", "the profile switched");
         assert_eq!(app.workspace, Workspace::Saves, "still on the Saves pane");
+        let names: Vec<&str> = app
+            .saves
+            .entries
+            .iter()
+            .map(|e| e.file_name.as_str())
+            .collect();
         assert_eq!(
-            app.saves.entries.len(),
-            1,
-            "the list refreshed for the new profile"
+            names,
+            ["High.fos", "Low.fos"],
+            "the list refreshed and re-applied the saved sort"
         );
     }
 }

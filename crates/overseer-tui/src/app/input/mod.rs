@@ -54,6 +54,14 @@ impl App {
                 let ws = self.workspace;
                 ws.on_refresh(self);
             }
+            KeyCode::Char('o') => {
+                let ws = self.workspace;
+                ws.cycle_sort(self);
+            }
+            KeyCode::Char('O') => {
+                let ws = self.workspace;
+                ws.toggle_sort_dir(self);
+            }
 
             // `x` deletes the selected save; self-guards to the focused Saves pane.
             KeyCode::Char('x') => self.begin_delete_selected_save(),
@@ -157,6 +165,24 @@ impl Workspace {
         }
     }
 
+    /// Cycle the active workspace's sort key when that workspace owns a sortable list.
+    fn cycle_sort(self, app: &mut App) {
+        match self {
+            Workspace::Plugins | Workspace::Conflicts => app.note("Only Saves and Downloads sort"),
+            Workspace::Downloads => app.cycle_downloads_sort(),
+            Workspace::Saves => app.cycle_saves_sort(),
+        }
+    }
+
+    /// Toggle the active workspace's sort direction when that workspace owns a sortable list.
+    fn toggle_sort_dir(self, app: &mut App) {
+        match self {
+            Workspace::Plugins | Workspace::Conflicts => app.note("Only Saves and Downloads sort"),
+            Workspace::Downloads => app.toggle_downloads_sort_dir(),
+            Workspace::Saves => app.toggle_saves_sort_dir(),
+        }
+    }
+
     /// This workspace's list selection state and its row count, for cursor movement.
     fn selection(self, app: &mut App) -> (&mut ListState, usize) {
         match self {
@@ -250,7 +276,57 @@ pub(crate) mod test_helpers {
 mod tests {
     use super::test_helpers::key;
     use super::*;
+    use overseer_core::settings::{
+        DownloadsSort, DownloadsSortKey, SavesSort, SavesSortKey, Settings, SortDir,
+    };
+    use std::ffi::OsString;
+    use std::sync::Mutex;
+    use std::time::{Duration, SystemTime};
     use strum::IntoEnumIterator;
+
+    static SETTINGS_ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    struct ConfigEnvGuard {
+        previous: Option<OsString>,
+    }
+
+    impl Drop for ConfigEnvGuard {
+        fn drop(&mut self) {
+            match &self.previous {
+                Some(value) => unsafe { std::env::set_var("OVERSEER_CONFIG_DIR", value) },
+                None => unsafe { std::env::remove_var("OVERSEER_CONFIG_DIR") },
+            }
+        }
+    }
+
+    fn with_config_dir<R>(f: impl FnOnce(camino::Utf8PathBuf) -> R) -> R {
+        let _lock = SETTINGS_ENV_LOCK.lock().expect("settings env lock");
+        let dir = tempfile::TempDir::new().expect("temp settings dir");
+        let path = camino::Utf8PathBuf::from_path_buf(dir.path().to_owned()).expect("utf8 path");
+        let previous = std::env::var_os("OVERSEER_CONFIG_DIR");
+        unsafe { std::env::set_var("OVERSEER_CONFIG_DIR", path.as_str()) };
+        let _guard = ConfigEnvGuard { previous };
+        f(path.join("config.toml"))
+    }
+
+    fn save_entry(name: &str, modified_secs: u64) -> overseer_core::saves::SaveInfo {
+        overseer_core::saves::SaveInfo {
+            path: camino::Utf8PathBuf::from(format!("Saves/{name}")),
+            file_name: name.to_owned(),
+            modified: SystemTime::UNIX_EPOCH + Duration::from_secs(modified_secs),
+            meta: None,
+        }
+    }
+
+    fn download_entry(name: &str, modified_secs: u64) -> overseer_core::install::DownloadEntry {
+        overseer_core::install::DownloadEntry {
+            name: name.to_owned(),
+            path: camino::Utf8PathBuf::from(format!("downloads/{name}")),
+            installed: false,
+            size: 1,
+            modified: SystemTime::UNIX_EPOCH + Duration::from_secs(modified_secs),
+        }
+    }
 
     #[test]
     fn tab_toggles_focus() {
@@ -445,6 +521,89 @@ mod tests {
     }
 
     #[test]
+    fn o_cycles_saves_sort_key_and_persists() {
+        with_config_dir(|config| {
+            let mut app = App::sample();
+            app.workspace = Workspace::Saves;
+            app.saves.entries = vec![save_entry("B.fos", 20), save_entry("A.fos", 10)];
+            app.saves.list.select(Some(1));
+
+            app.handle_key(key(KeyCode::Char('o')));
+
+            assert_eq!(
+                app.settings.saves_sort,
+                SavesSort {
+                    key: SavesSortKey::Name,
+                    dir: SortDir::Asc,
+                }
+            );
+            // Name/Asc reorders A before B, and the cursor resets to the top row.
+            assert_eq!(app.saves.entries[0].file_name, "A.fos");
+            assert_eq!(app.saves.list.selected(), Some(0));
+            let saved = Settings::load_from(&config).expect("load saved settings");
+            assert_eq!(saved.saves_sort, app.settings.saves_sort);
+        });
+    }
+
+    #[test]
+    fn shift_o_toggles_download_sort_direction_and_persists() {
+        with_config_dir(|config| {
+            let mut app = App::sample();
+            app.workspace = Workspace::Downloads;
+            app.settings.downloads_sort = DownloadsSort {
+                key: DownloadsSortKey::Size,
+                dir: SortDir::Desc,
+            };
+
+            app.handle_key(key(KeyCode::Char('O')));
+
+            assert_eq!(app.settings.downloads_sort.dir, SortDir::Asc);
+            let saved = Settings::load_from(&config).expect("load saved settings");
+            assert_eq!(saved.downloads_sort, app.settings.downloads_sort);
+        });
+    }
+
+    #[test]
+    fn o_cycles_downloads_sort_key_and_resets_to_top() {
+        with_config_dir(|_config| {
+            let mut app = App::sample();
+            app.workspace = Workspace::Downloads;
+            app.downloads.entries = vec![download_entry("B.zip", 10), download_entry("A.zip", 20)];
+            app.downloads.list.select(Some(1));
+
+            app.handle_key(key(KeyCode::Char('o')));
+
+            assert_eq!(
+                app.settings.downloads_sort,
+                DownloadsSort {
+                    key: DownloadsSortKey::Date,
+                    dir: SortDir::Desc,
+                }
+            );
+            // Date/Desc puts the newer A.zip first; the cursor resets to the top row.
+            assert_eq!(app.downloads.entries[0].name, "A.zip");
+            assert_eq!(app.downloads.list.selected(), Some(0));
+        });
+    }
+
+    #[test]
+    fn sort_keys_are_inert_outside_saves_and_downloads() {
+        let mut app = App::sample();
+        app.workspace = Workspace::Plugins;
+
+        app.handle_key(key(KeyCode::Char('o')));
+
+        assert_eq!(app.settings.saves_sort, SavesSort::default());
+        assert_eq!(app.settings.downloads_sort, DownloadsSort::default());
+        assert!(
+            app.message
+                .as_ref()
+                .is_some_and(|n| n.text.contains("Saves and Downloads")),
+            "the no-op is explained"
+        );
+    }
+
+    #[test]
     fn cycle_wraps_in_both_directions() {
         assert_eq!(Workspace::Plugins.cycle(1), Workspace::Conflicts);
         assert_eq!(
@@ -534,17 +693,24 @@ mod tests {
 
         // On Downloads, a session change re-lists the archives.
         let (_tmp_a, instance_a) = temp_instance();
-        test_support::write(&instance_a.downloads_dir().join("Mod.zip"), "fake");
+        test_support::write(&instance_a.downloads_dir().join("Small.zip"), "x");
+        test_support::write(&instance_a.downloads_dir().join("Large.zip"), "larger");
         let mut on_downloads = App::sample();
         on_downloads.session.instance = instance_a;
         on_downloads.workspace = Workspace::Downloads;
+        on_downloads.settings.downloads_sort = DownloadsSort {
+            key: DownloadsSortKey::Size,
+            dir: SortDir::Desc,
+        };
         on_downloads.downloads.entries.clear();
         on_downloads.after_session_changed();
-        assert_eq!(
-            on_downloads.downloads.entries.len(),
-            1,
-            "the active Downloads pane re-lists"
-        );
+        let names: Vec<&str> = on_downloads
+            .downloads
+            .entries
+            .iter()
+            .map(|e| e.name.as_str())
+            .collect();
+        assert_eq!(names, ["Large.zip", "Small.zip"]);
 
         // On Plugins, the same change leaves the inactive Downloads pane empty.
         let (_tmp_b, instance_b) = temp_instance();

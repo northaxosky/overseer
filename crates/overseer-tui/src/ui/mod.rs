@@ -17,14 +17,11 @@ use ratatui::{
 };
 use strum::IntoEnumIterator;
 
-use crate::app::{App, ConflictsStatus, Focus, Workspace};
+use crate::app::{App, ConflictsStatus, Focus, Workspace, downloads_sort_label, saves_sort_label};
 use crate::theme;
 
 /// The shared title for the Conflicts workspace pane, scan or message alike.
 const CONFLICTS_TITLE: &str = " Conflicts — all enabled mods ";
-
-/// The shared title for the Downloads workspace pane, list or message alike.
-const DOWNLOADS_TITLE: &str = " Downloads — archives in downloads/ ";
 
 /// Draw the main view, plus any modal floating on top
 pub(crate) fn draw(app: &mut App, frame: &mut Frame) {
@@ -99,16 +96,21 @@ pub(crate) fn draw_main(app: &mut App, frame: &mut Frame) {
     render_workspace(app, frame, cols[1]);
 
     // Status/message on the left, key hints on the right, sharing the footer row.
-    let status = match &app.message {
-        Some(n) => Paragraph::new(n.text.clone()).style(theme::style(n.role)),
-        None => Paragraph::new(status_summary(app.session.status.as_ref())),
+    let (status_text, status_role) = match &app.message {
+        Some(n) => (n.text.clone(), n.role),
+        None => (status_summary(app.session.status.as_ref()), Role::Muted),
     };
+    let status_width = status_text.chars().count();
+    let status = Paragraph::new(status_text).style(theme::style(status_role));
     frame.render_widget(status, rows[3]);
-    frame.render_widget(
-        Paragraph::new("1–4 workspace · s instance · d doctor · ? help · q quit ")
-            .alignment(Alignment::Right),
-        rows[3],
-    );
+    let full_hint = "1–4 workspace · o sort · s instance · d doctor · ? help · q quit ";
+    let compact_hint = "1–4 workspace · s instance · d doctor · ? help · q quit ";
+    let hint = if status_width + full_hint.chars().count() < rows[3].width as usize {
+        full_hint
+    } else {
+        compact_hint
+    };
+    frame.render_widget(Paragraph::new(hint).alignment(Alignment::Right), rows[3]);
 }
 
 /// Draw the right pane: the active workspace's body. The switcher line is drawn
@@ -256,12 +258,13 @@ fn render_conflicts(app: &mut App, frame: &mut Frame, area: Rect) {
 /// The downloads workspace: installable archives, or a hint to drop files in.
 fn render_downloads(app: &mut App, frame: &mut Frame, area: Rect) {
     let focused = app.focus == Focus::Workspace;
+    let title = downloads_title(app);
     if app.downloads.entries.is_empty() {
         let text = format!(
             "No archives. Drop .7z/.zip files in {}.",
             app.session.instance.downloads_dir()
         );
-        return render_workspace_message(frame, area, DOWNLOADS_TITLE, &text, focused);
+        return render_workspace_message(frame, area, &title, &text, focused);
     }
     let rows: Vec<ListItem<'static>> = app
         .downloads
@@ -276,20 +279,13 @@ fn render_downloads(app: &mut App, frame: &mut Frame, area: Rect) {
             }
         })
         .collect();
-    render_pane(
-        frame,
-        area,
-        DOWNLOADS_TITLE.to_owned(),
-        rows,
-        &mut app.downloads.list,
-        focused,
-    );
+    render_pane(frame, area, title, rows, &mut app.downloads.list, focused);
 }
 
-/// The saves workspace: the profile's saves newest-first, or an empty-folder note.
+/// The saves workspace: the profile's saves in the active sort order, or an empty-folder note.
 fn render_saves(app: &mut App, frame: &mut Frame, area: Rect) {
     let focused = app.focus == Focus::Workspace;
-    let title = format!(" Saves — {} ", app.session.profile.name);
+    let title = saves_title(app);
     if app.saves.entries.is_empty() {
         return render_workspace_message(
             frame,
@@ -314,6 +310,21 @@ fn render_saves(app: &mut App, frame: &mut Frame, area: Rect) {
         })
         .collect();
     render_pane(frame, area, title, rows, &mut app.saves.list, focused);
+}
+
+fn downloads_title(app: &App) -> String {
+    format!(
+        " Downloads — downloads/ · {} ",
+        downloads_sort_label(app.settings.downloads_sort)
+    )
+}
+
+fn saves_title(app: &App) -> String {
+    format!(
+        " Saves — {} · {} ",
+        app.session.profile.name,
+        saves_sort_label(app.settings.saves_sort)
+    )
 }
 
 /// A short, centered message inside a workspace pane frame (stale / error / empty).
@@ -442,8 +453,9 @@ mod tests {
     #[test]
     fn footer_shows_status_and_help_hint() {
         let mut app = App::sample();
-        let out = render(&mut app, 80, 12);
+        let out = render(&mut app, 100, 12);
         assert!(out.contains("No live deployment"), "status");
+        assert!(out.contains("sort"), "footer offers sorting");
         assert!(out.contains("help"), "footer offers help");
         assert!(out.contains("quit"), "footer offers quit");
     }
@@ -455,6 +467,7 @@ mod tests {
         app.handle_key(KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE));
         let out = render(&mut app, 80, 24);
         assert!(out.contains("Help"), "the modal is titled Help");
+        assert!(out.contains("sort"), "the modal lists sort bindings");
         assert!(out.contains("reorder"), "the modal lists bindings");
         assert!(out.contains("Tab"), "the modal shows key columns");
     }
@@ -544,6 +557,7 @@ mod tests {
         use crate::app::Workspace;
         use camino::Utf8PathBuf;
         use overseer_core::install::DownloadEntry;
+        use std::time::SystemTime;
         let mut app = App::sample();
         app.workspace = Workspace::Downloads;
         app.downloads.entries = vec![
@@ -551,15 +565,20 @@ mod tests {
                 name: "Alpha.zip".to_owned(),
                 path: Utf8PathBuf::from("downloads/Alpha.zip"),
                 installed: false,
+                size: 0,
+                modified: SystemTime::UNIX_EPOCH,
             },
             DownloadEntry {
                 name: "Beta.7z".to_owned(),
                 path: Utf8PathBuf::from("downloads/Beta.7z"),
                 installed: true,
+                size: 0,
+                modified: SystemTime::UNIX_EPOCH,
             },
         ];
         app.downloads.list.select(Some(0));
         let out = render(&mut app, 80, 24);
+        assert!(out.contains("name ↑"), "the title shows the active sort");
         assert!(
             out.contains("Alpha.zip"),
             "an installable archive is listed"
@@ -606,6 +625,7 @@ mod tests {
         }];
         app.saves.list.select(Some(0));
         let out = render(&mut app, 120, 24);
+        assert!(out.contains("date ↓"), "the title shows the active sort");
         assert!(out.contains("Nora"), "the character is shown");
         assert!(out.contains("L12"), "the level is shown");
         assert!(out.contains("Sanctuary"), "the location is shown");

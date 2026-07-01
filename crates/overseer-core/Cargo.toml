@@ -12,6 +12,7 @@ thiserror.workspace = true
 walkdir.workspace = true
 same-file.workspace = true
 serde.workspace = true
+strum.workspace = true
 camino.workspace = true
 sevenz-rust2.workspace = true
 zip.workspace = true
