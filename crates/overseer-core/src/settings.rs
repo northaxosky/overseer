@@ -2,6 +2,7 @@
 
 use camino::{Utf8Path, Utf8PathBuf};
 use serde::{Deserialize, Deserializer, Serialize};
+use strum::{Display, EnumIter, EnumString};
 use thiserror::Error;
 
 /// How many recent instances to remember
@@ -43,8 +44,9 @@ pub struct Settings {
 }
 
 /// Sort direction for persisted list preferences
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, EnumString)]
 #[serde(rename_all = "snake_case")]
+#[strum(serialize_all = "snake_case")]
 pub enum SortDir {
     #[default]
     Asc,
@@ -56,19 +58,14 @@ impl<'de> Deserialize<'de> for SortDir {
     where
         D: Deserializer<'de>,
     {
-        let value = String::deserialize(deserializer)?;
-        Ok(match value.as_str() {
-            "asc" => Self::Asc,
-            "desc" => Self::Desc,
-            _ => Self::default(),
-        })
+        Ok(String::deserialize(deserializer)?
+            .parse()
+            .unwrap_or_default())
     }
 }
 
 /// Sort key for persisted saves list preferences
-#[derive(
-    Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, strum::Display, strum::EnumIter,
-)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Display, EnumIter, EnumString)]
 #[serde(rename_all = "snake_case")]
 #[strum(serialize_all = "snake_case")]
 pub enum SavesSortKey {
@@ -84,21 +81,14 @@ impl<'de> Deserialize<'de> for SavesSortKey {
     where
         D: Deserializer<'de>,
     {
-        let value = String::deserialize(deserializer)?;
-        Ok(match value.as_str() {
-            "date" => Self::Date,
-            "name" => Self::Name,
-            "character" => Self::Character,
-            "level" => Self::Level,
-            _ => Self::default(),
-        })
+        Ok(String::deserialize(deserializer)?
+            .parse()
+            .unwrap_or_default())
     }
 }
 
 /// Sort key for persisted downloads list preferences
-#[derive(
-    Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, strum::Display, strum::EnumIter,
-)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Display, EnumIter, EnumString)]
 #[serde(rename_all = "snake_case")]
 #[strum(serialize_all = "snake_case")]
 pub enum DownloadsSortKey {
@@ -114,14 +104,9 @@ impl<'de> Deserialize<'de> for DownloadsSortKey {
     where
         D: Deserializer<'de>,
     {
-        let value = String::deserialize(deserializer)?;
-        Ok(match value.as_str() {
-            "name" => Self::Name,
-            "date" => Self::Date,
-            "size" => Self::Size,
-            "installed" => Self::Installed,
-            _ => Self::default(),
-        })
+        Ok(String::deserialize(deserializer)?
+            .parse()
+            .unwrap_or_default())
     }
 }
 

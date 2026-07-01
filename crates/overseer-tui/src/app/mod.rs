@@ -20,7 +20,7 @@ use overseer_core::saves::SaveInfo;
 use overseer_core::settings::Settings;
 use overseer_frontend::style::Role;
 use ratatui::widgets::ListState;
-use strum::IntoEnumIterator;
+use strum::{EnumIter, IntoEnumIterator, IntoStaticStr};
 
 /// Key bindings shown (and selectable) in the help modal: (keys, description).
 pub(crate) const HELP_ENTRIES: &[(&str, &str)] = &[
@@ -59,7 +59,7 @@ pub(crate) enum Focus {
 }
 
 /// Which view fills the right (workspace) pane
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, strum::EnumIter)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, EnumIter, IntoStaticStr)]
 pub(crate) enum Workspace {
     #[default]
     Plugins,
@@ -94,12 +94,7 @@ impl Workspace {
 
     /// The switcher label for this workspace.
     pub(crate) fn label(self) -> &'static str {
-        match self {
-            Workspace::Plugins => "Plugins",
-            Workspace::Conflicts => "Conflicts",
-            Workspace::Downloads => "Downloads",
-            Workspace::Saves => "Saves",
-        }
+        self.into()
     }
 }
 

@@ -1,36 +1,31 @@
 use camino::Utf8Path;
+use strum::{EnumIter, EnumString, IntoEnumIterator, IntoStaticStr};
 
 use super::error::{InstallError, io_err};
 
 /// An archive format Overseer can extract
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumIter, EnumString, IntoStaticStr)]
 pub(crate) enum ArchiveFormat {
+    #[strum(serialize = "7z")]
     SevenZip,
+    #[strum(serialize = "zip")]
     Zip,
 }
 
 impl ArchiveFormat {
-    /// Every supported format. The one place variants are enumerated
-    const ALL: &'static [Self] = &[Self::SevenZip, Self::Zip];
-
     /// The canonical lowercase extension - the source of truth
     fn extension(self) -> &'static str {
-        match self {
-            Self::SevenZip => "7z",
-            Self::Zip => "zip",
-        }
+        self.into()
     }
 
     /// Recognize a format from a path's extension (case-insensitive)
     pub(super) fn from_path(path: &Utf8Path) -> Option<Self> {
-        let ext = path.extension()?.to_ascii_lowercase();
-        Self::ALL.iter().copied().find(|f| f.extension() == ext)
+        path.extension()?.to_ascii_lowercase().parse().ok()
     }
 
     /// Comma-separated supported extensions, for error messages
     pub(crate) fn supported_list() -> String {
-        Self::ALL
-            .iter()
+        Self::iter()
             .map(|f| f.extension())
             .collect::<Vec<_>>()
             .join(", ")
