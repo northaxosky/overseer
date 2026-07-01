@@ -5,7 +5,7 @@ Rust, modeled on Mod Organizer 2. It is licensed **GPL-3.0-or-later**.
 
 ## Getting started
 
-- Install Rust via [rustup](https://rustup.rs). The pinned toolchain — stable, plus
+- Install Rust via [rustup](https://rustup.rs). The pinned toolchain — nightly, plus
   `rustfmt` and `clippy` — is declared in [`rust-toolchain.toml`](rust-toolchain.toml) and
   installed automatically the first time you run `cargo`.
 - Build it: `cargo build`

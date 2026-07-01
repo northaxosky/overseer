@@ -20,7 +20,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # rust-toolchain.toml pins `stable` + rustfmt/clippy; rustup installs it on first use.
+      # rust-toolchain.toml pins `nightly` + rustfmt/clippy; rustup installs it on first use.
       - name: Cache cargo registry and build
         uses: Swatinem/rust-cache@v2
 
