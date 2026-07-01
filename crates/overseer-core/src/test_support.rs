@@ -14,9 +14,7 @@ pub const FLAG_MASTER: u32 = 0x1;
 /// TES4 header flag: light (ESL) plugin (Fallout 4 / Skyrim SE).
 pub const FLAG_LIGHT: u32 = 0x200;
 
-/// Build the bytes of a minimal but valid Fallout 4 plugin: a single `TES4` header
-/// record containing an `HEDR` subrecord and one `MAST`/`DATA` pair per master.
-/// Enough for esplugin's header-only parse to read flags and masters.
+/// Build minimal Fallout 4 plugin bytes with a `TES4` header and enough data for esplugin's header parse.
 pub fn tes4_bytes(flags: u32, masters: &[&str]) -> Vec<u8> {
     // Subrecord data block first, so we can compute the record's data size.
     let mut data = Vec::new();
@@ -68,9 +66,7 @@ pub fn temp() -> (TempDir, Utf8PathBuf) {
     (dir, root)
 }
 
-/// A throwaway instance whose `mods/` and `game/` share one volume (so hardlinks
-/// work) and whose `Plugins.txt` and game INIs are redirected to temp dirs, never
-/// the real `%LOCALAPPDATA%` or `Documents\My Games`.
+/// A throwaway same-volume instance with temp local/INI dirs, never real `%LOCALAPPDATA%` or `Documents\My Games`.
 pub fn temp_instance() -> (TempDir, Instance) {
     let (dir, root) = temp();
     let mut instance = Instance::new(root.join("instance"), root.join("game"));
@@ -87,9 +83,7 @@ pub fn write(path: &Utf8Path, contents: &str) {
     std::fs::write(path, contents).expect("write file");
 }
 
-/// Build a throwaway `.zip` at `path` from `(entry path, bytes)` pairs, creating
-/// parent directories first. Nested entry paths (`Data/Textures/a.dds`) create
-/// their directories on extraction. For install/download tests.
+/// Build a throwaway `.zip` at `path` from `(entry path, bytes)` pairs for install/download tests.
 pub fn write_zip(path: &Utf8Path, entries: &[(&str, &[u8])]) {
     use std::io::Write;
     if let Some(parent) = path.parent() {
@@ -105,9 +99,7 @@ pub fn write_zip(path: &Utf8Path, entries: &[(&str, &[u8])]) {
     zip.finish().expect("finish zip");
 }
 
-/// Build the bytes of a valid, uncompressed Fallout 4 `.fos` save header: the
-/// `FO4_SAVEGAME` magic, a correct `headerSize`, then the version, save number,
-/// player name, level, location, and game-date fields `parse_header` reads.
+/// Build bytes for a valid, uncompressed Fallout 4 `.fos` header with the fields `parse_header` reads.
 pub fn fos_bytes(
     save_number: u32,
     name: &str,

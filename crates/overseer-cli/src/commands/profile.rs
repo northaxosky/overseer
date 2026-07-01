@@ -13,8 +13,7 @@ pub fn run(command: ProfileCommand) -> Result<()> {
     }
 }
 
-/// Show or set the profile's `LocalSaves` flag. A settings toggle, so we load the
-/// profile as-is (no mod-list reconcile) and write it straight back.
+/// Show or set the profile's `LocalSaves` flag, writing it back as-is without mod-list reconcile.
 fn saves(target: &ProfileArgs, state: Option<Toggle>) -> Result<()> {
     let instance = open_instance(&target.instance)?;
     let mut profile = Profile::load(&instance, &target.profile)

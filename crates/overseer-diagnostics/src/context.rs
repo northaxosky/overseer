@@ -20,8 +20,7 @@ use std::collections::BTreeSet;
 pub struct GameContext {
     /// The active mod plugins to inspect (with their masters)
     pub active_plugins: Vec<PluginMeta>,
-    /// Every plugin the engine actually loads: the active mod plugins plus the
-    /// installed base/DLC/Creation Club plugins it force-loads. The real load-order budget.
+    /// The real load-order budget: active mod plugins plus force-loaded base/DLC/Creation Club plugins.
     pub loaded_plugins: Vec<PluginMeta>,
     /// The files this profile would deploy under the game's `Data/` folder
     pub data_files: Vec<DataFile>,
@@ -219,8 +218,7 @@ fn scan_f4se_plugins(plan: &DeployPlan) -> Vec<F4sePluginScan> {
         .collect()
 }
 
-/// Gate the Address Library on actual need: only deployed F4SE plugins require it. If any
-/// `F4SE/Plugins/*.dll` is deployed, the matching `version-*.bin` must be too.
+/// Gate the Address Library on deployed F4SE plugins: any `F4SE/Plugins/*.dll` requires the matching `version-*.bin`.
 fn address_library_status(
     data_files: &[DataFile],
     version: Option<overseer_core::detect::ExeVersion>,
@@ -250,8 +248,7 @@ fn address_library_status(
     }
 }
 
-/// Read the game's Creation Club manifest, if the game has one. A read error (including
-/// a missing file) is reported as [`CccStatus::Missing`] rather than failing the run.
+/// Read the game's Creation Club manifest, reporting any read error as [`CccStatus::Missing`] instead of failing.
 fn read_ccc(instance: &Instance) -> CccStatus {
     let Some(file) = instance.config.game.ccc_file() else {
         return CccStatus::NotApplicable;
@@ -426,8 +423,7 @@ mod tests {
 
     // --- gather: installed implicit (base/DLC/CC) plugins (real temp-dir install) ---
 
-    /// A fake Fallout 4 install in a temp dir: an instance with its local/ini dirs
-    /// redirected away from the real `%LOCALAPPDATA%`/Documents, plus an empty `Data/`.
+    /// A fake Fallout 4 install with temp local/INI dirs away from real `%LOCALAPPDATA%`/Documents, plus empty `Data/`.
     fn fake_install() -> (TempDir, Instance) {
         let (tmp, base) = temp_base();
         let mut instance = Instance::new(base.join("instance"), base.join("game"));

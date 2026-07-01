@@ -7,10 +7,7 @@
 use camino::{Utf8Path, Utf8PathBuf};
 use thiserror::Error;
 
-/// An [`std::io::Error`] tagged with the path that produced it.
-///
-/// Domain errors embed this as a single `#[from]` variant, so a failed
-/// filesystem call can be turned into any of them through `?`.
+/// An [`std::io::Error`] tagged with its path, ready for domain errors to wrap via `#[from]`.
 #[derive(Debug, Error)]
 #[error("io error at `{path}`")]
 pub struct IoError {
@@ -31,10 +28,7 @@ impl IoError {
     }
 }
 
-/// Tag an [`std::io::Error`] with the path that produced it.
-///
-/// Returns an [`IoError`]; callers convert it into their own error type through
-/// `?` (every domain error has a `Io(#[from] IoError)` variant).
+/// Tag an [`std::io::Error`] with its path as an [`IoError`] for domain errors to convert via `?`.
 pub(crate) fn io_err(path: &Utf8Path, source: std::io::Error) -> IoError {
     IoError::new(path, source)
 }

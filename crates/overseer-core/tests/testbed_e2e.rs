@@ -47,9 +47,7 @@ const E2E_PLUGIN: &str = "OverseerE2E.esp";
 const E2E_TEX_SUBDIR: &str = "Overseer_E2E";
 const E2E_TEX_REL: &str = "Textures/Overseer_E2E/marker.dds";
 
-/// The disposable testbed game dir from `OVERSEER_FO4_TESTBED`, or `None` (with a skip
-/// note) when the var is unset. Set-but-unsafe (missing/forged marker) **panics** rather
-/// than skipping, so a misconfigured path can never silently pass.
+/// The `OVERSEER_FO4_TESTBED` dir; unset skips, but set-and-unsafe panics so misconfiguration cannot pass.
 fn testbed_or_skip() -> Option<Utf8PathBuf> {
     let _ = dotenvy::dotenv();
     let Ok(dir) = std::env::var("OVERSEER_FO4_TESTBED") else {
@@ -77,8 +75,7 @@ fn testbed_or_skip() -> Option<Utf8PathBuf> {
     Some(dir)
 }
 
-/// A best-effort cross-process lock so two runs never mutate the shared `Data/` at once.
-/// Created with `create_new`; removed on drop, so it clears even if the test panics.
+/// A best-effort cross-process `create_new` lock, removed on drop so panicking tests still clear it.
 struct TestbedLock {
     path: Utf8PathBuf,
 }
@@ -106,8 +103,7 @@ impl Drop for TestbedLock {
     }
 }
 
-/// Snapshot every file under `data` as `lowercased-relative-path -> length`. Directories
-/// are ignored so the engine creating/removing empty dirs doesn't register as drift.
+/// Snapshot files under `data` as `lowercased-relative-path -> length`, ignoring dirs so empty-dir churn is not drift.
 fn snapshot_data(data: &Utf8Path) -> BTreeMap<String, u64> {
     let mut map = BTreeMap::new();
     for entry in WalkDir::new(data) {
@@ -144,8 +140,7 @@ fn assert_pristine(before: &BTreeMap<String, u64>, after: &BTreeMap<String, u64>
     );
 }
 
-/// Reverse any deployment a previous (possibly crashed) run left behind, then scrub our
-/// unique namespace so the baseline is clean before we deploy.
+/// Reverse any previous deployment, then scrub our unique namespace so the baseline is clean before deploy.
 fn preflight_clean(instance_root: &Utf8Path, data: &Utf8Path, backup_root: &Utf8Path) {
     // (a) If the deterministic instance survived with a live or crashed deployment, let the
     //     engine reverse it properly: `status` runs crash-recovery; `purge` clears a committed one.

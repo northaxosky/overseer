@@ -68,8 +68,7 @@ pub fn deployer_for(kind: DeployerKind) -> Box<dyn Deployer> {
     }
 }
 
-/// A backend that isn't implemented yet: every operation reports
-/// [`DeployError::Unsupported`], and `verify` treats every entry as missing.
+/// Unimplemented backend: operations report [`DeployError::Unsupported`]; `verify` treats every entry as missing.
 #[derive(Debug, Clone)]
 pub(crate) struct StubDeployer {
     kind: DeployerKind,

@@ -7,8 +7,7 @@ use atomicwrites::{AtomicFile, OverwriteBehavior};
 use camino::Utf8Path;
 use std::io::{ErrorKind, Write};
 
-/// Read a file to a `String`; `Ok(None)` when it doesn't exist. Callers reconstitute their own
-/// default (`unwrap_or_default`, an empty parse, or a typed NotFound via `else`).
+/// Read a file to a `String`, returning `Ok(None)` when it doesn't exist so callers choose their default.
 pub(crate) fn read_to_string_opt(path: &Utf8Path) -> Result<Option<String>, IoError> {
     match std::fs::read_to_string(path) {
         Ok(t) => Ok(Some(t)),

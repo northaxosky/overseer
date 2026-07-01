@@ -13,8 +13,7 @@ use overseer_core::game::GameKind;
 use overseer_core::patch::fallout4::{self, Ba2Edition, PatchOutcome};
 use overseer_core::test_support;
 
-/// The real Fallout 4 dir from `OVERSEER_FO4_DIR`, or `None` (with a skip note) when it is unset
-/// or doesn't point at a Fallout 4 install.
+/// The real Fallout 4 dir from `OVERSEER_FO4_DIR`, or `None` with a skip note when unset/invalid.
 fn fo4_dir_or_skip() -> Option<Utf8PathBuf> {
     // Load `.env` (machine-specific harness paths) if present; real shell env vars still win.
     let _ = dotenvy::dotenv();

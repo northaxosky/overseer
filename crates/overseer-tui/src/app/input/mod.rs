@@ -104,8 +104,7 @@ impl App {
         self.refresh_visible_lazy_data();
     }
 
-    /// Reload the active workspace's lazily-listed data. Panes without a lazy list
-    /// (Plugins, Conflicts) do nothing here; Conflicts is rescanned on `r` instead.
+    /// Reload the active workspace's lazy list; Plugins/Conflicts do nothing here, and Conflicts rescans on `r`.
     fn refresh_visible_lazy_data(&mut self) {
         match self.workspace {
             Workspace::Plugins => {}
@@ -154,8 +153,7 @@ impl App {
 }
 
 impl Workspace {
-    /// Handle `r` in this workspace: rescan conflicts, or re-list downloads/saves.
-    /// Plugins has nothing to refresh.
+    /// Handle `r` in this workspace: rescan conflicts or re-list downloads/saves; Plugins has nothing to refresh.
     fn on_refresh(self, app: &mut App) {
         match self {
             Workspace::Plugins => {}

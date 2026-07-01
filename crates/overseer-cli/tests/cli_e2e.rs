@@ -5,8 +5,7 @@ use assert_cmd::Command;
 use predicates::prelude::*;
 use tempfile::TempDir;
 
-/// Run `overseer` with `args` and return the assertion for chaining. `--color never`
-/// keeps output plain so string matching is stable.
+/// Run `overseer` with `args`; `--color never` keeps output plain for stable assertions.
 fn overseer(args: &[&str]) -> assert_cmd::assert::Assert {
     Command::cargo_bin("overseer")
         .unwrap()

@@ -115,8 +115,7 @@ impl App {
 }
 
 impl Workspace {
-    /// The Enter/Space primary action for this workspace. Returns `true` when it
-    /// changed persistent state (so the caller should save), `false` otherwise.
+    /// The Enter/Space primary action; returns `true` when persistent state changed and should be saved.
     fn primary(self, app: &mut App) -> bool {
         match self {
             Workspace::Plugins => {

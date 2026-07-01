@@ -159,8 +159,7 @@ impl Instance {
         std::fs::write(&path, text).map_err(|e| io_err(&path, e).into())
     }
 
-    /// The directory holding the game's real `Plugins.txt`: the configured
-    /// `local_dir`, else the standard `%LOCALAPPDATA%\<game>` location.
+    /// The directory holding the game's real `Plugins.txt`: configured `local_dir` or `%LOCALAPPDATA%\<game>`.
     pub fn local_dir(&self) -> Result<Utf8PathBuf, InstanceError> {
         if let Some(dir) = &self.config.local_dir {
             return Ok(dir.clone());

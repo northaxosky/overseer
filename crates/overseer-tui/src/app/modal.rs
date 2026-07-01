@@ -4,10 +4,7 @@ use camino::Utf8PathBuf;
 use overseer_diagnostics::Report;
 use ratatui::widgets::ListState;
 
-/// A surface that blocks the main view. Most modes end in submit or cancel; [`Info`] and
-/// [`Doctor`] are the exceptions — read-only, dismiss-only surfaces with no submit. [`Doctor`]
-/// is like [`Info`] but adds a live detail pane that tracks the selected finding. The contract
-/// is select / prompt / confirm / info / doctor.
+/// A blocking surface: select/prompt/confirm submit or cancel; `Info`/`Doctor` dismiss, with live Doctor details.
 #[derive(Debug)]
 pub(crate) enum Modal {
     Select(Select),
@@ -110,8 +107,7 @@ pub(crate) enum ConfirmAction {
     DeleteSave(Utf8PathBuf),
 }
 
-/// A read-only reference shown as a modal: a title and key/description rows.
-/// Dismiss-only — unlike the other modes it has no submit.
+/// A dismiss-only reference modal with a title and key/description rows.
 #[derive(Debug)]
 pub(crate) struct Info {
     pub(crate) title: String,
@@ -119,8 +115,7 @@ pub(crate) struct Info {
     pub(crate) state: ListState,
 }
 
-/// A diagnostics run shown as a modal: a selectable findings list with a live detail pane.
-/// Read-only and dismiss-only like [`Info`], but the detail pane tracks the selected finding.
+/// A dismiss-only diagnostics modal with a selectable findings list and live detail pane.
 #[derive(Debug)]
 pub(crate) struct DoctorReport {
     pub(crate) report: Report,

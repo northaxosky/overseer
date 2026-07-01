@@ -131,8 +131,7 @@ mod tests {
         Instance::new(base.join("instance"), base.join("game"))
     }
 
-    /// Build a `.zip` at `path` from `(entry path, contents)` pairs. Nested paths
-    /// (`Data/Textures/a.dds`) create their directories on extraction.
+    /// Build a `.zip` at `path` from `(entry path, contents)` pairs, preserving nested entry paths.
     fn make_zip(path: &Utf8Path, entries: &[(&str, &[u8])]) {
         let file = std::fs::File::create(path).expect("create zip");
         let mut zip = zip::ZipWriter::new(file);

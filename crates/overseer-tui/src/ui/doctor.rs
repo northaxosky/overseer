@@ -17,9 +17,7 @@ use crate::theme;
 /// The title on the Doctor modal's frame.
 const DOCTOR_TITLE: &str = "  Doctor — setup health  ";
 
-/// Draw the Doctor modal centered over the main view: a severity summary, the findings
-/// list, and a detail pane that tracks the selected finding. Same layout as the other
-/// modes, in a larger centered box (Help uses 60×60; diagnostics need more room).
+/// Draw the Doctor modal as a larger centered box with severity summary, findings list, and live detail pane.
 pub(super) fn render_doctor_modal(doctor: &mut DoctorReport, profile: &str, frame: &mut Frame) {
     let area = centered_rect(75, 75, frame.area());
     frame.render_widget(Clear, area);
@@ -84,8 +82,7 @@ fn doctor_summary_line(report: &Report, profile: &str) -> Line<'static> {
     )
 }
 
-/// One finding as a styled, width-wrapped list row: a severity-coloured glyph and
-/// the title, wrapped across lines so a long title stays fully readable.
+/// One finding as a styled, width-wrapped row with a severity-coloured glyph and full title.
 fn finding_item(finding: &Finding, width: usize) -> ListItem<'static> {
     let (role, glyph) = severity_style(finding.severity);
     let prefix = format!(" {glyph} ");

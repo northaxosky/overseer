@@ -32,13 +32,11 @@ pub struct Deployment {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub plugins_txt_backup: Option<Vec<u8>>,
 
-    /// The `Plugins.txt` bytes this deployment wrote, captured after the write phase, so a
-    /// reversal can tell our file apart from one a tool or the user changed afterward
+    /// The `Plugins.txt` bytes this deployment wrote, so reversal can detect later user/tool changes
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub plugins_txt_intended: Option<Vec<u8>>,
 
-    /// Present only when the deployed profile uses local saves: the user's prior
-    /// `SLocalSavePath` (if any), captured so a reversal can put it back
+    /// The user's prior `SLocalSavePath`, captured when local saves are deployed so reversal can restore it
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub save_redirect: Option<SaveRedirect>,
 }

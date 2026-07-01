@@ -113,8 +113,7 @@ pub(crate) fn draw_main(app: &mut App, frame: &mut Frame) {
     frame.render_widget(Paragraph::new(hint).alignment(Alignment::Right), rows[3]);
 }
 
-/// Draw the right pane: the active workspace's body. The switcher line is drawn
-/// full-width by `draw_main` so both panes align.
+/// Draw the right pane body; `draw_main` draws the switcher full-width so both panes align.
 fn render_workspace(app: &mut App, frame: &mut Frame, area: Rect) {
     let ws = app.workspace;
     ws.render(app, frame, area);
@@ -142,8 +141,7 @@ impl Workspace {
     }
 }
 
-/// The switcher line, compacted to fit `width`: full labels when they fit, else
-/// numbers only — the active workspace keeps its label so you still know where you are.
+/// The switcher line compacted to `width`: full labels when they fit, else numbers with the active label kept.
 fn workspace_header(active: Workspace, profile: &str, width: usize) -> Paragraph<'static> {
     let full = switcher_line(active, profile, true);
     let line = if full.width() <= width {
@@ -154,9 +152,7 @@ fn workspace_header(active: Workspace, profile: &str, width: usize) -> Paragraph
     Paragraph::new(line)
 }
 
-/// Build the switcher line. `verbose` shows every workspace's label plus the
-/// "Workspace" prefix and the active scope; the compact form drops those and
-/// shows bare numbers, labelling only the active workspace.
+/// Build the switcher line; `verbose` shows labels/prefix/scope, compact labels only the active workspace.
 fn switcher_line(active: Workspace, profile: &str, verbose: bool) -> Line<'static> {
     let role = |on: bool| if on { Role::Heading } else { Role::Muted };
     // Bold "Workspace" label, the workspaces `|`-separated with the active one

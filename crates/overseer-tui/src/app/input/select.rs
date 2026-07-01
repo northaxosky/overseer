@@ -118,8 +118,7 @@ impl App {
         }
     }
 
-    /// Switch to the instance at `chosen`, keeping the current profile. A failed
-    /// load re-opens the picker so the user can pick another, with a fail notice.
+    /// Switch to `chosen` with the current profile, re-opening the picker with a fail notice if load fails.
     fn switch_instance(&mut self, chosen: Option<String>) {
         let Some(path) = chosen else {
             self.note("No other instances to switch to");

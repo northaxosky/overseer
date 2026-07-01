@@ -35,8 +35,7 @@ pub fn discover_plugins(
     Ok(plugins)
 }
 
-/// Plugin files (`.esp`/`.esm`/`.esl`) directly inside a directory's top level.
-/// A directory that doesn't exist yields an empty list rather than an error.
+/// Plugin files (`.esp`/`.esm`/`.esl`) directly under a directory; a missing directory yields an empty list.
 pub(crate) fn find_plugin_files(dir: &Utf8Path) -> Result<Vec<camino::Utf8PathBuf>, PluginError> {
     let mut found = Vec::new();
     for entry in WalkDir::new(dir).min_depth(1).max_depth(1) {

@@ -29,8 +29,7 @@ pub struct F4sePlugin {
 }
 
 impl F4sePlugin {
-    /// Does it advertise support for the packed `runtime`? OG-only plugins (no version data)
-    /// are reported separately by the check, so this only consults the version table.
+    /// Whether this supports `runtime`; OG-only plugins are reported separately, so only version data is checked.
     pub fn supports(&self, runtime: u32) -> bool {
         self.compatible.contains(&runtime)
     }

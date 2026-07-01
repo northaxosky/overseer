@@ -308,8 +308,7 @@ fn prepare_load_order(
     Ok(order)
 }
 
-/// This profile's `Fallout4Custom.ini` and `Saves/<profile>/` folder, both under
-/// the instance's My Games (INI) directory.
+/// This profile's `Fallout4Custom.ini` and `Saves/<profile>/` under the instance's My Games (INI) directory.
 fn save_paths(
     instance: &Instance,
     profile: &str,
