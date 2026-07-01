@@ -1,0 +1,220 @@
+//! The saves workspace's actions: listing the profile's `.fos` saves and deleting one
+
+use crate::app::{App, Confirm, ConfirmAction, Focus, Modal, Workspace};
+use camino::Utf8Path;
+use overseer_core::saves::{self, SaveInfo};
+
+impl App {
+    /// List the current profile's save, newest first, selecting the first row
+    pub(super) fn refresh_saves(&mut self) {
+        match self.session.instance.saves_dir(&self.session.profile.name) {
+            Ok(dir) => match saves::list_saves(&dir) {
+                Ok(entries) => {
+                    self.saves.list.select((!entries.is_empty()).then_some(0));
+                    self.saves.entries = entries;
+                }
+                Err(e) => {
+                    self.saves.entries.clear();
+                    self.saves.list.select(None);
+                    self.fail(format!("Could not list saves: {e}"));
+                }
+            },
+            Err(e) => {
+                self.saves.entries.clear();
+                self.saves.list.select(None);
+                self.fail(format!("Could not locate saves: {e}"));
+            }
+        }
+    }
+
+    /// The currently selected save entry, if any
+    fn selected_save(&self) -> Option<&SaveInfo> {
+        let i = self.saves.list.selected()?;
+        self.saves.entries.get(i)
+    }
+
+    /// Confirm deleting the selected save; inert unless the Saves pane is focused
+    pub(super) fn begin_delete_selected_save(&mut self) {
+        // `x` is a main-view key, so gaurd it to the one pane it acts on
+        if self.focus != Focus::Workspace || self.workspace != Workspace::Saves {
+            return;
+        }
+        let Some(save) = self.selected_save() else {
+            return;
+        };
+
+        // Copy out what the confirm needs so we stop borrowing `self.saves`
+        let file_name = save.file_name.clone();
+        let path = save.path.clone();
+        self.modal = Some(Modal::Confirm(Confirm {
+            message: format!("Delete {file_name}? This cannot be undone."),
+            action: ConfirmAction::DeleteSave(path),
+        }));
+    }
+
+    /// Delete the save at `path`, re-list, and keep the selection near where it was
+    pub(super) fn delete_selected_save(&mut self, path: &Utf8Path) {
+        let name = path.file_name().unwrap_or(path.as_str()).to_owned();
+        let prev = self.saves.list.selected().unwrap_or(0);
+        match saves::delete_save(path) {
+            Ok(()) => {
+                self.refresh_saves();
+                // The deleted row is gone; clamp the selection to the new bounds
+                let len = self.saves.entries.len();
+                self.saves.list.select((len > 0).then(|| prev.min(len - 1)));
+                self.ok(format!("Deleted {name}"));
+            }
+            Err(e) => self.fail(format!("Delete failed: {e}")),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::app::input::test_helpers::key;
+    use crate::app::{App, Focus, Modal, Session, Workspace};
+    use overseer_core::instance::Instance;
+    use overseer_core::test_support::{self, temp_instance};
+    use ratatui::crossterm::event::KeyCode;
+
+    /// A temp instance plus its `App`, with `count` saves seeded for `profile`.
+    fn app_with_saves(profile: &str, count: u32) -> (tempfile::TempDir, App) {
+        let (tmp, instance) = temp_instance();
+        let dir = instance.saves_dir(profile).expect("saves dir");
+        for n in 1..=count {
+            test_support::write_fos(
+                &dir.join(format!("Save{n}.fos")),
+                n,
+                "Nora",
+                10 + n,
+                "Sanctuary",
+                "Day 1",
+            );
+        }
+        let mut app = App::sample();
+        app.session.instance = instance;
+        (tmp, app)
+    }
+
+    #[test]
+    fn pressing_4_switches_to_saves_and_lists_them() {
+        let (_tmp, mut app) = app_with_saves("Default", 1);
+
+        app.handle_key(key(KeyCode::Char('4')));
+
+        assert_eq!(app.workspace, Workspace::Saves, "4 switches workspace");
+        assert_eq!(app.focus, Focus::Mods, "switching never moves focus");
+        assert_eq!(app.saves.entries.len(), 1, "the profile's save is listed");
+        assert_eq!(app.saves.list.selected(), Some(0), "first row selected");
+    }
+
+    #[test]
+    fn x_on_a_save_opens_a_confirm_without_deleting() {
+        let (_tmp, mut app) = app_with_saves("Default", 1);
+        let save = app
+            .session
+            .instance
+            .saves_dir("Default")
+            .unwrap()
+            .join("Save1.fos");
+
+        app.handle_key(key(KeyCode::Char('4')));
+        app.focus = Focus::Workspace;
+        app.handle_key(key(KeyCode::Char('x')));
+
+        match &app.modal {
+            Some(Modal::Confirm(c)) => assert!(
+                c.message.contains("Delete Save1.fos"),
+                "the confirm names the save"
+            ),
+            other => panic!("expected a confirm modal, got {other:?}"),
+        }
+        assert!(
+            save.exists(),
+            "nothing is deleted until the confirm is accepted"
+        );
+    }
+
+    #[test]
+    fn confirming_deletes_the_save_relists_and_clamps_selection() {
+        let (_tmp, mut app) = app_with_saves("Default", 2);
+        app.handle_key(key(KeyCode::Char('4')));
+        app.focus = Focus::Workspace;
+        app.saves.list.select(Some(1)); // the second, newest-ordered row
+
+        let doomed = app.saves.entries[1].path.clone();
+        app.handle_key(key(KeyCode::Char('x')));
+        app.handle_key(key(KeyCode::Char('y')));
+
+        assert!(app.modal.is_none(), "the confirm closes after accepting");
+        assert!(!doomed.exists(), "the save file is removed");
+        assert_eq!(app.saves.entries.len(), 1, "the list is refreshed");
+        assert_eq!(
+            app.saves.list.selected(),
+            Some(0),
+            "the selection clamps into the shorter list"
+        );
+        assert!(
+            app.message
+                .as_ref()
+                .is_some_and(|n| n.text.contains("Deleted")),
+            "a success notice is shown"
+        );
+    }
+
+    #[test]
+    fn deleting_removes_the_script_extender_co_save() {
+        let (_tmp, mut app) = app_with_saves("Default", 1);
+        let dir = app.session.instance.saves_dir("Default").unwrap();
+        let co_save = dir.join("Save1.f4se");
+        test_support::write(&co_save, "co-save");
+
+        app.handle_key(key(KeyCode::Char('4')));
+        app.focus = Focus::Workspace;
+        app.handle_key(key(KeyCode::Char('x')));
+        app.handle_key(key(KeyCode::Char('y')));
+
+        assert!(
+            !co_save.exists(),
+            "the co-save is removed alongside the .fos"
+        );
+    }
+
+    #[test]
+    fn switching_profile_while_on_saves_relists_for_the_new_profile() {
+        // A real on-disk instance so the profile switch (Session::load) works.
+        let (_tmp, scaffold) = temp_instance();
+        let instance =
+            Instance::init(scaffold.root.clone(), scaffold.config.clone()).expect("init");
+        instance.create_profile("Default").expect("default profile");
+        instance.create_profile("Other").expect("other profile");
+        // Only the Other profile has a save on disk.
+        test_support::write_fos(
+            &instance.saves_dir("Other").unwrap().join("S.fos"),
+            1,
+            "Nate",
+            5,
+            "Vault 111",
+            "Day 0",
+        );
+
+        let mut app = App::sample();
+        app.session = Session::load(&instance.root, "Default").expect("session");
+
+        app.handle_key(key(KeyCode::Char('4')));
+        assert!(app.saves.entries.is_empty(), "Default has no saves yet");
+
+        // Open the profile picker and switch to Other (sorted second).
+        app.handle_key(key(KeyCode::Char('p')));
+        app.handle_key(key(KeyCode::Down));
+        app.handle_key(key(KeyCode::Enter));
+
+        assert_eq!(app.session.profile.name, "Other", "the profile switched");
+        assert_eq!(app.workspace, Workspace::Saves, "still on the Saves pane");
+        assert_eq!(
+            app.saves.entries.len(),
+            1,
+            "the list refreshed for the new profile"
+        );
+    }
+}

@@ -4,7 +4,7 @@ use overseer_diagnostics::diagnose;
 use ratatui::crossterm::event::{KeyCode, KeyEvent};
 
 use super::move_in_list;
-use crate::app::{App, Focus, HELP_ENTRIES, Popup, Session, initial_selection};
+use crate::app::{App, Focus, HELP_ENTRIES, Popup, Session};
 
 impl App {
     /// Handle key press in the settings pop up
@@ -86,15 +86,13 @@ impl App {
         match Session::load(&dir, &profile_name) {
             Ok(session) => {
                 self.session = session;
-                self.mods_state = initial_selection(self.session.profile.mods.len());
-                self.plugins_state = initial_selection(self.session.order.plugins.len());
+                self.after_session_changed();
                 self.focus = Focus::Mods;
                 self.settings.record_opened(&dir);
                 if let Err(e) = self.settings.save() {
                     tracing::warn!(error = %e, "could not save settings");
                 }
                 self.ok("Switched instance");
-                self.mark_conflicts_stale();
             }
             Err(e) => self.fail(format!("Error: {e}")),
         }

@@ -5,6 +5,7 @@ mod confirm;
 mod downloads;
 mod overlay;
 mod prompt;
+mod saves;
 mod select;
 
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -12,7 +13,7 @@ use ratatui::widgets::ListState;
 
 use overseer_core::deploy::detect_conflicts;
 
-use super::{App, ConflictsStatus, Focus, Modal, Popup, SelectKind, Workspace};
+use super::{App, ConflictsStatus, Focus, Modal, Popup, SelectKind, Workspace, initial_selection};
 
 impl App {
     pub(crate) fn handle_key(&mut self, key: KeyEvent) {
@@ -49,12 +50,17 @@ impl App {
             KeyCode::Char('1') => self.switch_workspace(Workspace::Plugins),
             KeyCode::Char('2') => self.switch_workspace(Workspace::Conflicts),
             KeyCode::Char('3') => self.switch_workspace(Workspace::Downloads),
+            KeyCode::Char('4') => self.switch_workspace(Workspace::Saves),
             // `r` refreshes the active workspace's data; inert in Plugins.
             KeyCode::Char('r') => match self.workspace {
                 Workspace::Conflicts => self.scan_conflicts(),
                 Workspace::Downloads => self.refresh_downloads(),
+                Workspace::Saves => self.refresh_saves(),
                 Workspace::Plugins => {}
             },
+
+            // `x` deletes the selected save; self-guards to the focused Saves pane.
+            KeyCode::Char('x') => self.begin_delete_selected_save(),
 
             // Main view related controls
             KeyCode::Char(' ') | KeyCode::Enter => self.toggle_selected(),
@@ -102,8 +108,10 @@ impl App {
     /// Switch the active workspace, lazily listing downloads when entering it
     fn switch_workspace(&mut self, ws: Workspace) {
         self.workspace = ws;
-        if ws == Workspace::Downloads {
-            self.refresh_downloads();
+        match ws {
+            Workspace::Downloads => self.refresh_downloads(),
+            Workspace::Saves => self.refresh_saves(),
+            _ => {}
         }
     }
 
@@ -121,6 +129,7 @@ impl App {
                     (&mut self.conflicts.list, len)
                 }
                 Workspace::Downloads => (&mut self.downloads.list, self.downloads.entries.len()),
+                Workspace::Saves => (&mut self.saves.list, self.saves.entries.len()),
             },
         };
         move_in_list(state, len, delta);
@@ -141,6 +150,18 @@ impl App {
     /// Invalidate the last conflicts scan after the enabled mod set changes.
     pub(super) fn mark_conflicts_stale(&mut self) {
         self.conflicts.status = ConflictsStatus::Stale;
+    }
+
+    /// After replacing `self.session`, reset the per-pane selection and refresh workspace
+    pub(super) fn after_session_changed(&mut self) {
+        self.mods_state = initial_selection(self.session.profile.mods.len());
+        self.plugins_state = initial_selection(self.session.order.plugins.len());
+        self.mark_conflicts_stale();
+        match self.workspace {
+            Workspace::Downloads => self.refresh_downloads(),
+            Workspace::Saves => self.refresh_saves(),
+            _ => {}
+        }
     }
 }
 
@@ -277,9 +298,11 @@ mod tests {
         app.handle_key(KeyEvent::new(KeyCode::Char(']'), KeyModifiers::NONE));
         assert_eq!(app.workspace, Workspace::Downloads, "] keeps going");
         app.handle_key(KeyEvent::new(KeyCode::Char(']'), KeyModifiers::NONE));
+        assert_eq!(app.workspace, Workspace::Saves, "] reaches the last");
+        app.handle_key(KeyEvent::new(KeyCode::Char(']'), KeyModifiers::NONE));
         assert_eq!(app.workspace, Workspace::Plugins, "] wraps around");
         app.handle_key(KeyEvent::new(KeyCode::Char('['), KeyModifiers::NONE));
-        assert_eq!(app.workspace, Workspace::Downloads, "[ wraps backward");
+        assert_eq!(app.workspace, Workspace::Saves, "[ wraps backward");
     }
 
     #[test]

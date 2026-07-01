@@ -60,7 +60,10 @@ pub(crate) fn draw_main(app: &mut App, frame: &mut Frame) {
 
     // Workspace switcher spans the full width above both panes so the two bordered
     // panes line up (it used to sit inside the right column, offsetting it by a row).
-    frame.render_widget(workspace_header(app.workspace), rows[1]);
+    frame.render_widget(
+        workspace_header(app.workspace, &app.session.profile.name),
+        rows[1],
+    );
 
     let cols = Layout::horizontal([Constraint::Fill(1), Constraint::Fill(1)]).split(rows[2]);
 
@@ -102,7 +105,7 @@ pub(crate) fn draw_main(app: &mut App, frame: &mut Frame) {
     };
     frame.render_widget(status, rows[3]);
     frame.render_widget(
-        Paragraph::new("1/2/3 workspace · s settings · ? help · q quit ")
+        Paragraph::new("1/2/3/4 workspace · s settings · ? help · q quit ")
             .alignment(Alignment::Right),
         rows[3],
     );
@@ -115,16 +118,18 @@ fn render_workspace(app: &mut App, frame: &mut Frame, area: Rect) {
         Workspace::Plugins => render_plugins(app, frame, area),
         Workspace::Conflicts => render_conflicts(app, frame, area),
         Workspace::Downloads => render_downloads(app, frame, area),
+        Workspace::Saves => render_saves(app, frame, area),
     }
 }
 
 /// The switcher line: every workspace name with the active one emphasised, plus its scope.
-fn workspace_header(active: Workspace) -> Paragraph<'static> {
+fn workspace_header(active: Workspace, profile: &str) -> Paragraph<'static> {
     let role = |on: bool| if on { Role::Heading } else { Role::Muted };
     let scope = match active {
-        Workspace::Plugins => "load order",
-        Workspace::Conflicts => "all enabled mods",
-        Workspace::Downloads => "archives in downloads/",
+        Workspace::Plugins => "load order".to_owned(),
+        Workspace::Conflicts => "all enabled mods".to_owned(),
+        Workspace::Downloads => "archives in downloads/".to_owned(),
+        Workspace::Saves => format!("{profile}'s saves"),
     };
     let line = Line::from(vec![
         Span::styled(" Workspace  ", theme::style(Role::Muted)),
@@ -142,6 +147,8 @@ fn workspace_header(active: Workspace) -> Paragraph<'static> {
             "3 Downloads",
             theme::style(role(active == Workspace::Downloads)),
         ),
+        Span::raw("  "),
+        Span::styled("4 Saves", theme::style(role(active == Workspace::Saves))),
         Span::styled(format!("  · {scope}"), theme::style(Role::Muted)),
     ]);
     Paragraph::new(line)
@@ -243,6 +250,36 @@ fn render_downloads(app: &mut App, frame: &mut Frame, area: Rect) {
         &mut app.downloads.list,
         focused,
     );
+}
+
+/// The saves workspace: the profile's saves newest-first, or an empty-folder note.
+fn render_saves(app: &mut App, frame: &mut Frame, area: Rect) {
+    let focused = app.focus == Focus::Workspace;
+    let title = format!(" Saves — {} ", app.session.profile.name);
+    if app.saves.entries.is_empty() {
+        return render_workspace_message(
+            frame,
+            area,
+            &title,
+            "No saves in this profile's folder yet.",
+            focused,
+        );
+    }
+    let rows: Vec<ListItem<'static>> = app
+        .saves
+        .entries
+        .iter()
+        .map(|s| match &s.meta {
+            // A parsed save reads as its character/level/location/in-game date.
+            Some(m) => ListItem::new(format!(
+                "{}  ·  L{}  ·  {}  ·  {}",
+                m.character, m.level, m.location, m.game_date
+            )),
+            // An unparsable save still lists, muted, as its bare file name.
+            None => ListItem::new(s.file_name.clone()).style(theme::style(Role::Muted)),
+        })
+        .collect();
+    render_pane(frame, area, title, rows, &mut app.saves.list, focused);
 }
 
 /// A short, centered message inside a workspace pane frame (stale / error / empty).
@@ -421,6 +458,7 @@ mod tests {
             out.contains("3 Downloads"),
             "header names the downloads workspace"
         );
+        assert!(out.contains("4 Saves"), "header names the saves workspace");
     }
 
     #[test]
@@ -491,6 +529,68 @@ mod tests {
             "the empty state explains the pane"
         );
         assert!(out.contains("Drop"), "it tells the user to drop files in");
+    }
+
+    #[test]
+    fn saves_workspace_lists_parsed_metadata() {
+        use crate::app::Workspace;
+        use camino::Utf8PathBuf;
+        use overseer_core::saves::{SaveInfo, SaveMeta};
+        use std::time::SystemTime;
+        let mut app = App::sample();
+        app.workspace = Workspace::Saves;
+        app.saves.entries = vec![SaveInfo {
+            path: Utf8PathBuf::from("Saves/Default/Save1.fos"),
+            file_name: "Save1.fos".to_owned(),
+            modified: SystemTime::UNIX_EPOCH,
+            meta: Some(SaveMeta {
+                save_number: 1,
+                character: "Nora".to_owned(),
+                level: 12,
+                location: "Sanctuary".to_owned(),
+                game_date: "Day 3".to_owned(),
+            }),
+        }];
+        app.saves.list.select(Some(0));
+        let out = render(&mut app, 120, 24);
+        assert!(out.contains("Nora"), "the character is shown");
+        assert!(out.contains("L12"), "the level is shown");
+        assert!(out.contains("Sanctuary"), "the location is shown");
+        assert!(out.contains("Day 3"), "the in-game date is shown");
+    }
+
+    #[test]
+    fn saves_workspace_empty_state_explains_the_pane() {
+        use crate::app::Workspace;
+        let mut app = App::sample();
+        app.workspace = Workspace::Saves;
+        let out = render(&mut app, 80, 24);
+        assert!(
+            out.contains("No saves"),
+            "the empty state explains the pane"
+        );
+    }
+
+    #[test]
+    fn an_unparsed_save_renders_as_its_file_name() {
+        use crate::app::Workspace;
+        use camino::Utf8PathBuf;
+        use overseer_core::saves::SaveInfo;
+        use std::time::SystemTime;
+        let mut app = App::sample();
+        app.workspace = Workspace::Saves;
+        app.saves.entries = vec![SaveInfo {
+            path: Utf8PathBuf::from("Saves/Default/Broken.fos"),
+            file_name: "Broken.fos".to_owned(),
+            modified: SystemTime::UNIX_EPOCH,
+            meta: None,
+        }];
+        app.saves.list.select(Some(0));
+        let out = render(&mut app, 80, 24);
+        assert!(
+            out.contains("Broken.fos"),
+            "an unparsed save shows its file name"
+        );
     }
 
     #[test]

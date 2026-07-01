@@ -23,3 +23,4 @@ camino.workspace = true
 [dev-dependencies]
 # Enables core's `test_support` (e.g. `temp_instance`) for on-disk TUI tests only.
 overseer-core = { path = "../overseer-core", features = ["test-support"] }
+tempfile.workspace = true

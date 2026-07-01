@@ -1,6 +1,6 @@
 //! The downloads workspace's actions: listing archives and installing one
 
-use crate::app::{App, Confirm, ConfirmAction, Modal, Session, initial_selection};
+use crate::app::{App, Confirm, ConfirmAction, Modal, Session};
 use camino::Utf8Path;
 use overseer_core::install::{self, DownloadEntry, InstallError};
 
@@ -70,10 +70,7 @@ impl App {
         match Session::load(&dir, &profile) {
             Ok(session) => {
                 self.session = session;
-                self.mods_state = initial_selection(self.session.profile.mods.len());
-                self.plugins_state = initial_selection(self.session.order.plugins.len());
-                self.mark_conflicts_stale();
-                self.refresh_downloads();
+                self.after_session_changed();
                 self.ok(format!("Installed {name}"));
             }
             Err(e) => self.fail(format!("Installed {name}, but reloading failed: {e}")),

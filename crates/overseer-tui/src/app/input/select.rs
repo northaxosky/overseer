@@ -90,11 +90,9 @@ impl App {
         match Session::load(&dir, &name) {
             Ok(session) => {
                 self.session = session;
-                self.mods_state = initial_selection(self.session.profile.mods.len());
-                self.plugins_state = initial_selection(self.session.order.plugins.len());
+                self.after_session_changed();
                 self.focus = Focus::Mods;
                 self.ok(format!("Switched to {name}"));
-                self.mark_conflicts_stale();
             }
             Err(e) => self.fail(format!("Error: {e}")),
         }

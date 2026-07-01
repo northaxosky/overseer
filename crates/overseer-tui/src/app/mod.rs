@@ -14,6 +14,7 @@ use overseer_core::deploy::FileConflict;
 use overseer_core::install::DownloadEntry;
 use overseer_core::instance::{Instance, Profile};
 use overseer_core::plugins::{PluginLoadOrder, PluginMeta, discover_plugins};
+use overseer_core::saves::SaveInfo;
 use overseer_core::settings::Settings;
 use overseer_diagnostics::Report;
 use overseer_frontend::style::Role;
@@ -41,6 +42,7 @@ pub(crate) enum Workspace {
     Plugins,
     Conflicts,
     Downloads,
+    Saves,
 }
 
 impl Workspace {
@@ -49,6 +51,7 @@ impl Workspace {
         Workspace::Plugins,
         Workspace::Conflicts,
         Workspace::Downloads,
+        Workspace::Saves,
     ];
 
     /// The workspace `delta` steps away, wrapping at the ends
@@ -79,6 +82,13 @@ pub(crate) struct ConflictsState {
 #[derive(Debug, Default)]
 pub(crate) struct DownloadsState {
     pub(crate) entries: Vec<DownloadEntry>,
+    pub(crate) list: ListState,
+}
+
+/// The saves workspace's own state: the current profile's listed `.fos` saves
+#[derive(Debug, Default)]
+pub(crate) struct SavesState {
+    pub(crate) entries: Vec<SaveInfo>,
     pub(crate) list: ListState,
 }
 
@@ -126,6 +136,7 @@ pub(crate) struct App {
     pub(crate) workspace: Workspace,
     pub(crate) conflicts: ConflictsState,
     pub(crate) downloads: DownloadsState,
+    pub(crate) saves: SavesState,
     pub(crate) message: Option<Notice>,
     pub(crate) settings: Settings,
     pub(crate) session: Session,
@@ -160,6 +171,7 @@ impl App {
             workspace: Workspace::default(),
             conflicts: ConflictsState::default(),
             downloads: DownloadsState::default(),
+            saves: SavesState::default(),
             message: None,
             mods_state: initial_selection(session.profile.mods.len()),
             plugins_state: initial_selection(session.order.plugins.len()),

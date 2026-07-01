@@ -91,6 +91,10 @@ impl App {
                     self.begin_install_selected();
                     return false;
                 }
+                Workspace::Saves => {
+                    self.note("Press x to delete a save");
+                    return false;
+                }
             },
         }
         false

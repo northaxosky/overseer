@@ -95,4 +95,6 @@ pub(crate) struct Confirm {
 pub(crate) enum ConfirmAction {
     /// Install the archive at this path into the instance's `mods/`
     InstallDownload(Utf8PathBuf),
+    /// Delete the `.fos` save at this path (and its script-extender co-save)
+    DeleteSave(Utf8PathBuf),
 }
