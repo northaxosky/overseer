@@ -1,50 +1,30 @@
-//! The Doctor workspace: an `r`-gated diagnostics scan with a findings list and
-//! a detail pane, mirroring the Conflicts workspace's stale/error/ready states.
+//! The Doctor modal: a centered pop-up over the main view showing a diagnostics run
+//! as a severity summary, a selectable findings list, and a live detail pane.
 
 use overseer_diagnostics::{Finding, Report, Severity};
 use overseer_frontend::style::Role;
 use ratatui::{
     Frame,
-    layout::{Constraint, Layout, Rect},
+    layout::{Constraint, Layout},
     text::{Line, Span},
-    widgets::{Block, BorderType, Borders, ListItem, Paragraph, Wrap},
+    widgets::{Block, BorderType, Borders, Clear, ListItem, Paragraph, Wrap},
 };
 
-use super::{render_overlay_list, render_workspace_message};
-use crate::app::{App, DoctorStatus, Focus};
+use super::{centered_rect, render_overlay_list};
+use crate::app::DoctorReport;
 use crate::theme;
 
-/// The shared title for the Doctor workspace pane, message states alike.
-const DOCTOR_TITLE: &str = " Doctor — setup health ";
+/// The title on the Doctor modal's frame.
+const DOCTOR_TITLE: &str = "  Doctor — setup health  ";
 
-/// The doctor workspace: diagnostics run on `r`, or a prompt in every other state.
-pub(super) fn render_doctor(app: &mut App, frame: &mut Frame, area: Rect) {
-    let focused = app.focus == Focus::Workspace;
-    let report = match &app.doctor.status {
-        DoctorStatus::Stale => {
-            return render_workspace_message(
-                frame,
-                area,
-                DOCTOR_TITLE,
-                "Diagnostics stale — press r to run.",
-                focused,
-            );
-        }
-        DoctorStatus::Error(msg) => {
-            let text = format!("Diagnostics failed: {msg} — press r to retry.");
-            return render_workspace_message(frame, area, DOCTOR_TITLE, &text, focused);
-        }
-        DoctorStatus::Ready(report) => report,
-    };
-
-    // Frame the ready view like the other workspace panes; the stale/error states
-    // are already framed by render_workspace_message.
+/// Draw the Doctor modal centered over the main view: a severity summary, the findings
+/// list, and a detail pane that tracks the selected finding. Same layout as the other
+/// modes, in a larger centered box (Help uses 60×60; diagnostics need more room).
+pub(super) fn render_doctor_modal(doctor: &mut DoctorReport, profile: &str, frame: &mut Frame) {
+    let area = centered_rect(75, 75, frame.area());
+    frame.render_widget(Clear, area);
     let block = Block::bordered()
-        .border_type(if focused {
-            BorderType::Thick
-        } else {
-            BorderType::Plain
-        })
+        .border_type(BorderType::Double)
         .title(DOCTOR_TITLE);
     let inner = block.inner(area);
     frame.render_widget(block, area);
@@ -57,21 +37,22 @@ pub(super) fn render_doctor(app: &mut App, frame: &mut Frame, area: Rect) {
     .split(inner);
 
     frame.render_widget(
-        Paragraph::new(doctor_summary_line(report, &app.session.profile.name)),
+        Paragraph::new(doctor_summary_line(&doctor.report, profile)),
         rows[0],
     );
 
     // Wrap long titles to the findings pane so nothing clips horizontally
     // (`render_overlay_list` reserves 2 cols for the selection marker).
     let text_width = (rows[1].width as usize).saturating_sub(2);
-    let items: Vec<ListItem<'static>> = report
+    let items: Vec<ListItem<'static>> = doctor
+        .report
         .findings
         .iter()
         .map(|f| finding_item(f, text_width))
         .collect();
-    render_overlay_list(frame, rows[1], items, &mut app.doctor.list);
+    render_overlay_list(frame, rows[1], items, &mut doctor.list);
 
-    let detail = selected_detail(report, app.doctor.list.selected());
+    let detail = selected_detail(&doctor.report, doctor.list.selected());
     let detail_pane = Paragraph::new(detail)
         .wrap(Wrap { trim: true })
         .block(Block::new().borders(Borders::TOP).title(" details "));

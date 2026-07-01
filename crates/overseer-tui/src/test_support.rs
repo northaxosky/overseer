@@ -1,8 +1,7 @@
 //! Shared in-memory fixtures for the TUI tests.
 
 use crate::app::{
-    App, ConflictsState, DoctorState, DownloadsState, Focus, SavesState, Session, Workspace,
-    initial_selection,
+    App, ConflictsState, DownloadsState, Focus, SavesState, Session, Workspace, initial_selection,
 };
 use camino::Utf8Path;
 use overseer_core::instance::{Instance, ModKind, ModListEntry, Profile};
@@ -68,7 +67,6 @@ impl App {
             conflicts: ConflictsState::default(),
             downloads: DownloadsState::default(),
             saves: SavesState::default(),
-            doctor: DoctorState::default(),
         }
     }
 }

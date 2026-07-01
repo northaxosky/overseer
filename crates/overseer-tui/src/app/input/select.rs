@@ -69,8 +69,12 @@ impl App {
         let select = match self.modal.take() {
             Some(Modal::Select(select)) => select,
             // A Prompt submits via its own handler; a Confirm via `handle_confirm_key`;
-            // an Info has no submit at all.
-            Some(Modal::Prompt(_)) | Some(Modal::Confirm(_)) | Some(Modal::Info(_)) | None => {
+            // an Info and a Doctor have no submit at all.
+            Some(Modal::Prompt(_))
+            | Some(Modal::Confirm(_))
+            | Some(Modal::Info(_))
+            | Some(Modal::Doctor(_))
+            | None => {
                 return;
             }
         };

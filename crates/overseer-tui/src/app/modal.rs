@@ -1,17 +1,20 @@
 //! Modal surfaces: views that block the main view and end in submit or cancel
 
 use camino::Utf8PathBuf;
+use overseer_diagnostics::Report;
 use ratatui::widgets::ListState;
 
-/// A surface that blocks the main view. Most modes end in submit or cancel; [`Info`]
-/// is the exception — a read-only, dismiss-only reference with no submit. The contract
-/// is select / prompt / confirm / info.
+/// A surface that blocks the main view. Most modes end in submit or cancel; [`Info`] and
+/// [`Doctor`] are the exceptions — read-only, dismiss-only surfaces with no submit. [`Doctor`]
+/// is like [`Info`] but adds a live detail pane that tracks the selected finding. The contract
+/// is select / prompt / confirm / info / doctor.
 #[derive(Debug)]
 pub(crate) enum Modal {
     Select(Select),
     Prompt(Prompt),
     Confirm(Confirm),
     Info(Info),
+    Doctor(DoctorReport),
 }
 
 /// A single-line text input that ends in submit or cancel
@@ -114,4 +117,12 @@ pub(crate) struct Info {
     pub(crate) title: String,
     pub(crate) entries: Vec<(String, String)>,
     pub(crate) state: ListState,
+}
+
+/// A diagnostics run shown as a modal: a selectable findings list with a live detail pane.
+/// Read-only and dismiss-only like [`Info`], but the detail pane tracks the selected finding.
+#[derive(Debug)]
+pub(crate) struct DoctorReport {
+    pub(crate) report: Report,
+    pub(crate) list: ListState,
 }

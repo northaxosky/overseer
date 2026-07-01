@@ -60,44 +60,39 @@ pub(crate) fn draw_main(app: &mut App, frame: &mut Frame) {
         rows[1],
     );
 
-    // A full-area workspace (Doctor) hides the mods pane and spans the whole body;
-    // the others keep the two-column [mods | workspace] split.
-    if app.workspace.owns_full_area() {
-        render_workspace(app, frame, rows[2]);
-    } else {
-        let cols = Layout::horizontal([Constraint::Fill(1), Constraint::Fill(1)]).split(rows[2]);
+    // Two columns: the mods pane on the left, the active workspace on the right.
+    let cols = Layout::horizontal([Constraint::Fill(1), Constraint::Fill(1)]).split(rows[2]);
 
-        let mods_focused = app.focus == Focus::Mods;
-        let mods_title = format!(
-            " mods — {} ({}) ",
-            app.session.profile.name,
-            app.session.profile.mods.len()
-        );
-        let mods_items: Vec<ListItem<'static>> = app
-            .session
-            .profile
-            .mods
-            .iter()
-            .map(|m| {
-                let role = if m.enabled {
-                    Role::Success
-                } else {
-                    Role::Muted
-                };
-                ListItem::new(format!("{} {}", marker(m.enabled), m.name)).style(theme::style(role))
-            })
-            .collect();
-        render_pane(
-            frame,
-            cols[0],
-            mods_title,
-            mods_items,
-            &mut app.mods_state,
-            mods_focused,
-        );
+    let mods_focused = app.focus == Focus::Mods;
+    let mods_title = format!(
+        " mods — {} ({}) ",
+        app.session.profile.name,
+        app.session.profile.mods.len()
+    );
+    let mods_items: Vec<ListItem<'static>> = app
+        .session
+        .profile
+        .mods
+        .iter()
+        .map(|m| {
+            let role = if m.enabled {
+                Role::Success
+            } else {
+                Role::Muted
+            };
+            ListItem::new(format!("{} {}", marker(m.enabled), m.name)).style(theme::style(role))
+        })
+        .collect();
+    render_pane(
+        frame,
+        cols[0],
+        mods_title,
+        mods_items,
+        &mut app.mods_state,
+        mods_focused,
+    );
 
-        render_workspace(app, frame, cols[1]);
-    }
+    render_workspace(app, frame, cols[1]);
 
     // Status/message on the left, key hints on the right, sharing the footer row.
     let status = match &app.message {
@@ -106,7 +101,8 @@ pub(crate) fn draw_main(app: &mut App, frame: &mut Frame) {
     };
     frame.render_widget(status, rows[3]);
     frame.render_widget(
-        Paragraph::new("1–5 workspace · s instance · ? help · q quit ").alignment(Alignment::Right),
+        Paragraph::new("1–4 workspace · s instance · d doctor · ? help · q quit ")
+            .alignment(Alignment::Right),
         rows[3],
     );
 }
@@ -126,7 +122,6 @@ impl Workspace {
             Workspace::Conflicts => render_conflicts(app, frame, area),
             Workspace::Downloads => render_downloads(app, frame, area),
             Workspace::Saves => render_saves(app, frame, area),
-            Workspace::Doctor => doctor::render_doctor(app, frame, area),
         }
     }
 
@@ -137,7 +132,6 @@ impl Workspace {
             Workspace::Conflicts => "all enabled mods".to_owned(),
             Workspace::Downloads => "archives in downloads/".to_owned(),
             Workspace::Saves => format!("{profile}'s saves"),
-            Workspace::Doctor => format!("{profile} health"),
         }
     }
 }
@@ -474,10 +468,6 @@ mod tests {
         );
         assert!(out.contains("4 Saves"), "header names the saves workspace");
         assert!(
-            out.contains("5 Doctor"),
-            "header names the doctor workspace"
-        );
-        assert!(
             out.contains('|'),
             "workspaces are separated by a pipe in the switcher"
         );
@@ -641,20 +631,21 @@ mod tests {
     }
 
     #[test]
-    fn doctor_workspace_shows_findings_and_summary() {
-        use crate::app::DoctorStatus;
+    fn doctor_modal_shows_findings_and_summary() {
+        use crate::app::{DoctorReport, Modal, initial_selection};
         use overseer_diagnostics::{Finding, Report, Severity};
         let mut app = App::sample();
-        app.workspace = Workspace::Doctor;
-        app.doctor.status = DoctorStatus::Ready(Report::new(vec![Finding {
-            check: "x",
-            severity: Severity::Error,
-            title: "Broken thing".to_owned(),
-            detail: Some("Fix it like so.".to_owned()),
-        }]));
-        app.doctor.list.select(Some(0));
+        app.modal = Some(Modal::Doctor(DoctorReport {
+            report: Report::new(vec![Finding {
+                check: "x",
+                severity: Severity::Error,
+                title: "Broken thing".to_owned(),
+                detail: Some("Fix it like so.".to_owned()),
+            }]),
+            list: initial_selection(1),
+        }));
         let out = render(&mut app, 80, 24);
-        assert!(out.contains("Doctor"), "the switcher names the workspace");
+        assert!(out.contains("Doctor"), "the modal is titled Doctor");
         assert!(
             out.contains("1 error"),
             "summary summarises severity counts"
@@ -665,28 +656,29 @@ mod tests {
             "detail pane shows the selected finding's detail"
         );
         assert!(
-            out.contains('│'),
-            "the ready doctor view is framed like the other panes"
+            out.contains('║'),
+            "the doctor modal is framed with a double border"
         );
     }
 
     #[test]
-    fn doctor_wraps_long_finding_titles() {
-        use crate::app::DoctorStatus;
+    fn doctor_modal_wraps_long_finding_titles() {
+        use crate::app::{DoctorReport, Modal, initial_selection};
         use overseer_diagnostics::{Finding, Report, Severity};
         let mut app = App::sample();
-        app.workspace = Workspace::Doctor;
-        app.doctor.status = DoctorStatus::Ready(Report::new(vec![Finding {
-            check: "x",
-            severity: Severity::Warning,
-            title: "This is an exceptionally long finding title that will not fit on one row"
-                .to_owned(),
-            detail: None,
-        }]));
-        app.doctor.list.select(Some(0));
-        // Narrow terminal: the trailing word only survives if the title wrapped
-        // instead of clipping at the pane edge.
-        let out = render(&mut app, 40, 24);
+        app.modal = Some(Modal::Doctor(DoctorReport {
+            report: Report::new(vec![Finding {
+                check: "x",
+                severity: Severity::Warning,
+                title: "This is an exceptionally long finding title that will not fit on one row"
+                    .to_owned(),
+                detail: None,
+            }]),
+            list: initial_selection(1),
+        }));
+        // The trailing word only survives if the title wrapped instead of
+        // clipping at the findings pane's edge.
+        let out = render(&mut app, 80, 24);
         assert!(
             out.contains("row"),
             "a long finding title wraps to stay readable"
@@ -694,43 +686,19 @@ mod tests {
     }
 
     #[test]
-    fn doctor_workspace_reports_all_clear_when_empty() {
-        use crate::app::DoctorStatus;
+    fn doctor_modal_reports_all_clear_when_empty() {
+        use crate::app::{DoctorReport, Modal, initial_selection};
         use overseer_diagnostics::Report;
         let mut app = App::sample();
-        app.workspace = Workspace::Doctor;
-        app.doctor.status = DoctorStatus::Ready(Report::new(vec![]));
+        app.modal = Some(Modal::Doctor(DoctorReport {
+            report: Report::new(vec![]),
+            list: initial_selection(0),
+        }));
         let out = render(&mut app, 80, 24);
         assert!(out.contains("all clear"), "summary says all clear");
         assert!(
             out.contains("No problems found."),
             "detail pane shows the clean bill"
-        );
-    }
-
-    #[test]
-    fn doctor_workspace_stale_prompts_to_run() {
-        let mut app = App::sample();
-        app.workspace = Workspace::Doctor;
-        let out = render(&mut app, 80, 24);
-        assert!(
-            out.contains("Diagnostics stale"),
-            "a stale doctor prompts to press r"
-        );
-    }
-
-    #[test]
-    fn doctor_workspace_fills_the_body_and_hides_the_mods_pane() {
-        let mut app = App::sample();
-        // A two-column workspace shows the mods pane...
-        let two_pane = render(&mut app, 80, 24);
-        assert!(two_pane.contains("CoolMod"), "the mods pane lists mods");
-        // ...but the full-area Doctor workspace replaces it entirely.
-        app.workspace = Workspace::Doctor;
-        let full_area = render(&mut app, 80, 24);
-        assert!(
-            !full_area.contains("CoolMod"),
-            "the full-area Doctor hides the mods pane"
         );
     }
 

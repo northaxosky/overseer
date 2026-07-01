@@ -8,16 +8,21 @@ use ratatui::{
 };
 
 use super::centered_rect;
+use super::doctor::render_doctor_modal;
 use crate::app::{App, Confirm, Info, Modal, Prompt, Select};
 use crate::theme;
 
 /// Draw the active modal centered over the main view
 pub(super) fn render_modal(app: &mut App, frame: &mut Frame) {
-    match app.modal.as_mut() {
+    // Split the borrow: the Doctor summary needs the profile name while the modal
+    // itself is borrowed mutably for its list state.
+    let App { modal, session, .. } = app;
+    match modal.as_mut() {
         Some(Modal::Select(select)) => render_select(select, frame),
         Some(Modal::Prompt(prompt)) => render_prompt(prompt, frame),
         Some(Modal::Confirm(confirm)) => render_confirm(confirm, frame),
         Some(Modal::Info(info)) => render_info(info, frame),
+        Some(Modal::Doctor(doctor)) => render_doctor_modal(doctor, &session.profile.name, frame),
         None => {}
     }
 }
