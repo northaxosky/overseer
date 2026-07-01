@@ -1,4 +1,5 @@
-//! The diagnostics popup: a findings list with a detail pane for the selection.
+//! The Doctor workspace: an `r`-gated diagnostics scan with a findings list and
+//! a detail pane, mirroring the Conflicts workspace's stale/error/ready states.
 
 use overseer_diagnostics::{Finding, Report, Severity};
 use overseer_frontend::style::Role;
@@ -9,13 +10,33 @@ use ratatui::{
     widgets::{Block, Borders, ListItem, Paragraph, Wrap},
 };
 
-use super::render_overlay_list;
-use crate::app::App;
+use super::{render_overlay_list, render_workspace_message};
+use crate::app::{App, DoctorStatus, Focus};
 use crate::theme;
 
-/// The doctor body: a severity summary, the findings list, and a detail pane
-pub(super) fn render_doctor_body(app: &mut App, frame: &mut Frame, area: Rect) {
-    let report = app.report.as_ref();
+/// The shared title for the Doctor workspace pane, message states alike.
+const DOCTOR_TITLE: &str = " Doctor — setup health ";
+
+/// The doctor workspace: diagnostics run on `r`, or a prompt in every other state.
+pub(super) fn render_doctor(app: &mut App, frame: &mut Frame, area: Rect) {
+    let focused = app.focus == Focus::Workspace;
+    let report = match &app.doctor.status {
+        DoctorStatus::Stale => {
+            return render_workspace_message(
+                frame,
+                area,
+                DOCTOR_TITLE,
+                "Diagnostics stale — press r to run.",
+                focused,
+            );
+        }
+        DoctorStatus::Error(msg) => {
+            let text = format!("Diagnostics failed: {msg} — press r to retry.");
+            return render_workspace_message(frame, area, DOCTOR_TITLE, &text, focused);
+        }
+        DoctorStatus::Ready(report) => report,
+    };
+
     let rows = Layout::vertical([
         Constraint::Length(1), // summary
         Constraint::Fill(1),   // findings
@@ -28,12 +49,10 @@ pub(super) fn render_doctor_body(app: &mut App, frame: &mut Frame, area: Rect) {
         rows[0],
     );
 
-    let items: Vec<ListItem<'static>> = report
-        .map(|r| r.findings.iter().map(finding_item).collect())
-        .unwrap_or_default();
-    render_overlay_list(frame, rows[1], items, &mut app.doctor_state);
+    let items: Vec<ListItem<'static>> = report.findings.iter().map(finding_item).collect();
+    render_overlay_list(frame, rows[1], items, &mut app.doctor.list);
 
-    let detail = selected_detail(report, app.doctor_state.selected());
+    let detail = selected_detail(report, app.doctor.list.selected());
     let detail_pane = Paragraph::new(detail)
         .wrap(Wrap { trim: true })
         .block(Block::new().borders(Borders::TOP).title(" details "));
@@ -41,10 +60,7 @@ pub(super) fn render_doctor_body(app: &mut App, frame: &mut Frame, area: Rect) {
 }
 
 /// A one line severity summary for the doctor body's header
-fn doctor_summary_line(report: Option<&Report>, profile: &str) -> Line<'static> {
-    let Some(report) = report else {
-        return Line::raw(format!(" {profile}"));
-    };
+fn doctor_summary_line(report: &Report, profile: &str) -> Line<'static> {
     let count = |s| report.findings.iter().filter(|f| f.severity == s).count();
     let (warnings, errors) = (count(Severity::Warning), count(Severity::Error));
     if warnings == 0 && errors == 0 {
@@ -79,10 +95,7 @@ fn finding_item(finding: &Finding) -> ListItem<'static> {
 }
 
 /// The detail text for the selected finding
-fn selected_detail(report: Option<&Report>, selected: Option<usize>) -> String {
-    let Some(report) = report else {
-        return String::new();
-    };
+fn selected_detail(report: &Report, selected: Option<usize>) -> String {
     if report.findings.is_empty() {
         return "No problems found.".to_owned();
     }

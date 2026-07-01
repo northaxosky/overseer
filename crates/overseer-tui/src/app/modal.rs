@@ -3,12 +3,15 @@
 use camino::Utf8PathBuf;
 use ratatui::widgets::ListState;
 
-/// A surface that blocks the main view and ends in submit or cancel
+/// A surface that blocks the main view. Most modes end in submit or cancel; [`Info`]
+/// is the exception — a read-only, dismiss-only reference with no submit. The contract
+/// is select / prompt / confirm / info.
 #[derive(Debug)]
 pub(crate) enum Modal {
     Select(Select),
     Prompt(Prompt),
     Confirm(Confirm),
+    Info(Info),
 }
 
 /// A single-line text input that ends in submit or cancel
@@ -47,6 +50,7 @@ pub(crate) struct Select {
 pub(crate) enum SelectKind {
     Launch,
     Profile,
+    Instance,
 }
 
 impl SelectKind {
@@ -55,6 +59,7 @@ impl SelectKind {
         match self {
             SelectKind::Launch => 'l',
             SelectKind::Profile => 'p',
+            SelectKind::Instance => 's',
         }
     }
 
@@ -63,6 +68,7 @@ impl SelectKind {
         match self {
             SelectKind::Launch => "No launch targets. Add with `overseer exe add`.",
             SelectKind::Profile => "No profiles.",
+            SelectKind::Instance => "No other instances.",
         }
     }
 
@@ -71,6 +77,7 @@ impl SelectKind {
         match self {
             SelectKind::Launch => "launch",
             SelectKind::Profile => "switch",
+            SelectKind::Instance => "switch",
         }
     }
 
@@ -79,6 +86,7 @@ impl SelectKind {
         match self {
             SelectKind::Launch => "",
             SelectKind::Profile => " · n new",
+            SelectKind::Instance => "",
         }
     }
 }
@@ -97,4 +105,13 @@ pub(crate) enum ConfirmAction {
     InstallDownload(Utf8PathBuf),
     /// Delete the `.fos` save at this path (and its script-extender co-save)
     DeleteSave(Utf8PathBuf),
+}
+
+/// A read-only reference shown as a modal: a title and key/description rows.
+/// Dismiss-only — unlike the other modes it has no submit.
+#[derive(Debug)]
+pub(crate) struct Info {
+    pub(crate) title: String,
+    pub(crate) entries: Vec<(String, String)>,
+    pub(crate) state: ListState,
 }

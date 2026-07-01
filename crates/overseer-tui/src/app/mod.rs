@@ -2,10 +2,10 @@
 
 mod input;
 mod modal;
-mod popup;
 
-pub(crate) use modal::{Confirm, ConfirmAction, Modal, Prompt, PromptKind, Select, SelectKind};
-pub(crate) use popup::{HELP_ENTRIES, Popup};
+pub(crate) use modal::{
+    Confirm, ConfirmAction, Info, Modal, Prompt, PromptKind, Select, SelectKind,
+};
 
 use anyhow::Result;
 use camino::Utf8Path;
@@ -20,6 +20,26 @@ use overseer_diagnostics::Report;
 use overseer_frontend::style::Role;
 use ratatui::widgets::ListState;
 use strum::IntoEnumIterator;
+
+/// Key bindings shown (and selectable) in the help modal: (keys, description).
+pub(crate) const HELP_ENTRIES: &[(&str, &str)] = &[
+    ("j / k   ↓ / ↑", "move selection"),
+    ("Tab", "switch pane"),
+    ("Space / Enter", "toggle enabled · install download"),
+    ("x", "delete save"),
+    ("J / K", "reorder mod (priority)"),
+    ("1 / 2 / 3 / 4 / 5", "switch workspace"),
+    ("[ / ]", "cycle workspace"),
+    ("r", "scan conflicts · refresh downloads"),
+    ("D / P", "deploy / purge"),
+    ("l", "launch a target"),
+    ("p", "switch profile"),
+    ("n", "new profile"),
+    ("s", "switch instance"),
+    ("d", "doctor workspace"),
+    ("?", "toggle this help"),
+    ("q / Esc", "quit"),
+];
 
 /// A transient footer message with a severity for coloring.
 #[derive(Debug)]
@@ -44,6 +64,7 @@ pub(crate) enum Workspace {
     Conflicts,
     Downloads,
     Saves,
+    Doctor,
 }
 
 impl Workspace {
@@ -55,13 +76,14 @@ impl Workspace {
         all[(i + delta).rem_euclid(n) as usize]
     }
 
-    /// The digit key that switches to this workspace (`1`..`4`).
+    /// The digit key that switches to this workspace (`1`..`5`).
     pub(crate) fn key(self) -> char {
         match self {
             Workspace::Plugins => '1',
             Workspace::Conflicts => '2',
             Workspace::Downloads => '3',
             Workspace::Saves => '4',
+            Workspace::Doctor => '5',
         }
     }
 
@@ -77,6 +99,17 @@ impl Workspace {
             Workspace::Conflicts => "Conflicts",
             Workspace::Downloads => "Downloads",
             Workspace::Saves => "Saves",
+            Workspace::Doctor => "Doctor",
+        }
+    }
+
+    /// Whether this workspace fills the whole body, hiding the mods pane.
+    pub(crate) fn owns_full_area(self) -> bool {
+        match self {
+            Workspace::Plugins | Workspace::Conflicts | Workspace::Downloads | Workspace::Saves => {
+                false
+            }
+            Workspace::Doctor => true,
         }
     }
 }
@@ -108,6 +141,22 @@ pub(crate) struct DownloadsState {
 #[derive(Debug, Default)]
 pub(crate) struct SavesState {
     pub(crate) entries: Vec<SaveInfo>,
+    pub(crate) list: ListState,
+}
+
+/// The Doctor workspace's diagnostics state: like Conflicts, an `r`-gated scan.
+#[derive(Debug, Default)]
+pub(crate) enum DoctorStatus {
+    #[default]
+    Stale,
+    Ready(Report),
+    Error(String),
+}
+
+/// The doctor workspace's own state (grouped so `App` doesn't get loose fields)
+#[derive(Debug, Default)]
+pub(crate) struct DoctorState {
+    pub(crate) status: DoctorStatus,
     pub(crate) list: ListState,
 }
 
@@ -149,22 +198,18 @@ impl Session {
 #[derive(Debug)]
 pub(crate) struct App {
     pub(crate) should_quit: bool,
-    pub(crate) popup: Option<Popup>,
     pub(crate) modal: Option<Modal>,
     pub(crate) focus: Focus,
     pub(crate) workspace: Workspace,
     pub(crate) conflicts: ConflictsState,
     pub(crate) downloads: DownloadsState,
     pub(crate) saves: SavesState,
+    pub(crate) doctor: DoctorState,
     pub(crate) message: Option<Notice>,
     pub(crate) settings: Settings,
     pub(crate) session: Session,
     pub(crate) mods_state: ListState,
     pub(crate) plugins_state: ListState,
-    pub(crate) settings_state: ListState,
-    pub(crate) help_state: ListState,
-    pub(crate) report: Option<Report>,
-    pub(crate) doctor_state: ListState,
 }
 
 impl App {
@@ -184,20 +229,16 @@ impl App {
 
         Ok(Self {
             should_quit: false,
-            popup: None,
             modal: None,
             focus: Focus::Mods,
             workspace: Workspace::default(),
             conflicts: ConflictsState::default(),
             downloads: DownloadsState::default(),
             saves: SavesState::default(),
+            doctor: DoctorState::default(),
             message: None,
             mods_state: initial_selection(session.profile.mods.len()),
             plugins_state: initial_selection(session.order.plugins.len()),
-            settings_state: ListState::default(),
-            help_state: ListState::default(),
-            report: None,
-            doctor_state: ListState::default(),
             settings,
             session,
         })

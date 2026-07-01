@@ -139,6 +139,10 @@ impl Workspace {
                 app.note("Press x to delete a save");
                 false
             }
+            Workspace::Doctor => {
+                app.note("Diagnostics are read-only");
+                false
+            }
         }
     }
 }

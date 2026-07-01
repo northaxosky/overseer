@@ -1,25 +1,23 @@
 //! Shared in-memory fixtures for the TUI tests.
 
 use crate::app::{
-    App, ConflictsState, DownloadsState, Focus, SavesState, Session, Workspace, initial_selection,
+    App, ConflictsState, DoctorState, DownloadsState, Focus, SavesState, Session, Workspace,
+    initial_selection,
 };
 use camino::Utf8Path;
 use overseer_core::instance::{Instance, ModKind, ModListEntry, Profile};
 use overseer_core::plugins::{PluginEntry, PluginLoadOrder, PluginMeta};
 use overseer_core::settings::Settings;
-use ratatui::widgets::ListState;
 
 impl App {
     /// A small in-memory fixture for tests (no disk access).
     pub(crate) fn sample() -> Self {
         Self {
             should_quit: false,
-            popup: None,
             modal: None,
             focus: Focus::Mods,
             workspace: Workspace::default(),
             message: None,
-            report: None,
             settings: Settings {
                 recent_instances: vec![
                     Utf8Path::new("/alpha").to_owned(),
@@ -70,9 +68,7 @@ impl App {
             conflicts: ConflictsState::default(),
             downloads: DownloadsState::default(),
             saves: SavesState::default(),
-            settings_state: ListState::default(),
-            help_state: ListState::default(),
-            doctor_state: ListState::default(),
+            doctor: DoctorState::default(),
         }
     }
 }

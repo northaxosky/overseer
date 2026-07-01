@@ -4,10 +4,7 @@
 //! state (`ListState`); it never touches domain data.
 
 mod doctor;
-mod help;
 mod modal;
-mod overlay;
-mod settings;
 
 use overseer_core::apply::DeploymentStatus;
 use overseer_core::plugins::PluginMeta;
@@ -29,12 +26,9 @@ const CONFLICTS_TITLE: &str = " Conflicts — all enabled mods ";
 /// The shared title for the Downloads workspace pane, list or message alike.
 const DOWNLOADS_TITLE: &str = " Downloads — archives in downloads/ ";
 
-/// Draw the main view, plus any popup floating on top
+/// Draw the main view, plus any modal floating on top
 pub(crate) fn draw(app: &mut App, frame: &mut Frame) {
     draw_main(app, frame);
-    if let Some(tab) = app.popup {
-        overlay::render_overlay(app, tab, frame);
-    }
     if app.modal.is_some() {
         modal::render_modal(app, frame);
     }
@@ -66,38 +60,44 @@ pub(crate) fn draw_main(app: &mut App, frame: &mut Frame) {
         rows[1],
     );
 
-    let cols = Layout::horizontal([Constraint::Fill(1), Constraint::Fill(1)]).split(rows[2]);
+    // A full-area workspace (Doctor) hides the mods pane and spans the whole body;
+    // the others keep the two-column [mods | workspace] split.
+    if app.workspace.owns_full_area() {
+        render_workspace(app, frame, rows[2]);
+    } else {
+        let cols = Layout::horizontal([Constraint::Fill(1), Constraint::Fill(1)]).split(rows[2]);
 
-    let mods_focused = app.focus == Focus::Mods;
-    let mods_title = format!(
-        " mods — {} ({}) ",
-        app.session.profile.name,
-        app.session.profile.mods.len()
-    );
-    let mods_items: Vec<ListItem<'static>> = app
-        .session
-        .profile
-        .mods
-        .iter()
-        .map(|m| {
-            let role = if m.enabled {
-                Role::Success
-            } else {
-                Role::Muted
-            };
-            ListItem::new(format!("{} {}", marker(m.enabled), m.name)).style(theme::style(role))
-        })
-        .collect();
-    render_pane(
-        frame,
-        cols[0],
-        mods_title,
-        mods_items,
-        &mut app.mods_state,
-        mods_focused,
-    );
+        let mods_focused = app.focus == Focus::Mods;
+        let mods_title = format!(
+            " mods — {} ({}) ",
+            app.session.profile.name,
+            app.session.profile.mods.len()
+        );
+        let mods_items: Vec<ListItem<'static>> = app
+            .session
+            .profile
+            .mods
+            .iter()
+            .map(|m| {
+                let role = if m.enabled {
+                    Role::Success
+                } else {
+                    Role::Muted
+                };
+                ListItem::new(format!("{} {}", marker(m.enabled), m.name)).style(theme::style(role))
+            })
+            .collect();
+        render_pane(
+            frame,
+            cols[0],
+            mods_title,
+            mods_items,
+            &mut app.mods_state,
+            mods_focused,
+        );
 
-    render_workspace(app, frame, cols[1]);
+        render_workspace(app, frame, cols[1]);
+    }
 
     // Status/message on the left, key hints on the right, sharing the footer row.
     let status = match &app.message {
@@ -106,8 +106,7 @@ pub(crate) fn draw_main(app: &mut App, frame: &mut Frame) {
     };
     frame.render_widget(status, rows[3]);
     frame.render_widget(
-        Paragraph::new("1/2/3/4 workspace · s settings · ? help · q quit ")
-            .alignment(Alignment::Right),
+        Paragraph::new("1–5 workspace · s instance · ? help · q quit ").alignment(Alignment::Right),
         rows[3],
     );
 }
@@ -127,6 +126,7 @@ impl Workspace {
             Workspace::Conflicts => render_conflicts(app, frame, area),
             Workspace::Downloads => render_downloads(app, frame, area),
             Workspace::Saves => render_saves(app, frame, area),
+            Workspace::Doctor => doctor::render_doctor(app, frame, area),
         }
     }
 
@@ -137,6 +137,7 @@ impl Workspace {
             Workspace::Conflicts => "all enabled mods".to_owned(),
             Workspace::Downloads => "archives in downloads/".to_owned(),
             Workspace::Saves => format!("{profile}'s saves"),
+            Workspace::Doctor => format!("{profile} health"),
         }
     }
 }
@@ -400,7 +401,6 @@ fn render_overlay_list(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app::Popup;
     use ratatui::{Terminal, backend::TestBackend};
 
     fn render(app: &mut App, w: u16, h: u16) -> String {
@@ -425,13 +425,14 @@ mod tests {
     }
 
     #[test]
-    fn help_popup_lists_keybinds_when_open() {
+    fn help_modal_lists_keybinds_when_open() {
+        use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
         let mut app = App::sample();
-        app.popup = Some(Popup::Help);
+        app.handle_key(KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE));
         let out = render(&mut app, 80, 24);
-        assert!(out.contains("Help"), "active tab label");
-        assert!(out.contains("reorder"), "popup lists bindings");
-        assert!(out.contains("Doctor"), "tab bar shows the other tabs");
+        assert!(out.contains("Help"), "the modal is titled Help");
+        assert!(out.contains("reorder"), "the modal lists bindings");
+        assert!(out.contains("Tab"), "the modal shows key columns");
     }
 
     #[test]
@@ -468,6 +469,10 @@ mod tests {
             "header names the downloads workspace"
         );
         assert!(out.contains("4 Saves"), "header names the saves workspace");
+        assert!(
+            out.contains("5 Doctor"),
+            "header names the doctor workspace"
+        );
     }
 
     #[test]
@@ -618,30 +623,34 @@ mod tests {
     }
 
     #[test]
-    fn settings_popup_lists_recent_instances() {
+    fn instance_picker_lists_recent_instances() {
+        use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
         let mut app = App::sample();
-        app.popup = Some(Popup::Settings);
-        app.settings_state.select(Some(0));
+        app.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE));
         let out = render(&mut app, 80, 24);
-        assert!(out.contains("Settings"), "popup title");
         assert!(out.contains("alpha"), "lists a recent instance");
+        assert!(out.contains("switch"), "the hint names the switch action");
     }
 
     #[test]
-    fn doctor_popup_shows_findings_and_summary() {
+    fn doctor_workspace_shows_findings_and_summary() {
+        use crate::app::DoctorStatus;
         use overseer_diagnostics::{Finding, Report, Severity};
         let mut app = App::sample();
-        app.report = Some(Report::new(vec![Finding {
+        app.workspace = Workspace::Doctor;
+        app.doctor.status = DoctorStatus::Ready(Report::new(vec![Finding {
             check: "x",
             severity: Severity::Error,
             title: "Broken thing".to_owned(),
             detail: Some("Fix it like so.".to_owned()),
         }]));
-        app.doctor_state.select(Some(0));
-        app.popup = Some(Popup::Doctor);
+        app.doctor.list.select(Some(0));
         let out = render(&mut app, 80, 24);
-        assert!(out.contains("Doctor"), "active tab label");
-        assert!(out.contains("1 error"), "title summarises severity counts");
+        assert!(out.contains("Doctor"), "the switcher names the workspace");
+        assert!(
+            out.contains("1 error"),
+            "summary summarises severity counts"
+        );
         assert!(out.contains("Broken thing"), "lists the finding");
         assert!(
             out.contains("Fix it like so."),
@@ -650,16 +659,43 @@ mod tests {
     }
 
     #[test]
-    fn doctor_popup_reports_all_clear_when_empty() {
+    fn doctor_workspace_reports_all_clear_when_empty() {
+        use crate::app::DoctorStatus;
         use overseer_diagnostics::Report;
         let mut app = App::sample();
-        app.report = Some(Report::new(vec![]));
-        app.popup = Some(Popup::Doctor);
+        app.workspace = Workspace::Doctor;
+        app.doctor.status = DoctorStatus::Ready(Report::new(vec![]));
         let out = render(&mut app, 80, 24);
-        assert!(out.contains("all clear"), "title says all clear");
+        assert!(out.contains("all clear"), "summary says all clear");
         assert!(
             out.contains("No problems found."),
             "detail pane shows the clean bill"
+        );
+    }
+
+    #[test]
+    fn doctor_workspace_stale_prompts_to_run() {
+        let mut app = App::sample();
+        app.workspace = Workspace::Doctor;
+        let out = render(&mut app, 80, 24);
+        assert!(
+            out.contains("Diagnostics stale"),
+            "a stale doctor prompts to press r"
+        );
+    }
+
+    #[test]
+    fn doctor_workspace_fills_the_body_and_hides_the_mods_pane() {
+        let mut app = App::sample();
+        // A two-column workspace shows the mods pane...
+        let two_pane = render(&mut app, 80, 24);
+        assert!(two_pane.contains("CoolMod"), "the mods pane lists mods");
+        // ...but the full-area Doctor workspace replaces it entirely.
+        app.workspace = Workspace::Doctor;
+        let full_area = render(&mut app, 80, 24);
+        assert!(
+            !full_area.contains("CoolMod"),
+            "the full-area Doctor hides the mods pane"
         );
     }
 

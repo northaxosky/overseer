@@ -8,7 +8,7 @@ use ratatui::{
 };
 
 use super::centered_rect;
-use crate::app::{App, Confirm, Modal, Prompt, Select};
+use crate::app::{App, Confirm, Info, Modal, Prompt, Select};
 use crate::theme;
 
 /// Draw the active modal centered over the main view
@@ -17,8 +17,41 @@ pub(super) fn render_modal(app: &mut App, frame: &mut Frame) {
         Some(Modal::Select(select)) => render_select(select, frame),
         Some(Modal::Prompt(prompt)) => render_prompt(prompt, frame),
         Some(Modal::Confirm(confirm)) => render_confirm(confirm, frame),
+        Some(Modal::Info(info)) => render_info(info, frame),
         None => {}
     }
+}
+
+/// Draw a read-only Info modal: a titled box with a scrollable two-column list
+fn render_info(info: &mut Info, frame: &mut Frame) {
+    let area = centered_rect(60, 60, frame.area());
+    frame.render_widget(Clear, area);
+    let block = Block::bordered()
+        .border_type(BorderType::Double)
+        .title(format!("  {}  ", info.title))
+        .padding(Padding::horizontal(1));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    let rows = Layout::vertical([
+        Constraint::Fill(1),   // list
+        Constraint::Length(1), // hint
+    ])
+    .split(inner);
+
+    // Two columns: keys left, description right, aligned with a fixed key width.
+    let items: Vec<ListItem> = info
+        .entries
+        .iter()
+        .map(|(keys, desc)| ListItem::new(format!("  {keys:<16}{desc}")))
+        .collect();
+    let list = List::new(items)
+        .highlight_symbol("> ")
+        .highlight_style(theme::selection_style());
+    frame.render_stateful_widget(list, rows[0], &mut info.state);
+
+    let hint = Paragraph::new(" j/k scroll · Esc close ").style(theme::style(Role::Muted));
+    frame.render_widget(hint, rows[1]);
 }
 
 fn render_select(select: &mut Select, frame: &mut Frame) {

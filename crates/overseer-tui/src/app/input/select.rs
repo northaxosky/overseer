@@ -1,6 +1,7 @@
 //! The Select modal: launcher and profile pickers.
 
 use anyhow::Result;
+use camino::Utf8PathBuf;
 use overseer_core::launch;
 use ratatui::crossterm::event::{KeyCode, KeyEvent};
 
@@ -49,6 +50,17 @@ impl App {
         Ok(match kind {
             SelectKind::Launch => launch::targets(&self.session.instance),
             SelectKind::Profile => self.session.instance.profiles()?,
+            // The recent instances, minus the one already open (record_opened puts it first).
+            SelectKind::Instance => self
+                .settings
+                .recent_instances
+                .iter()
+                .filter(|p| {
+                    !p.as_str()
+                        .eq_ignore_ascii_case(self.session.instance.root.as_str())
+                })
+                .map(camino::Utf8PathBuf::to_string)
+                .collect(),
         })
     }
 
@@ -56,8 +68,11 @@ impl App {
     fn submit_modal(&mut self) {
         let select = match self.modal.take() {
             Some(Modal::Select(select)) => select,
-            // A Prompt submits via its own handler; a Confirm via `handle_confirm_key`.
-            Some(Modal::Prompt(_)) | Some(Modal::Confirm(_)) | None => return,
+            // A Prompt submits via its own handler; a Confirm via `handle_confirm_key`;
+            // an Info has no submit at all.
+            Some(Modal::Prompt(_)) | Some(Modal::Confirm(_)) | Some(Modal::Info(_)) | None => {
+                return;
+            }
         };
         let chosen = select
             .state
@@ -66,6 +81,7 @@ impl App {
         match select.kind {
             SelectKind::Launch => self.launch(chosen),
             SelectKind::Profile => self.switch_profile(chosen),
+            SelectKind::Instance => self.switch_instance(chosen),
         }
     }
 
@@ -95,6 +111,34 @@ impl App {
                 self.ok(format!("Switched to {name}"));
             }
             Err(e) => self.fail(format!("Error: {e}")),
+        }
+    }
+
+    /// Switch to the instance at `chosen`, keeping the current profile. A failed
+    /// load re-opens the picker so the user can pick another, with a fail notice.
+    fn switch_instance(&mut self, chosen: Option<String>) {
+        let Some(path) = chosen else {
+            self.note("No other instances to switch to");
+            return;
+        };
+        let dir = Utf8PathBuf::from(path);
+        let profile_name = self.session.profile.name.clone();
+        match Session::load(&dir, &profile_name) {
+            Ok(session) => {
+                self.session = session;
+                self.after_session_changed();
+                self.focus = Focus::Mods;
+                self.settings.record_opened(&dir);
+                if let Err(e) = self.settings.save() {
+                    tracing::warn!(error = %e, "could not save settings");
+                }
+                self.ok("Switched instance");
+            }
+            Err(e) => {
+                // Leave the picker visible so the failed switch is recoverable.
+                self.open_select(SelectKind::Instance);
+                self.fail(format!("Error: {e}"));
+            }
         }
     }
 }
@@ -184,5 +228,70 @@ mod tests {
             ),
             "the launch picker stays open and unchanged"
         );
+    }
+
+    #[test]
+    fn s_opens_the_instance_picker_and_navigation_clamps() {
+        let mut app = App::sample();
+        let current = app.session.instance.root.to_string();
+        app.handle_key(key(KeyCode::Char('s')));
+        match &app.modal {
+            Some(Modal::Select(s)) => {
+                assert_eq!(s.kind, SelectKind::Instance, "s opens the instance picker");
+                assert!(
+                    !s.items.contains(&current),
+                    "the current instance is excluded"
+                );
+            }
+            _ => panic!("s opens a Select modal"),
+        }
+        assert_eq!(
+            modal_selection(&app),
+            Some(0),
+            "opens on the first instance"
+        );
+        app.handle_key(key(KeyCode::Char('j')));
+        assert_eq!(modal_selection(&app), Some(1), "j moves down");
+        app.handle_key(key(KeyCode::Char('j')));
+        assert_eq!(modal_selection(&app), Some(1), "clamps at the end");
+        app.handle_key(key(KeyCode::Char('k')));
+        assert_eq!(modal_selection(&app), Some(0), "k moves up");
+    }
+
+    #[test]
+    fn s_again_closes_the_instance_picker() {
+        let mut app = App::sample();
+        app.handle_key(key(KeyCode::Char('s')));
+        assert!(
+            matches!(
+                app.modal,
+                Some(Modal::Select(Select {
+                    kind: SelectKind::Instance,
+                    ..
+                }))
+            ),
+            "s opens the instance select modal"
+        );
+        app.handle_key(key(KeyCode::Char('s')));
+        assert!(app.modal.is_none(), "s again closes it");
+    }
+
+    #[test]
+    fn switching_to_a_missing_instance_keeps_the_picker_open() {
+        let mut app = App::sample();
+        app.handle_key(key(KeyCode::Char('s')));
+        // The sample's recents point at directories with no instance, so the load fails.
+        app.handle_key(key(KeyCode::Enter));
+        assert!(
+            matches!(
+                app.modal,
+                Some(Modal::Select(Select {
+                    kind: SelectKind::Instance,
+                    ..
+                }))
+            ),
+            "a failed switch leaves the instance picker open"
+        );
+        assert!(app.message.is_some(), "the failure is reported");
     }
 }

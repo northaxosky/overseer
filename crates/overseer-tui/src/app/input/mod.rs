@@ -3,7 +3,7 @@
 mod actions;
 mod confirm;
 mod downloads;
-mod overlay;
+mod info;
 mod prompt;
 mod saves;
 mod select;
@@ -12,20 +12,20 @@ use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::widgets::ListState;
 
 use overseer_core::deploy::detect_conflicts;
+use overseer_diagnostics::diagnose;
 
-use super::{App, ConflictsStatus, Focus, Modal, Popup, SelectKind, Workspace, initial_selection};
+use super::{
+    App, ConflictsStatus, DoctorStatus, Focus, Modal, SelectKind, Workspace, initial_selection,
+};
 
 impl App {
     pub(crate) fn handle_key(&mut self, key: KeyEvent) {
-        // A modal blocks everything beneath it: it gets keys before popup or main
+        // A modal blocks everything beneath it: it gets keys before the main view
         if self.modal.is_some() {
             self.handle_modal_key(key);
             return;
         }
-        match self.popup {
-            None => self.handle_main_key(key),
-            Some(tab) => self.handle_overlay_key(tab, key),
-        }
+        self.handle_main_key(key);
     }
 
     /// Handle one key press. Input is read by the run loop in `main`
@@ -37,14 +37,14 @@ impl App {
         // Any key stroke clears the last message, toggle sets a fresh one
         self.message = None;
         match key.code {
-            // Popup keys
-            KeyCode::Char('?') => self.focus_tab(Popup::Help),
-            KeyCode::Char('s') => self.focus_tab(Popup::Settings),
-            KeyCode::Char('d') => self.focus_tab(Popup::Doctor),
+            // Modal-opening keys
+            KeyCode::Char('?') => self.open_help(),
+            KeyCode::Char('s') => self.open_select(SelectKind::Instance),
             KeyCode::Char('l') => self.open_select(SelectKind::Launch),
             KeyCode::Char('p') => self.open_select(SelectKind::Profile),
 
             // Workspace view related controls
+            KeyCode::Char('d') => self.switch_workspace(Workspace::Doctor),
             KeyCode::Char(']') => self.switch_workspace(self.workspace.cycle(1)),
             KeyCode::Char('[') => self.switch_workspace(self.workspace.cycle(-1)),
             KeyCode::Char(c) if Workspace::from_key(c).is_some() => {
@@ -79,24 +79,17 @@ impl App {
             Some(Modal::Select(_)) => self.handle_select_key(key),
             Some(Modal::Prompt(_)) => self.handle_prompt_key(key),
             Some(Modal::Confirm(_)) => self.handle_confirm_key(key),
+            Some(Modal::Info(_)) => self.handle_info_key(key),
             None => {}
         }
     }
 
-    /// Route a key while a popup is open: Tab cycles tabs, everything else goes to the active tab
-    fn handle_overlay_key(&mut self, tab: Popup, key: KeyEvent) {
-        match key.code {
-            KeyCode::Tab => self.focus_tab(tab.cycle(1)),
-            KeyCode::BackTab => self.focus_tab(tab.cycle(-1)),
-            _ => match tab {
-                Popup::Help => self.handle_help_key(key),
-                Popup::Settings => self.handle_settings_key(key),
-                Popup::Doctor => self.handle_doctor_key(key),
-            },
-        }
-    }
-
     fn toggle_focus(&mut self) {
+        // A full-area workspace hides the mods pane, so focus can't return to it.
+        if self.workspace.owns_full_area() {
+            self.focus = Focus::Workspace;
+            return;
+        }
         self.focus = match self.focus {
             Focus::Mods => Focus::Workspace,
             Focus::Workspace => Focus::Mods,
@@ -106,17 +99,24 @@ impl App {
     /// Switch the active workspace, loading its lazily-listed data the first time it shows.
     fn switch_workspace(&mut self, ws: Workspace) {
         self.workspace = ws;
+        // A full-area workspace hides the mods pane; keep focus on the visible pane
+        // so keys never drive an invisible mod selection.
+        if ws.owns_full_area() {
+            self.focus = Focus::Workspace;
+        }
         self.refresh_visible_lazy_data();
     }
 
     /// Reload the active workspace's lazily-listed data. Panes without a lazy list
-    /// (Plugins, Conflicts) do nothing here; Conflicts is rescanned on `r` instead.
+    /// (Plugins, Conflicts, Doctor) do nothing here; Conflicts and Doctor are
+    /// rescanned on `r` instead.
     fn refresh_visible_lazy_data(&mut self) {
         match self.workspace {
             Workspace::Plugins => {}
             Workspace::Conflicts => {}
             Workspace::Downloads => self.refresh_downloads(),
             Workspace::Saves => self.refresh_saves(),
+            Workspace::Doctor => {}
         }
     }
 
@@ -149,24 +149,44 @@ impl App {
         self.conflicts.status = ConflictsStatus::Stale;
     }
 
+    /// Run setup diagnostics for the active session, populating the Doctor workspace.
+    fn run_diagnostics(&mut self) {
+        match diagnose(&self.session.instance, &self.session.profile.name) {
+            Ok(report) => {
+                self.doctor
+                    .list
+                    .select((!report.findings.is_empty()).then_some(0));
+                self.doctor.status = DoctorStatus::Ready(report);
+            }
+            Err(e) => self.doctor.status = DoctorStatus::Error(e.to_string()),
+        }
+    }
+
+    /// Invalidate the last diagnostics run after the session changes.
+    pub(super) fn mark_doctor_stale(&mut self) {
+        self.doctor.status = DoctorStatus::Stale;
+    }
+
     /// After replacing `self.session`, reset the per-pane selection and refresh workspace
     pub(super) fn after_session_changed(&mut self) {
         self.mods_state = initial_selection(self.session.profile.mods.len());
         self.plugins_state = initial_selection(self.session.order.plugins.len());
         self.mark_conflicts_stale();
+        self.mark_doctor_stale();
         self.refresh_visible_lazy_data();
     }
 }
 
 impl Workspace {
-    /// Handle `r` in this workspace: rescan conflicts or re-list downloads/saves.
-    /// Plugins has nothing to refresh.
+    /// Handle `r` in this workspace: rescan conflicts, re-run diagnostics, or
+    /// re-list downloads/saves. Plugins has nothing to refresh.
     fn on_refresh(self, app: &mut App) {
         match self {
             Workspace::Plugins => {}
             Workspace::Conflicts => app.scan_conflicts(),
             Workspace::Downloads => app.refresh_downloads(),
             Workspace::Saves => app.refresh_saves(),
+            Workspace::Doctor => app.run_diagnostics(),
         }
     }
 
@@ -191,6 +211,13 @@ impl Workspace {
             Workspace::Saves => {
                 let len = app.saves.entries.len();
                 (&mut app.saves.list, len)
+            }
+            Workspace::Doctor => {
+                let len = match &app.doctor.status {
+                    DoctorStatus::Ready(r) => r.findings.len(),
+                    _ => 0,
+                };
+                (&mut app.doctor.list, len)
             }
         }
     }
@@ -231,7 +258,7 @@ pub(crate) mod test_helpers {
     pub(crate) fn modal_selection(app: &App) -> Option<usize> {
         match &app.modal {
             Some(Modal::Select(s)) => s.state.selected(),
-            Some(Modal::Prompt(_)) | Some(Modal::Confirm(_)) | None => None,
+            Some(Modal::Prompt(_)) | Some(Modal::Confirm(_)) | Some(Modal::Info(_)) | None => None,
         }
     }
 
@@ -331,11 +358,13 @@ mod tests {
         app.handle_key(KeyEvent::new(KeyCode::Char(']'), KeyModifiers::NONE));
         assert_eq!(app.workspace, Workspace::Downloads, "] keeps going");
         app.handle_key(KeyEvent::new(KeyCode::Char(']'), KeyModifiers::NONE));
-        assert_eq!(app.workspace, Workspace::Saves, "] reaches the last");
+        assert_eq!(app.workspace, Workspace::Saves, "] keeps going");
+        app.handle_key(KeyEvent::new(KeyCode::Char(']'), KeyModifiers::NONE));
+        assert_eq!(app.workspace, Workspace::Doctor, "] reaches the last");
         app.handle_key(KeyEvent::new(KeyCode::Char(']'), KeyModifiers::NONE));
         assert_eq!(app.workspace, Workspace::Plugins, "] wraps around");
         app.handle_key(KeyEvent::new(KeyCode::Char('['), KeyModifiers::NONE));
-        assert_eq!(app.workspace, Workspace::Saves, "[ wraps backward");
+        assert_eq!(app.workspace, Workspace::Doctor, "[ wraps backward");
     }
 
     #[test]
@@ -425,6 +454,93 @@ mod tests {
         );
     }
 
+    #[test]
+    fn d_and_5_switch_to_the_doctor_workspace() {
+        let mut app = App::sample();
+        app.handle_key(key(KeyCode::Char('d')));
+        assert_eq!(app.workspace, Workspace::Doctor, "d jumps to Doctor");
+        app.handle_key(key(KeyCode::Char('1')));
+        assert_eq!(app.workspace, Workspace::Plugins);
+        app.handle_key(key(KeyCode::Char('5')));
+        assert_eq!(app.workspace, Workspace::Doctor, "5 also reaches Doctor");
+    }
+
+    #[test]
+    fn a_full_area_workspace_forces_workspace_focus() {
+        // Doctor hides the mods pane, so focus must move off it — otherwise
+        // j/k/Space would drive an invisible mod selection.
+        let mut app = App::sample();
+        assert_eq!(app.focus, Focus::Mods, "starts on the mods pane");
+        app.handle_key(key(KeyCode::Char('5')));
+        assert_eq!(
+            app.focus,
+            Focus::Workspace,
+            "entering a full-area workspace focuses it"
+        );
+        app.handle_key(key(KeyCode::Tab));
+        assert_eq!(
+            app.focus,
+            Focus::Workspace,
+            "Tab can't return to the hidden mods pane"
+        );
+    }
+
+    #[test]
+    fn switching_to_doctor_does_not_run_diagnostics() {
+        let mut app = App::sample();
+        app.handle_key(key(KeyCode::Char('d')));
+        assert!(
+            matches!(app.doctor.status, DoctorStatus::Stale),
+            "entering Doctor must not run (running is r-only)"
+        );
+    }
+
+    #[test]
+    fn r_runs_diagnostics_in_the_doctor_workspace() {
+        use overseer_core::test_support::temp_instance;
+        let (_tmp, instance) = temp_instance();
+        let mut app = App::sample();
+        app.session.instance = instance;
+        app.handle_key(key(KeyCode::Char('d')));
+        app.handle_key(key(KeyCode::Char('r')));
+        assert!(
+            !matches!(app.doctor.status, DoctorStatus::Stale),
+            "r runs diagnostics, leaving a Ready or Error result"
+        );
+    }
+
+    #[test]
+    fn jk_route_to_the_doctor_findings_list() {
+        use overseer_diagnostics::{Finding, Report, Severity};
+        let finding = |title: &str| Finding {
+            check: "c",
+            severity: Severity::Warning,
+            title: title.to_owned(),
+            detail: None,
+        };
+        let mut app = App::sample();
+        app.focus = Focus::Workspace;
+        app.workspace = Workspace::Doctor;
+        app.doctor.status = DoctorStatus::Ready(Report::new(vec![finding("a"), finding("b")]));
+        app.doctor.list.select(Some(0));
+        app.move_main_selection(1);
+        assert_eq!(app.doctor.list.selected(), Some(1), "findings list moves");
+        app.move_main_selection(1); // clamp at the end
+        assert_eq!(app.doctor.list.selected(), Some(1));
+    }
+
+    #[test]
+    fn a_session_change_marks_doctor_stale() {
+        use overseer_diagnostics::Report;
+        let mut app = App::sample();
+        app.doctor.status = DoctorStatus::Ready(Report::new(Vec::new()));
+        app.after_session_changed();
+        assert!(
+            matches!(app.doctor.status, DoctorStatus::Stale),
+            "a session change invalidates the diagnostics run"
+        );
+    }
+
     // --- Characterization tests: pin today's workspace-dispatch behavior so the
     // upcoming enum-method refactor can't drift. ---
 
@@ -438,6 +554,7 @@ mod tests {
                 Workspace::Conflicts,
                 Workspace::Downloads,
                 Workspace::Saves,
+                Workspace::Doctor,
             ],
         );
     }
@@ -450,6 +567,7 @@ mod tests {
             ('2', Workspace::Conflicts),
             ('3', Workspace::Downloads),
             ('4', Workspace::Saves),
+            ('5', Workspace::Doctor),
         ] {
             app.handle_key(key(KeyCode::Char(c)));
             assert_eq!(app.workspace, ws, "{c} selects its workspace");
@@ -460,13 +578,13 @@ mod tests {
     fn cycle_wraps_in_both_directions() {
         assert_eq!(Workspace::Plugins.cycle(1), Workspace::Conflicts);
         assert_eq!(
-            Workspace::Saves.cycle(1),
+            Workspace::Doctor.cycle(1),
             Workspace::Plugins,
             "forward wraps to the front"
         );
         assert_eq!(
             Workspace::Plugins.cycle(-1),
-            Workspace::Saves,
+            Workspace::Doctor,
             "backward wraps to the back"
         );
         assert_eq!(Workspace::Conflicts.cycle(-1), Workspace::Plugins);
