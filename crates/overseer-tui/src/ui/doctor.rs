@@ -7,7 +7,7 @@ use ratatui::{
     Frame,
     layout::{Constraint, Layout, Rect},
     text::{Line, Span},
-    widgets::{Block, Borders, ListItem, Paragraph, Wrap},
+    widgets::{Block, BorderType, Borders, ListItem, Paragraph, Wrap},
 };
 
 use super::{render_overlay_list, render_workspace_message};
@@ -37,12 +37,24 @@ pub(super) fn render_doctor(app: &mut App, frame: &mut Frame, area: Rect) {
         DoctorStatus::Ready(report) => report,
     };
 
+    // Frame the ready view like the other workspace panes; the stale/error states
+    // are already framed by render_workspace_message.
+    let block = Block::bordered()
+        .border_type(if focused {
+            BorderType::Thick
+        } else {
+            BorderType::Plain
+        })
+        .title(DOCTOR_TITLE);
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
     let rows = Layout::vertical([
         Constraint::Length(1), // summary
         Constraint::Fill(1),   // findings
         Constraint::Length(7), // detail
     ])
-    .split(area);
+    .split(inner);
 
     frame.render_widget(
         Paragraph::new(doctor_summary_line(report, &app.session.profile.name)),
@@ -100,10 +112,12 @@ fn selected_detail(report: &Report, selected: Option<usize>) -> String {
         return "No problems found.".to_owned();
     }
     match selected.and_then(|i| report.findings.get(i)) {
-        Some(f) => f
-            .detail
-            .clone()
-            .unwrap_or_else(|| "No further detail.".to_owned()),
+        // Show the full title plus detail so long finding text stays readable:
+        // the list row clips horizontally, but this pane wraps.
+        Some(f) => match &f.detail {
+            Some(detail) => format!("{}\n\n{}", f.title, detail),
+            None => f.title.clone(),
+        },
         None => String::new(),
     }
 }

@@ -146,19 +146,23 @@ impl Workspace {
 fn workspace_header(active: Workspace, profile: &str) -> Paragraph<'static> {
     let role = |on: bool| if on { Role::Heading } else { Role::Muted };
     let scope = active.scope(profile);
-    // One `key label` span per workspace, two-space separated, active one emphasised.
-    let mut spans = vec![Span::styled(" Workspace  ", theme::style(Role::Muted))];
+    // Bold "Workspace" label, the workspaces `|`-separated with the active one
+    // emphasised, then the scope. `·` separates groups, `|` separates items.
+    let mut spans = vec![
+        Span::styled(" Workspace ", theme::style(Role::Heading)),
+        Span::styled("· ", theme::style(Role::Muted)),
+    ];
     for (i, w) in Workspace::iter().enumerate() {
         if i > 0 {
-            spans.push(Span::raw("  "));
+            spans.push(Span::styled("| ", theme::style(Role::Muted)));
         }
         spans.push(Span::styled(
-            format!("{} {}", w.key(), w.label()),
+            format!("{} {} ", w.key(), w.label()),
             theme::style(role(w == active)),
         ));
     }
     spans.push(Span::styled(
-        format!("  · {scope}"),
+        format!("· {scope}"),
         theme::style(Role::Muted),
     ));
     Paragraph::new(Line::from(spans))
@@ -473,6 +477,10 @@ mod tests {
             out.contains("5 Doctor"),
             "header names the doctor workspace"
         );
+        assert!(
+            out.contains('|'),
+            "workspaces are separated by a pipe in the switcher"
+        );
     }
 
     #[test]
@@ -655,6 +663,10 @@ mod tests {
         assert!(
             out.contains("Fix it like so."),
             "detail pane shows the selected finding's detail"
+        );
+        assert!(
+            out.contains('│'),
+            "the ready doctor view is framed like the other panes"
         );
     }
 
