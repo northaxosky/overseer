@@ -10,7 +10,7 @@ use ratatui::{
     widgets::{Block, BorderType, Borders, Clear, ListItem, Paragraph, Wrap},
 };
 
-use super::{centered_rect, render_overlay_list};
+use super::{centered_rect, render_overlay_list, wrap_text};
 use crate::app::DoctorReport;
 use crate::theme;
 
@@ -103,41 +103,6 @@ fn finding_item(finding: &Finding, width: usize) -> ListItem<'static> {
         })
         .collect();
     ListItem::new(lines)
-}
-
-/// Greedily wrap `text` to `width` columns, hard-splitting any word too long to fit.
-fn wrap_text(text: &str, width: usize) -> Vec<String> {
-    let mut lines = Vec::new();
-    let mut current = String::new();
-    for word in text.split_whitespace() {
-        if word.chars().count() > width {
-            // A word longer than the line: flush what we have, then hard-split it.
-            if !current.is_empty() {
-                lines.push(std::mem::take(&mut current));
-            }
-            for ch in word.chars() {
-                if current.chars().count() == width {
-                    lines.push(std::mem::take(&mut current));
-                }
-                current.push(ch);
-            }
-            continue;
-        }
-        let sep = usize::from(!current.is_empty());
-        if current.chars().count() + sep + word.chars().count() > width {
-            lines.push(std::mem::take(&mut current));
-        } else if sep == 1 {
-            current.push(' ');
-        }
-        current.push_str(word);
-    }
-    if !current.is_empty() {
-        lines.push(current);
-    }
-    if lines.is_empty() {
-        lines.push(String::new());
-    }
-    lines
 }
 
 /// The detail text for the selected finding

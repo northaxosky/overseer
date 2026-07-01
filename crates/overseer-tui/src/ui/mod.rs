@@ -7,13 +7,14 @@ mod doctor;
 mod modal;
 
 use overseer_core::apply::DeploymentStatus;
+use overseer_core::deploy::FileConflict;
 use overseer_core::plugins::PluginMeta;
 use overseer_frontend::style::Role;
 use ratatui::{
     Frame,
     layout::{Alignment, Constraint, Layout, Rect},
     text::{Line, Span},
-    widgets::{Block, BorderType, List, ListItem, ListState, Paragraph, Wrap},
+    widgets::{Block, BorderType, Borders, List, ListItem, ListState, Paragraph, Wrap},
 };
 use strum::IntoEnumIterator;
 
@@ -50,8 +51,7 @@ pub(crate) fn draw_main(app: &mut App, frame: &mut Frame) {
     ]);
     frame.render_widget(Paragraph::new(header), rows[0]);
 
-    // Workspace switcher spans the full width above both panes so the two bordered
-    // panes line up (it used to sit inside the right column, offsetting it by a row).
+    // Workspace switcher spans the full width above both panes so the two bordered panes line up
     frame.render_widget(
         workspace_header(
             app.workspace,
@@ -155,8 +155,6 @@ fn workspace_header(active: Workspace, profile: &str, width: usize) -> Paragraph
 /// Build the switcher line; `verbose` shows labels/prefix/scope, compact labels only the active workspace.
 fn switcher_line(active: Workspace, profile: &str, verbose: bool) -> Line<'static> {
     let role = |on: bool| if on { Role::Heading } else { Role::Muted };
-    // Bold "Workspace" label, the workspaces `|`-separated with the active one
-    // emphasised, then the scope. `·` separates groups, `|` separates items.
     let mut spans = if verbose {
         vec![
             Span::styled(" Workspace ", theme::style(Role::Heading)),
@@ -212,7 +210,7 @@ fn render_plugins(app: &mut App, frame: &mut Frame, area: Rect) {
 /// The conflicts workspace: a scan result, or a short prompt in every other state.
 fn render_conflicts(app: &mut App, frame: &mut Frame, area: Rect) {
     let focused = app.focus == Focus::Workspace;
-    let rows: Vec<ListItem<'static>> = match &app.conflicts.status {
+    let found = match &app.conflicts.status {
         ConflictsStatus::Stale => {
             return render_workspace_message(
                 frame,
@@ -236,19 +234,91 @@ fn render_conflicts(app: &mut App, frame: &mut Frame, area: Rect) {
             );
         }
         // Each row is a priority chain; providers are winner-last, so the rightmost wins.
-        ConflictsStatus::Ready(found) => found
-            .iter()
-            .map(|c| ListItem::new(format!("{} · {}", c.relative, c.providers.join(" < "))))
-            .collect(),
+        ConflictsStatus::Ready(found) => found,
     };
-    render_pane(
-        frame,
-        area,
-        CONFLICTS_TITLE.to_owned(),
-        rows,
-        &mut app.conflicts.list,
-        focused,
-    );
+
+    let rows: Vec<ListItem<'static>> = found
+        .iter()
+        .map(|c| ListItem::new(format!(" {}  ×{}", c.relative, c.providers.len())))
+        .collect();
+    let selected = app
+        .conflicts
+        .list
+        .selected()
+        .and_then(|i| found.get(i))
+        .unwrap_or(&found[0]);
+
+    let block = Block::bordered()
+        .border_type(if focused {
+            BorderType::Thick
+        } else {
+            BorderType::Plain
+        })
+        .title(CONFLICTS_TITLE);
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    let panes = Layout::vertical([Constraint::Fill(1), Constraint::Length(8)]).split(inner);
+    let mut list = List::new(rows);
+    if focused {
+        list = list
+            .highlight_symbol("> ")
+            .highlight_style(theme::selection_style());
+    }
+    frame.render_stateful_widget(list, panes[0], &mut app.conflicts.list);
+
+    let detail = Paragraph::new(conflict_detail_lines(selected, panes[1].width as usize))
+        .wrap(Wrap { trim: false })
+        .block(Block::new().borders(Borders::TOP).title(" detail "));
+    frame.render_widget(detail, panes[1]);
+}
+
+/// The selected conflict's full path, winner, overriden mods, and the winner's staged path
+fn conflict_detail_lines(conflict: &FileConflict, width: usize) -> Vec<Line<'static>> {
+    let label = "File: ";
+    let indent = label.chars().count();
+    let text_width = width.saturating_sub(indent).max(1);
+    let mut lines: Vec<Line<'static>> = wrap_text(conflict.relative.as_str(), text_width)
+        .into_iter()
+        .enumerate()
+        .map(|(i, chunk)| {
+            if i == 0 {
+                Line::from(vec![
+                    Span::styled(label, theme::style(Role::Heading)),
+                    Span::raw(chunk),
+                ])
+            } else {
+                Line::from(format!("{}{chunk}", " ".repeat(indent)))
+            }
+        })
+        .collect();
+
+    // providers are low->high priority: winner last, everyone else loses
+    let Some((winner, losers)) = conflict.providers.split_last() else {
+        return lines;
+    };
+
+    lines.push(Line::from(vec![
+        Span::styled("Winner: ", theme::style(Role::Heading)),
+        Span::styled(winner.clone(), theme::style(Role::Success)),
+    ]));
+
+    lines.push(Line::styled("Overridden:", theme::style(Role::Heading)));
+    for loser in losers.iter().rev() {
+        lines.push(Line::styled(
+            format!("  · {loser}"),
+            theme::style(Role::Muted),
+        ));
+    }
+
+    lines.push(Line::from(vec![
+        Span::styled("Staged: ", theme::style(Role::Heading)),
+        Span::styled(
+            format!("mods/{winner}/{}", conflict.relative),
+            theme::style(Role::Muted),
+        ),
+    ]));
+    lines
 }
 
 /// The downloads workspace: installable archives, or a hint to drop files in.
@@ -426,6 +496,41 @@ fn render_overlay_list(
     frame.render_stateful_widget(list, area, state);
 }
 
+/// Greedily wrap `text` to `width` columns, hard-splitting any word too long to fit.
+pub(super) fn wrap_text(text: &str, width: usize) -> Vec<String> {
+    let mut lines = Vec::new();
+    let mut current = String::new();
+    for word in text.split_whitespace() {
+        if word.chars().count() > width {
+            // A word longer than the line: flush what we have, then hard-split it.
+            if !current.is_empty() {
+                lines.push(std::mem::take(&mut current));
+            }
+            for ch in word.chars() {
+                if current.chars().count() == width {
+                    lines.push(std::mem::take(&mut current));
+                }
+                current.push(ch);
+            }
+            continue;
+        }
+        let sep = usize::from(!current.is_empty());
+        if current.chars().count() + sep + word.chars().count() > width {
+            lines.push(std::mem::take(&mut current));
+        } else if sep == 1 {
+            current.push(' ');
+        }
+        current.push_str(word);
+    }
+    if !current.is_empty() {
+        lines.push(current);
+    }
+    if lines.is_empty() {
+        lines.push(String::new());
+    }
+    lines
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -530,22 +635,123 @@ mod tests {
         app.workspace = Workspace::Conflicts;
         let out = render(&mut app, 80, 24);
         assert!(out.contains("Press r"), "a stale scan prompts for r");
+        assert!(!out.contains(" detail "), "no split before a scan");
+    }
+
+    fn conflict(relative: &str, providers: &[&str]) -> overseer_core::deploy::FileConflict {
+        overseer_core::deploy::FileConflict {
+            relative: camino::Utf8PathBuf::from(relative),
+            providers: providers.iter().map(|p| (*p).to_owned()).collect(),
+        }
     }
 
     #[test]
-    fn conflicts_workspace_ready_row_shows_the_priority_chain() {
+    fn conflicts_workspace_ready_shows_list_row_and_detail() {
         use crate::app::{ConflictsStatus, Workspace};
-        use camino::Utf8PathBuf;
-        use overseer_core::deploy::FileConflict;
         let mut app = App::sample();
         app.workspace = Workspace::Conflicts;
-        app.conflicts.status = ConflictsStatus::Ready(vec![FileConflict {
-            relative: Utf8PathBuf::from("shared.dds"),
-            providers: vec!["Low".to_owned(), "High".to_owned()],
-        }]);
+        app.conflicts.status =
+            ConflictsStatus::Ready(vec![conflict("Textures/shared.dds", &["Low", "High"])]);
         let out = render(&mut app, 80, 24);
-        assert!(out.contains("shared.dds"), "the conflicting path is shown");
-        assert!(out.contains("Low < High"), "providers render winner-last");
+        assert!(
+            out.contains("Textures/shared.dds"),
+            "the file path is shown"
+        );
+        assert!(out.contains("×2"), "the list row shows the provider count");
+        assert!(out.contains("Winner: High"), "the detail names the winner");
+        assert!(
+            out.contains("Staged: mods/High/Textures/shared.dds"),
+            "the detail shows the winner's staged path"
+        );
+        assert!(out.contains("Low"), "the detail names a loser");
+        assert!(
+            !out.contains("mods/Low/"),
+            "a loser's path is never fabricated (core only keeps the winner's casing)"
+        );
+    }
+
+    #[test]
+    fn conflicts_workspace_detail_lists_losers_high_to_low() {
+        use crate::app::{ConflictsStatus, Workspace};
+        let mut app = App::sample();
+        app.workspace = Workspace::Conflicts;
+        app.conflicts.status = ConflictsStatus::Ready(vec![conflict(
+            "Meshes/shared.nif",
+            &["BaseLayer", "MiddleLayer", "TopLayer"],
+        )]);
+        app.conflicts.list.select(Some(0));
+        let out = render(&mut app, 80, 24);
+        let middle = out.find("MiddleLayer").expect("nearest loser");
+        let base = out.find("BaseLayer").expect("lowest-priority loser");
+        assert!(middle < base, "losers render nearest challenger first");
+    }
+
+    #[test]
+    fn conflicts_workspace_detail_follows_the_selection() {
+        use crate::app::{ConflictsStatus, Workspace};
+        let mut app = App::sample();
+        app.workspace = Workspace::Conflicts;
+        app.conflicts.status = ConflictsStatus::Ready(vec![
+            conflict("a.dds", &["Lo", "AlphaWinner"]),
+            conflict("b.dds", &["Lo", "BetaWinner"]),
+        ]);
+        app.conflicts.list.select(Some(1));
+        let out = render(&mut app, 80, 24);
+        assert!(
+            out.contains("Winner: BetaWinner"),
+            "the detail tracks the selected (second) conflict"
+        );
+        assert!(
+            !out.contains("Winner: AlphaWinner"),
+            "the unselected conflict's detail is not shown"
+        );
+    }
+
+    #[test]
+    fn conflicts_workspace_detail_wraps_a_narrow_path() {
+        use crate::app::{ConflictsStatus, Workspace};
+        let mut app = App::sample();
+        app.workspace = Workspace::Conflicts;
+        app.conflicts.status = ConflictsStatus::Ready(vec![conflict(
+            "Textures/VeryLongConflictPathWithUniqueWrapTail.dds",
+            &["Low", "High"],
+        )]);
+        let out = render(&mut app, 50, 24);
+        assert!(
+            out.contains("niqueWrapTail.dds"),
+            "the detail wraps a long path instead of clipping the suffix"
+        );
+    }
+
+    #[test]
+    fn conflicts_workspace_empty_state_stays_a_message() {
+        use crate::app::{ConflictsStatus, Workspace};
+        let mut app = App::sample();
+        app.workspace = Workspace::Conflicts;
+        app.conflicts.status = ConflictsStatus::Ready(Vec::new());
+        let out = render(&mut app, 80, 24);
+        assert!(
+            out.contains("No file conflicts"),
+            "an empty scan still renders its message"
+        );
+        assert!(
+            !out.contains(" detail "),
+            "the list/detail split is only used when conflicts exist"
+        );
+    }
+
+    #[test]
+    fn conflicts_workspace_error_state_stays_a_message() {
+        use crate::app::{ConflictsStatus, Workspace};
+        let mut app = App::sample();
+        app.workspace = Workspace::Conflicts;
+        app.conflicts.status = ConflictsStatus::Error("boom".to_owned());
+        let out = render(&mut app, 80, 24);
+        assert!(out.contains("Conflict scan failed: boom"), "error message");
+        assert!(
+            !out.contains(" detail "),
+            "the list/detail split is only used when conflicts exist"
+        );
     }
 
     #[test]
