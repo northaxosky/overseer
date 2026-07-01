@@ -19,10 +19,8 @@ pub struct DownloadEntry {
 /// List the installable archives in `instance.downloads_dir()`, sorted by name
 pub fn list_downloads(instance: &Instance) -> Result<Vec<DownloadEntry>, InstallError> {
     let dir = instance.downloads_dir();
-    let entries = match std::fs::read_dir(&dir) {
-        Ok(entries) => entries,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(e) => return Err(io_err(&dir, e).into()),
+    let Some(entries) = crate::fs::read_dir_opt(&dir)? else {
+        return Ok(Vec::new());
     };
 
     let mut downloads = Vec::new();

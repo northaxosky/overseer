@@ -253,10 +253,8 @@ impl Instance {
 
 /// Names of the immediate subdirectories of `dir`, sorted; a missing dir is an empty list
 fn read_subdirs(dir: &Utf8Path) -> Result<Vec<String>, InstanceError> {
-    let entries = match std::fs::read_dir(dir) {
-        Ok(entries) => entries,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(e) => return Err(io_err(dir, e).into()),
+    let Some(entries) = crate::fs::read_dir_opt(dir)? else {
+        return Ok(Vec::new());
     };
 
     let mut names = Vec::new();
