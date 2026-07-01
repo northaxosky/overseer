@@ -61,7 +61,14 @@ pub(super) fn render_doctor(app: &mut App, frame: &mut Frame, area: Rect) {
         rows[0],
     );
 
-    let items: Vec<ListItem<'static>> = report.findings.iter().map(finding_item).collect();
+    // Wrap long titles to the findings pane so nothing clips horizontally
+    // (`render_overlay_list` reserves 2 cols for the selection marker).
+    let text_width = (rows[1].width as usize).saturating_sub(2);
+    let items: Vec<ListItem<'static>> = report
+        .findings
+        .iter()
+        .map(|f| finding_item(f, text_width))
+        .collect();
     render_overlay_list(frame, rows[1], items, &mut app.doctor.list);
 
     let detail = selected_detail(report, app.doctor.list.selected());
@@ -96,14 +103,63 @@ fn doctor_summary_line(report: &Report, profile: &str) -> Line<'static> {
     )
 }
 
-/// One finding as a styled list row: a severity coloured glyph and the title
-fn finding_item(finding: &Finding) -> ListItem<'static> {
+/// One finding as a styled, width-wrapped list row: a severity-coloured glyph and
+/// the title, wrapped across lines so a long title stays fully readable.
+fn finding_item(finding: &Finding, width: usize) -> ListItem<'static> {
     let (role, glyph) = severity_style(finding.severity);
-    let line = Line::from(vec![
-        Span::styled(format!(" {glyph} "), theme::style(role)),
-        Span::raw(finding.title.clone()),
-    ]);
-    ListItem::new(line)
+    let prefix = format!(" {glyph} ");
+    let indent = prefix.chars().count();
+    let lines: Vec<Line<'static>> = wrap_text(&finding.title, width.saturating_sub(indent).max(1))
+        .into_iter()
+        .enumerate()
+        .map(|(i, chunk)| {
+            if i == 0 {
+                Line::from(vec![
+                    Span::styled(prefix.clone(), theme::style(role)),
+                    Span::raw(chunk),
+                ])
+            } else {
+                // Align continuation lines under the title.
+                Line::from(format!("{}{chunk}", " ".repeat(indent)))
+            }
+        })
+        .collect();
+    ListItem::new(lines)
+}
+
+/// Greedily wrap `text` to `width` columns, hard-splitting any word too long to fit.
+fn wrap_text(text: &str, width: usize) -> Vec<String> {
+    let mut lines = Vec::new();
+    let mut current = String::new();
+    for word in text.split_whitespace() {
+        if word.chars().count() > width {
+            // A word longer than the line: flush what we have, then hard-split it.
+            if !current.is_empty() {
+                lines.push(std::mem::take(&mut current));
+            }
+            for ch in word.chars() {
+                if current.chars().count() == width {
+                    lines.push(std::mem::take(&mut current));
+                }
+                current.push(ch);
+            }
+            continue;
+        }
+        let sep = usize::from(!current.is_empty());
+        if current.chars().count() + sep + word.chars().count() > width {
+            lines.push(std::mem::take(&mut current));
+        } else if sep == 1 {
+            current.push(' ');
+        }
+        current.push_str(word);
+    }
+    if !current.is_empty() {
+        lines.push(current);
+    }
+    if lines.is_empty() {
+        lines.push(String::new());
+    }
+    lines
 }
 
 /// The detail text for the selected finding
@@ -112,12 +168,10 @@ fn selected_detail(report: &Report, selected: Option<usize>) -> String {
         return "No problems found.".to_owned();
     }
     match selected.and_then(|i| report.findings.get(i)) {
-        // Show the full title plus detail so long finding text stays readable:
-        // the list row clips horizontally, but this pane wraps.
-        Some(f) => match &f.detail {
-            Some(detail) => format!("{}\n\n{}", f.title, detail),
-            None => f.title.clone(),
-        },
+        Some(f) => f
+            .detail
+            .clone()
+            .unwrap_or_else(|| "No further detail.".to_owned()),
         None => String::new(),
     }
 }

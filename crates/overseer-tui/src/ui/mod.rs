@@ -671,6 +671,29 @@ mod tests {
     }
 
     #[test]
+    fn doctor_wraps_long_finding_titles() {
+        use crate::app::DoctorStatus;
+        use overseer_diagnostics::{Finding, Report, Severity};
+        let mut app = App::sample();
+        app.workspace = Workspace::Doctor;
+        app.doctor.status = DoctorStatus::Ready(Report::new(vec![Finding {
+            check: "x",
+            severity: Severity::Warning,
+            title: "This is an exceptionally long finding title that will not fit on one row"
+                .to_owned(),
+            detail: None,
+        }]));
+        app.doctor.list.select(Some(0));
+        // Narrow terminal: the trailing word only survives if the title wrapped
+        // instead of clipping at the pane edge.
+        let out = render(&mut app, 40, 24);
+        assert!(
+            out.contains("row"),
+            "a long finding title wraps to stay readable"
+        );
+    }
+
+    #[test]
     fn doctor_workspace_reports_all_clear_when_empty() {
         use crate::app::DoctorStatus;
         use overseer_diagnostics::Report;
