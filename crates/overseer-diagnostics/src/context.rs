@@ -2,7 +2,7 @@
 
 use crate::error::DiagnosticError;
 use camino::{Utf8Path, Utf8PathBuf};
-use overseer_core::archive::{Ba2Error, Ba2Header};
+use overseer_core::archive::{Ba2Error, Ba2Header, Ba2Kind};
 use overseer_core::deploy::{DATA_DIR, DeployPlan, F4SE_PLUGINS_DIR, strip_data_prefix};
 use overseer_core::detect::{
     self, RuntimeFamily, address_library_name, file_version, loader_family,
@@ -13,7 +13,7 @@ use overseer_core::instance::{Instance, Profile};
 use overseer_core::plugins::{
     PluginLoadOrder, PluginMeta, discover_plugins, implicit_active_plugins, read_metadata,
 };
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// The state a diagnostic run inspects. Gathered once using [`GameContext::gather`]
 #[derive(Default)]
@@ -42,6 +42,21 @@ pub struct GameContext {
     pub f4se_plugins: Vec<F4sePluginScan>,
     /// The game exe's runtime packed for matching plugin `compatibleVersions`, if known
     pub runtime_packed: Option<u32>,
+    /// Loaded BA2 counts across base game archives and active mod archives
+    pub loaded_archive_counts: LoadedArchiveCounts,
+}
+
+/// Loaded BA2 counts split by content kind and Fallout 4 archive generation
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct LoadedArchiveCounts {
+    /// Loaded `GNRL` archives
+    pub gnrl: usize,
+    /// Loaded `DX10` archives
+    pub dx10: usize,
+    /// Loaded version 1 archives
+    pub v1: usize,
+    /// Loaded version 7/8 archives
+    pub vng: usize,
 }
 
 /// A deployed F4SE plugin DLL and the runtime support it advertises
@@ -132,8 +147,7 @@ impl GameContext {
             .filter(|p| order.is_active(&p.name))
             .collect();
 
-        // The files this profile would actually deploy, conflict-resolved. Root/ content
-        // deploys to the game root rather than Data/, so it's dropped here.
+        // The files this profile would actually deploy, conflict-resolved
         let sources = profile.deploy_sources(instance);
         let plan = DeployPlan::from_rooted_mods(&instance.config.game_dir, &sources)?;
         let data_files: Vec<DataFile> = plan
@@ -164,9 +178,9 @@ impl GameContext {
             }
         }
         loaded_plugins.extend(active_plugins.iter().cloned());
+        let loaded_archive_counts = scan_loaded_archive_counts(&data_dir, &plan, &loaded_plugins);
 
-        // F4SE health: the game's runtime family, the installed loader's family, and whether the
-        // matching Address Library is present (only relevant once F4SE plugins are deployed).
+        // F4SE health: the game's runtime family, loader's family, Address Library
         let install = detect::detect(instance.config.game, &instance.config.game_dir);
         let runtime_family = install.version.and_then(detect::runtime_family);
         let loader_family = file_version(
@@ -193,6 +207,7 @@ impl GameContext {
             address_library,
             f4se_plugins,
             runtime_packed,
+            loaded_archive_counts,
         })
     }
 }
@@ -315,6 +330,108 @@ fn scan_archives(plan: &DeployPlan) -> Vec<ArchiveInfo> {
         .collect()
 }
 
+/// Count loaded BA2 archives from `Data/` plus the current deploy plan
+fn scan_loaded_archive_counts(
+    data_dir: &Utf8Path,
+    plan: &DeployPlan,
+    loaded_plugins: &[PluginMeta],
+) -> LoadedArchiveCounts {
+    let loaded_stems: BTreeSet<String> = loaded_plugins
+        .iter()
+        .filter_map(|p| plugin_stem(&p.name))
+        .collect();
+    if loaded_stems.is_empty() {
+        return LoadedArchiveCounts::default();
+    }
+
+    // Candidates keyed by lowercased filename
+    let mut candidates: BTreeMap<String, Utf8PathBuf> = BTreeMap::new();
+    for path in data_dir_archive_paths(data_dir) {
+        if let Some(name) = path.file_name() {
+            candidates.insert(name.to_lowercase(), path);
+        }
+    }
+    for file in plan.files() {
+        let Some(rel) = strip_data_prefix(&file.relative) else {
+            continue;
+        };
+        if rel.components().count() != 1
+            || !rel
+                .extension()
+                .is_some_and(|e| e.eq_ignore_ascii_case("ba2"))
+        {
+            continue;
+        }
+        if let Some(name) = rel.file_name() {
+            candidates.insert(name.to_lowercase(), file.source.clone());
+        }
+    }
+
+    let mut counts = LoadedArchiveCounts::default();
+    for (name, path) in candidates {
+        let Some(stem) = archive_plugin_stem(&name) else {
+            continue;
+        };
+        if !loaded_stems.contains(&stem) {
+            continue;
+        }
+        let Ok(header) = Ba2Header::read(&path) else {
+            continue;
+        };
+        match header.kind {
+            Ba2Kind::General => counts.gnrl += 1,
+            Ba2Kind::Texture => counts.dx10 += 1,
+            Ba2Kind::Other(_) => continue,
+        }
+        match header.version {
+            1 => counts.v1 += 1,
+            7 | 8 => counts.vng += 1,
+            _ => {}
+        }
+    }
+    counts
+}
+
+/// Enumerate top-level `.ba2` files in the game `Data/` directory
+fn data_dir_archive_paths(data_dir: &Utf8Path) -> Vec<Utf8PathBuf> {
+    let Ok(entries) = std::fs::read_dir(data_dir) else {
+        return Vec::new();
+    };
+    entries
+        .filter_map(Result::ok)
+        .filter_map(|entry| Utf8PathBuf::from_path_buf(entry.path()).ok())
+        .filter(|path| {
+            path.extension()
+                .is_some_and(|e| e.eq_ignore_ascii_case("ba2"))
+        })
+        .collect()
+}
+
+/// Lowercase plugin stem from a plugin filename
+fn plugin_stem(name: &str) -> Option<String> {
+    let path = Utf8Path::new(name);
+    let is_plugin = path.extension().is_some_and(|e| {
+        e.eq_ignore_ascii_case("esp")
+            || e.eq_ignore_ascii_case("esm")
+            || e.eq_ignore_ascii_case("esl")
+    });
+    is_plugin.then(|| path.file_stem().map(str::to_lowercase))?
+}
+
+/// Lowercase loaded-plugin stem implied by a BA2 filename
+fn archive_plugin_stem(name: &str) -> Option<String> {
+    let path = Utf8Path::new(name);
+    if !path
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("ba2"))
+    {
+        return None;
+    }
+    let stem = path.file_stem()?;
+    let base = stem.split_once(" - ").map_or(stem, |(base, _)| base);
+    Some(base.to_lowercase())
+}
+
 /// The filename if `relative` is a top level `Data/<plugin>` path naming an active plugin
 fn active_plugins_name<'a>(relative: &'a Utf8Path, active: &BTreeSet<String>) -> Option<&'a str> {
     let mut components = relative.components();
@@ -337,7 +454,9 @@ mod tests {
     use super::*;
     use overseer_core::deploy::ModSource;
     use overseer_core::game::GameKind;
-    use overseer_core::test_support::{FLAG_MASTER, temp as temp_base, write_plugin};
+    use overseer_core::test_support::{
+        FLAG_MASTER, ba2_bytes, install_plugin, save_profile, temp as temp_base, write_plugin,
+    };
     use tempfile::TempDir;
 
     fn active_set(names: &[&str]) -> BTreeSet<String> {
@@ -439,6 +558,13 @@ mod tests {
         write_plugin(&instance.config.game_dir.join("Data"), name, flags, &[]);
     }
 
+    fn write_ba2(path: &Utf8Path, version: u32, tag: &[u8; 4]) {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).unwrap();
+        }
+        std::fs::write(path, ba2_bytes(version, tag, b"")).unwrap();
+    }
+
     #[test]
     fn gather_loads_only_installed_implicit_plugins() {
         let (_tmp, instance) = fake_install();
@@ -472,5 +598,78 @@ mod tests {
         let light = ctx.loaded_plugins.iter().filter(|p| p.is_light).count();
         assert_eq!(full, 2, "Fallout4.esm + DLCCoast.esm");
         assert_eq!(light, 1, "the CC .esl");
+    }
+
+    #[test]
+    fn gather_counts_loaded_archives_and_excludes_inactive_plugin_archives() {
+        let (_tmp, instance) = fake_install();
+        install_game_plugin(&instance, "Fallout4.esm", FLAG_MASTER);
+        write_ba2(
+            &instance
+                .config
+                .game_dir
+                .join("Data/Fallout4 - Textures1.ba2"),
+            1,
+            b"DX10",
+        );
+
+        install_plugin(&instance, "ActiveMod", "Active.esp");
+        write_ba2(
+            &instance.mods_dir().join("ActiveMod/Active - Main.ba2"),
+            7,
+            b"GNRL",
+        );
+        // A nested archive is not top-level in Data/, so the engine won't auto-load it —
+        // even though its basename matches the active plugin. Must not be counted.
+        write_ba2(
+            &instance
+                .mods_dir()
+                .join("ActiveMod/textures/Active - Extra.ba2"),
+            7,
+            b"GNRL",
+        );
+        install_plugin(&instance, "InactiveMod", "Inactive.esp");
+        write_ba2(
+            &instance.mods_dir().join("InactiveMod/Inactive - Main.ba2"),
+            8,
+            b"GNRL",
+        );
+        save_profile(
+            &instance,
+            "Default",
+            &[("ActiveMod", true), ("InactiveMod", true)],
+        );
+        std::fs::write(
+            instance.profile_dir("Default").join("plugins.txt"),
+            "*Active.esp\nInactive.esp\n",
+        )
+        .unwrap();
+
+        let ctx = GameContext::gather(&instance, "Default").expect("gather");
+
+        assert_eq!(
+            ctx.loaded_archive_counts,
+            LoadedArchiveCounts {
+                gnrl: 1,
+                dx10: 1,
+                v1: 1,
+                vng: 1,
+            },
+            "base + active-mod archives count; the inactive-plugin and nested archives do not"
+        );
+    }
+
+    #[test]
+    fn archive_plugin_stem_strips_only_the_basename_prefix() {
+        assert_eq!(
+            archive_plugin_stem("Fallout4 - Textures1.ba2").as_deref(),
+            Some("fallout4")
+        );
+        assert_eq!(
+            archive_plugin_stem("MyMod - Main.ba2").as_deref(),
+            Some("mymod")
+        );
+        assert_eq!(archive_plugin_stem("MyMod.ba2").as_deref(), Some("mymod"));
+        assert_eq!(archive_plugin_stem("MyMod.txt"), None);
     }
 }
