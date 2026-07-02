@@ -427,6 +427,24 @@ pub(super) fn centered_rect(pct_x: u16, pct_y: u16, area: Rect) -> Rect {
     .split(rows[1])[1]
 }
 
+/// A `Rect` centered in `area`, `pct_x`% wide and a fixed `lines` tall (clamped to `area`).
+pub(super) fn centered_rect_lines(pct_x: u16, lines: u16, area: Rect) -> Rect {
+    let lines = lines.min(area.height);
+    let top = area.height.saturating_sub(lines) / 2;
+    let rows = Layout::vertical([
+        Constraint::Length(top),
+        Constraint::Length(lines),
+        Constraint::Min(0),
+    ])
+    .split(area);
+    Layout::horizontal([
+        Constraint::Percentage((100 - pct_x) / 2),
+        Constraint::Percentage(pct_x),
+        Constraint::Percentage((100 - pct_x) / 2),
+    ])
+    .split(rows[1])[1]
+}
+
 /// The enabled/active checkbox marker
 fn marker(on: bool) -> &'static str {
     if on { "[x]" } else { "[ ]" }

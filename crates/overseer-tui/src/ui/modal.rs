@@ -3,11 +3,12 @@
 use overseer_frontend::style::Role;
 use ratatui::{
     Frame,
-    layout::{Constraint, Layout},
+    layout::{Alignment, Constraint, Layout},
     widgets::{Block, BorderType, Clear, List, ListItem, Padding, Paragraph, Wrap},
 };
 
 use super::centered_rect;
+use super::centered_rect_lines;
 use super::doctor::render_doctor_modal;
 use crate::app::{App, Confirm, Info, Modal, Prompt, Select};
 use crate::theme;
@@ -96,7 +97,7 @@ fn render_select(select: &mut Select, frame: &mut Frame) {
 }
 
 fn render_prompt(prompt: &Prompt, frame: &mut Frame) {
-    let area = centered_rect(60, 30, frame.area());
+    let area = centered_rect_lines(50, 9, frame.area());
     frame.render_widget(Clear, area);
     let block = Block::bordered()
         .border_type(BorderType::Double)
@@ -106,9 +107,10 @@ fn render_prompt(prompt: &Prompt, frame: &mut Frame) {
     frame.render_widget(block, area);
 
     let rows = Layout::vertical([
+        Constraint::Fill(1),   // top spacer (centers the input)
         Constraint::Length(1), // input line
         Constraint::Length(1), // inline error
-        Constraint::Fill(1),   // spacer
+        Constraint::Fill(1),   // bottom spacer
         Constraint::Length(1), // hint
     ])
     .split(inner);
@@ -116,19 +118,24 @@ fn render_prompt(prompt: &Prompt, frame: &mut Frame) {
     let room = (inner.width as usize).saturating_sub(1);
     let line = format!("{}| ", tail(&prompt.input, room));
     frame.render_widget(
-        Paragraph::new(line).style(theme::style(Role::Heading)),
-        rows[0],
+        Paragraph::new(line)
+            .style(theme::style(Role::Heading))
+            .alignment(Alignment::Center),
+        rows[1],
     );
 
     if let Some(err) = &prompt.error {
         let msg = Paragraph::new(err.clone())
             .style(theme::style(Role::Failure))
+            .alignment(Alignment::Center)
             .wrap(Wrap { trim: true });
-        frame.render_widget(msg, rows[1]);
+        frame.render_widget(msg, rows[2]);
     }
 
-    let hint = Paragraph::new(" Enter confirm · Esc cancel ").style(theme::style(Role::Muted));
-    frame.render_widget(hint, rows[3]);
+    let hint = Paragraph::new(" Enter confirm · Esc cancel ")
+        .style(theme::style(Role::Muted))
+        .alignment(Alignment::Center);
+    frame.render_widget(hint, rows[4]);
 }
 
 fn render_confirm(confirm: &Confirm, frame: &mut Frame) {
