@@ -1,9 +1,10 @@
 //! Fallout 4 whole install edition conversion: applying binary deltas to swap game binaries between gens
 
 use crate::error::IoError;
-use crate::fs::size_opt;
-use crate::patch::delta::crc32_file;
+use crate::fs::{copy, fsync, remove_file_opt, rename, size_opt};
+use crate::patch::delta::{DeltaDecoder, DeltaError, crc32_file};
 use camino::Utf8Path;
+use thiserror::Error;
 
 /// Which edition to convert an install toward
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -95,6 +96,102 @@ pub fn plan(
         .collect()
 }
 
+/// A failure that stops a conversion
+#[derive(Debug, Error)]
+pub enum ConvertError {
+    /// The delta decoder failed on this file
+    #[error("delta application failed for `{item}`")]
+    Delta {
+        item: String,
+        #[source]
+        source: DeltaError,
+    },
+    /// The reconstructed file was not the expected target
+    #[error("`{item}` did not reconstruct the target (crc {found:08X}, expected {expected:08X})")]
+    TargetMismatch {
+        item: String,
+        found: u32,
+        expected: u32,
+    },
+    #[error(transparent)]
+    Io(#[from] IoError),
+}
+
+/// What converting one item did
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Outcome {
+    /// The file was downgraded and verified against its target
+    Converted,
+    /// The file was already the target edition; left untouched
+    AlreadyTarget,
+    /// The file was absent; nothing to convert
+    Missing,
+}
+
+/// Convert one `item` in `game_dir` by applying `delta`, idempotently and crash-safely
+pub fn convert_item(
+    game_dir: &Utf8Path,
+    item: &ConvertItem,
+    delta: &Utf8Path,
+    decoder: &dyn DeltaDecoder,
+) -> Result<Outcome, ConvertError> {
+    match classify(game_dir, item)? {
+        ItemState::AlreadyTarget => return Ok(Outcome::AlreadyTarget),
+        ItemState::Missing => return Ok(Outcome::Missing),
+        ItemState::NeedsConversion => {}
+    }
+
+    let real = game_dir.join(item.rel_path);
+    let tmp = game_dir.join(format!("{}.overseer-tmp", item.rel_path));
+    let bak = game_dir.join(format!("{}.overseer-bak", item.rel_path));
+
+    // Reconstruct into a temp; the real file is still the decoder's untouched source
+    if let Err(source) = decoder.apply(&real, delta, &tmp) {
+        let _ = remove_file_opt(&tmp);
+        return Err(ConvertError::Delta {
+            item: item.rel_path.to_owned(),
+            source,
+        });
+    }
+
+    // Verify the candidate is the exact clean target — size AND CRC, mirroring how the manifest
+    // identifies a target — before the real file is ever at risk. Size guards a CRC32 collision.
+    let size = size_opt(&tmp).inspect_err(|_| {
+        let _ = remove_file_opt(&tmp);
+    })?;
+    let found = crc32_file(&tmp).inspect_err(|_| {
+        let _ = remove_file_opt(&tmp);
+    })?;
+    if size != Some(item.target_size) || found != item.target_crc {
+        remove_file_opt(&tmp)?;
+        return Err(ConvertError::TargetMismatch {
+            item: item.rel_path.to_owned(),
+            found,
+            expected: item.target_crc,
+        });
+    }
+
+    // Flush the reconstructed bytes to stable storage before the rename makes them the live file,
+    // so a power loss can't leave a renamed-but-unflushed (corrupt) game binary.
+    fsync(&tmp)?;
+
+    // Back up real by copying, then swap out atomically
+    copy(&real, &bak)?;
+    rename(&tmp, &real)?;
+    Ok(Outcome::Converted)
+}
+
+/// Apply each resolved `(item, delta)` job in order, returning every item's outcome
+pub fn convert(
+    game_dir: &Utf8Path,
+    jobs: &[(&ConvertItem, &Utf8Path)],
+    decoder: &dyn DeltaDecoder,
+) -> Result<Vec<(&'static str, Outcome)>, ConvertError> {
+    jobs.iter()
+        .map(|(item, delta)| Ok((item.rel_path, convert_item(game_dir, item, delta, decoder)?)))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -171,5 +268,172 @@ mod tests {
             names,
             ["Fallout4.exe", "Fallout4Launcher.exe", "steam_api64.dll"]
         );
+    }
+
+    // A decoder that ignores the delta and writes a scripted result, so convert_item's
+    // ordering/verification can be exercised without a real xdelta3.
+    enum FakeDecoder {
+        /// Write these exact bytes to `dest` (simulates a good or a wrong delta).
+        Writes(Vec<u8>),
+        /// Fail as if the decoder errored, writing nothing.
+        Fails,
+    }
+
+    impl DeltaDecoder for FakeDecoder {
+        fn apply(
+            &self,
+            _source: &Utf8Path,
+            _delta: &Utf8Path,
+            dest: &Utf8Path,
+        ) -> Result<(), DeltaError> {
+            match self {
+                FakeDecoder::Writes(bytes) => {
+                    std::fs::write(dest, bytes).unwrap();
+                    Ok(())
+                }
+                FakeDecoder::Fails => Err(DeltaError::Failed {
+                    code: Some(1),
+                    stderr: "boom".to_owned(),
+                }),
+            }
+        }
+    }
+
+    /// Seed `game_dir/check.bin` with `bytes` (a not-yet-target file).
+    fn seed_source(bytes: &[u8]) -> (tempfile::TempDir, camino::Utf8PathBuf) {
+        let (tmp, root) = temp();
+        std::fs::write(root.join("check.bin"), bytes).unwrap();
+        (tmp, root)
+    }
+
+    #[test]
+    fn convert_item_downgrades_verifies_and_backs_up() {
+        let (_tmp, root) = seed_source(b"AE-version");
+        // A "good delta": the decoder produces the exact target bytes.
+        let decoder = FakeDecoder::Writes(b"123456789".to_vec());
+
+        let outcome = convert_item(&root, &ITEM, Utf8Path::new("d.vcdiff"), &decoder).unwrap();
+
+        assert_eq!(outcome, Outcome::Converted);
+        assert_eq!(
+            std::fs::read(root.join("check.bin")).unwrap(),
+            b"123456789",
+            "the real file is now the target"
+        );
+        assert_eq!(
+            std::fs::read(root.join("check.bin.overseer-bak")).unwrap(),
+            b"AE-version",
+            "the original is backed up"
+        );
+        assert!(
+            !root.join("check.bin.overseer-tmp").exists(),
+            "the temp is consumed by the rename"
+        );
+    }
+
+    #[test]
+    fn a_wrong_delta_leaves_the_real_file_untouched() {
+        let (_tmp, root) = seed_source(b"AE-version");
+        // A "bad delta": right length (9) but wrong bytes, so the CRC won't match.
+        let decoder = FakeDecoder::Writes(b"987654321".to_vec());
+
+        let err =
+            convert_item(&root, &ITEM, Utf8Path::new("d.vcdiff"), &decoder).expect_err("mismatch");
+
+        assert!(matches!(err, ConvertError::TargetMismatch { .. }));
+        assert_eq!(
+            std::fs::read(root.join("check.bin")).unwrap(),
+            b"AE-version",
+            "a bad delta must never touch the real file"
+        );
+        assert!(
+            !root.join("check.bin.overseer-tmp").exists(),
+            "the rejected temp is cleaned up"
+        );
+        assert!(
+            !root.join("check.bin.overseer-bak").exists(),
+            "no backup is made when the conversion is rejected"
+        );
+    }
+
+    #[test]
+    fn a_decoder_failure_is_reported_and_cleans_up() {
+        let (_tmp, root) = seed_source(b"AE-version");
+        let err = convert_item(&root, &ITEM, Utf8Path::new("d.vcdiff"), &FakeDecoder::Fails)
+            .expect_err("decoder failed");
+
+        assert!(matches!(err, ConvertError::Delta { .. }));
+        assert_eq!(
+            std::fs::read(root.join("check.bin")).unwrap(),
+            b"AE-version",
+            "the real file is untouched"
+        );
+        assert!(!root.join("check.bin.overseer-tmp").exists());
+    }
+
+    #[test]
+    fn convert_item_is_idempotent_on_an_already_target_file() {
+        let (_tmp, root) = temp();
+        std::fs::write(root.join("check.bin"), b"123456789").unwrap(); // already the target
+        // A decoder that would corrupt if ever called — it must not be.
+        let decoder = FakeDecoder::Writes(b"corrupted".to_vec());
+
+        let outcome = convert_item(&root, &ITEM, Utf8Path::new("d.vcdiff"), &decoder).unwrap();
+
+        assert_eq!(outcome, Outcome::AlreadyTarget);
+        assert_eq!(
+            std::fs::read(root.join("check.bin")).unwrap(),
+            b"123456789",
+            "an already-target file is left exactly as-is"
+        );
+        assert!(!root.join("check.bin.overseer-bak").exists());
+    }
+
+    #[test]
+    fn convert_item_reports_a_missing_file() {
+        let (_tmp, root) = temp();
+        let outcome = convert_item(
+            &root,
+            &ITEM,
+            Utf8Path::new("d.vcdiff"),
+            &FakeDecoder::Writes(b"123456789".to_vec()),
+        )
+        .unwrap();
+        assert_eq!(outcome, Outcome::Missing);
+    }
+
+    #[test]
+    fn a_right_crc_but_wrong_size_result_is_rejected() {
+        // Guards the CRC32-collision path: the item's CRC matches the output, but the size does
+        // not, so the two-factor check must still refuse and leave the real file untouched.
+        let (_tmp, root) = seed_source(b"AE-version");
+        let item = ConvertItem {
+            rel_path: "check.bin",
+            target_size: 9_999,      // deliberately not the 9-byte output size
+            target_crc: 0xCBF4_3926, // the CRC of "123456789"
+        };
+        let decoder = FakeDecoder::Writes(b"123456789".to_vec());
+
+        let err = convert_item(&root, &item, Utf8Path::new("d.vcdiff"), &decoder)
+            .expect_err("size mismatch");
+
+        assert!(matches!(err, ConvertError::TargetMismatch { .. }));
+        assert_eq!(
+            std::fs::read(root.join("check.bin")).unwrap(),
+            b"AE-version",
+            "a size mismatch must not touch the real file"
+        );
+        assert!(!root.join("check.bin.overseer-tmp").exists());
+        assert!(!root.join("check.bin.overseer-bak").exists());
+    }
+
+    #[test]
+    fn convert_runs_each_job_and_reports_every_outcome() {
+        let (_tmp, root) = seed_source(b"AE-version");
+        let decoder = FakeDecoder::Writes(b"123456789".to_vec());
+        let jobs = [(&ITEM, Utf8Path::new("d.vcdiff"))];
+
+        let outcomes = convert(&root, &jobs, &decoder).unwrap();
+        assert_eq!(outcomes, vec![("check.bin", Outcome::Converted)]);
     }
 }

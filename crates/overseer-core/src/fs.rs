@@ -59,6 +59,29 @@ pub(crate) fn write_atomic(path: &Utf8Path, contents: &[u8]) -> Result<(), IoErr
         })
 }
 
+/// Copy a file's contents to `to`, binding the source path on error
+pub(crate) fn copy(from: &Utf8Path, to: &Utf8Path) -> Result<(), IoError> {
+    std::fs::copy(from, to)
+        .map(|_| ())
+        .map_err(|e| io_err(from, e))
+}
+
+/// Rename `from` to `to` (atomic); binds the source path on error
+pub(crate) fn rename(from: &Utf8Path, to: &Utf8Path) -> Result<(), IoError> {
+    std::fs::rename(from, to).map_err(|e| io_err(from, e))
+}
+
+/// Flush a file's contents to stable storage (durability before an atomic rename).
+///
+/// Opens with write access because Windows `FlushFileBuffers` requires it.
+pub(crate) fn fsync(path: &Utf8Path) -> Result<(), IoError> {
+    let file = std::fs::OpenOptions::new()
+        .write(true)
+        .open(path)
+        .map_err(|e| io_err(path, e))?;
+    file.sync_all().map_err(|e| io_err(path, e))
+}
+
 /// Remove a file; `Ok(())` if it's already gone.
 pub(crate) fn remove_file_opt(path: &Utf8Path) -> Result<(), IoError> {
     match std::fs::remove_file(path) {
