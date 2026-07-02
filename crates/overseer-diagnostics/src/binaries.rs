@@ -81,10 +81,11 @@ fn steam_api_from_version(version: ExeVersion) -> Option<BinaryEdition> {
     }
 }
 
-/// CRC32 fallback for `steam_api64.dll` when version resource doesnt work
+/// CRC32 fallback for `steam_api64.dll` when the version resource is unreadable
 fn steam_api_from_crc(crc: u32) -> Option<BinaryEdition> {
     match crc {
-        0xBD3A_A35F => Some(BinaryEdition::OldGen),
+        0xBBD9_12FC => Some(BinaryEdition::OldGen),
+        0xE36E_7B4D => Some(BinaryEdition::NgAe),
         _ => None,
     }
 }
@@ -187,12 +188,16 @@ mod tests {
     #[test]
     fn steam_api_falls_back_to_crc_when_the_version_is_unknown() {
         assert_eq!(
-            classify(STEAM_API, None, 0xBD3A_A35F),
+            classify(STEAM_API, None, 0xBBD9_12FC),
             Some(BinaryEdition::OldGen)
+        );
+        assert_eq!(
+            classify(STEAM_API, None, 0xE36E_7B4D),
+            Some(BinaryEdition::NgAe)
         );
         // An unrecognised version must not block the CRC fallback.
         assert_eq!(
-            classify(STEAM_API, Some(version(9, 9, 9, 9)), 0xBD3A_A35F),
+            classify(STEAM_API, Some(version(9, 9, 9, 9)), 0xBBD9_12FC),
             Some(BinaryEdition::OldGen)
         );
     }
