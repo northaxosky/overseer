@@ -1,8 +1,8 @@
 //! Fallout 4 BA2 edition policy: which header version means which "generation", and patching
-//! an archive between them via the generic [`super::set_version`].
+//! an archive between them via the generic [`crate::patch::set_version`].
 
-use super::{VersionChange, set_version};
 use crate::archive::{Ba2Error, Ba2Header, Ba2Kind};
+use crate::patch::{VersionChange, set_version};
 use camino::Utf8Path;
 
 /// The two Fallout 4 archive "generations", keyed on the header version field
