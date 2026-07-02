@@ -6,7 +6,9 @@ use overseer_core::launch;
 use ratatui::crossterm::event::{KeyCode, KeyEvent};
 
 use super::move_in_list;
-use crate::app::{App, Focus, Modal, Select, SelectKind, Session, initial_selection};
+use crate::app::{
+    App, Confirm, ConfirmAction, Focus, Modal, Select, SelectKind, Session, initial_selection,
+};
 
 impl App {
     /// Keys for Select modal: navigate the list, submit, or cancel
@@ -19,6 +21,9 @@ impl App {
             // Esc/q always cancel
             KeyCode::Esc | KeyCode::Char('q') => self.modal = None,
             KeyCode::Char('n') if select.kind == SelectKind::Profile => self.open_new_profile(),
+            KeyCode::Char('n') if select.kind == SelectKind::Profile => self.open_new_profile(),
+            KeyCode::Char('a') if select.kind == SelectKind::Launch => self.open_add_exe(),
+            KeyCode::Char('x') if select.kind == SelectKind::Launch => self.confirm_remove_exe(),
             KeyCode::Char(c) if c == toggle => self.modal = None,
             KeyCode::Down | KeyCode::Char('j') => self.move_in_select(1),
             KeyCode::Up | KeyCode::Char('k') => self.move_in_select(-1),
@@ -68,8 +73,7 @@ impl App {
     fn submit_modal(&mut self) {
         let select = match self.modal.take() {
             Some(Modal::Select(select)) => select,
-            // A Prompt submits via its own handler; a Confirm via `handle_confirm_key`;
-            // an Info and a Doctor have no submit at all.
+            // A Prompt submits via its own handler; a Confirm via `handle_confirm_key`
             Some(Modal::Prompt(_))
             | Some(Modal::Confirm(_))
             | Some(Modal::Info(_))
@@ -98,6 +102,53 @@ impl App {
             },
             None => self.note("No launch targets — add one with `overseer exe add`"),
         }
+    }
+
+    /// Ask to remove the highlighted launch target
+    fn confirm_remove_exe(&mut self) {
+        let Some(Modal::Select(select)) = &self.modal else {
+            return;
+        };
+        let Some(name) = select
+            .state
+            .selected()
+            .and_then(|i| select.items.get(i).cloned())
+        else {
+            self.note("No launch target to remove");
+            return;
+        };
+        self.modal = Some(Modal::Confirm(Confirm {
+            message: format!("Remove launch target {name}?"),
+            action: ConfirmAction::RemoveExe(name),
+        }));
+    }
+
+    /// remove the launch target named `name`, persist, then reopen the picker
+    pub(super) fn remove_exe(&mut self, name: &str) {
+        if !self
+            .session
+            .instance
+            .config
+            .executables
+            .iter()
+            .any(|e| e.name == name)
+        {
+            self.fail(format!("No launch target named {name}"));
+            return;
+        }
+        let snapshot = self.session.instance.config.executables.clone();
+        self.session
+            .instance
+            .config
+            .executables
+            .retain(|e| e.name != name);
+        if let Err(e) = self.session.instance.save() {
+            self.session.instance.config.executables = snapshot; // keep memory == disk
+            self.fail(format!("Could not save instance: {e}"));
+            return;
+        }
+        self.open_select(SelectKind::Launch);
+        self.ok(format!("Removed launch target {name}"));
     }
 
     /// Switch the active profile to the one at `selected`, reloading the session
@@ -230,6 +281,161 @@ mod tests {
                 }))
             ),
             "the launch picker stays open and unchanged"
+        );
+    }
+
+    #[test]
+    fn a_in_the_launch_picker_opens_the_add_exe_prompt() {
+        use crate::app::{Prompt, PromptKind};
+        let mut app = App::sample();
+        app.handle_key(key(KeyCode::Char('l')));
+        app.handle_key(key(KeyCode::Char('a')));
+        assert!(
+            matches!(
+                app.modal,
+                Some(Modal::Prompt(Prompt {
+                    kind: PromptKind::AddExe,
+                    ..
+                }))
+            ),
+            "a opens the add-exe prompt"
+        );
+    }
+
+    #[test]
+    fn x_in_the_launch_picker_confirms_removal_of_the_highlighted_target() {
+        let mut app = App::sample();
+        app.session.instance.config.executables = vec![overseer_core::instance::Executable {
+            name: "FO4Edit".to_owned(),
+            path: Utf8PathBuf::from("C:/Tools/FO4Edit.exe"),
+            args: Vec::new(),
+        }];
+        app.handle_key(key(KeyCode::Char('l')));
+        app.handle_key(key(KeyCode::Char('x')));
+        match &app.modal {
+            Some(Modal::Confirm(c)) => {
+                assert!(
+                    c.message.contains("FO4Edit"),
+                    "the confirm names the target"
+                );
+                assert!(
+                    matches!(&c.action, ConfirmAction::RemoveExe(n) if n == "FO4Edit"),
+                    "x stages a RemoveExe confirm"
+                );
+            }
+            _ => panic!("x opens a remove confirm"),
+        }
+    }
+
+    #[test]
+    fn x_on_an_empty_launch_picker_notes_and_stays_open() {
+        let mut app = App::sample(); // the sample instance configures no exes
+        app.handle_key(key(KeyCode::Char('l')));
+        app.handle_key(key(KeyCode::Char('x')));
+        assert!(
+            matches!(
+                app.modal,
+                Some(Modal::Select(Select {
+                    kind: SelectKind::Launch,
+                    ..
+                }))
+            ),
+            "the picker stays open"
+        );
+        assert!(
+            app.message.is_some(),
+            "the user is told there is nothing to remove"
+        );
+    }
+
+    #[test]
+    fn confirming_removal_deletes_the_target_and_reopens_the_picker() {
+        let (_tmp, instance) = overseer_core::test_support::temp_instance();
+        let mut app = App::sample();
+        app.session.instance = instance;
+        std::fs::create_dir_all(&app.session.instance.root).unwrap();
+        app.session.instance.config.executables = vec![
+            overseer_core::instance::Executable {
+                name: "game".to_owned(),
+                path: Utf8PathBuf::from("game.exe"),
+                args: Vec::new(),
+            },
+            overseer_core::instance::Executable {
+                name: "FO4Edit".to_owned(),
+                path: Utf8PathBuf::from("C:/Tools/FO4Edit.exe"),
+                args: Vec::new(),
+            },
+        ];
+        app.session.instance.save().unwrap();
+
+        app.handle_key(key(KeyCode::Char('l'))); // picker opens on "game"
+        app.handle_key(key(KeyCode::Char('x'))); // confirm remove "game"
+        app.handle_key(key(KeyCode::Char('y'))); // accept
+
+        assert!(
+            matches!(
+                app.modal,
+                Some(Modal::Select(Select {
+                    kind: SelectKind::Launch,
+                    ..
+                }))
+            ),
+            "removal reopens the launch picker"
+        );
+        let names: Vec<_> = app
+            .session
+            .instance
+            .config
+            .executables
+            .iter()
+            .map(|e| e.name.as_str())
+            .collect();
+        assert_eq!(names, vec!["FO4Edit"], "the target is gone from memory");
+
+        let reloaded =
+            overseer_core::instance::Instance::load(app.session.instance.root.clone()).unwrap();
+        assert_eq!(
+            reloaded.config.executables.len(),
+            1,
+            "the removal is persisted to disk"
+        );
+    }
+
+    #[test]
+    fn a_failed_save_on_removal_rolls_the_target_back_in_memory() {
+        let (_tmp, instance) = overseer_core::test_support::temp_instance();
+        let mut app = App::sample();
+        app.session.instance = instance;
+        std::fs::create_dir_all(&app.session.instance.root).unwrap();
+        app.session.instance.config.executables = vec![overseer_core::instance::Executable {
+            name: "game".to_owned(),
+            path: Utf8PathBuf::from("game.exe"),
+            args: Vec::new(),
+        }];
+        app.session.instance.save().unwrap();
+        // Delete the instance dir so the next save() fails mid-removal.
+        std::fs::remove_dir_all(&app.session.instance.root).unwrap();
+
+        app.handle_key(key(KeyCode::Char('l'))); // picker opens on "game"
+        app.handle_key(key(KeyCode::Char('x'))); // confirm remove "game"
+        app.handle_key(key(KeyCode::Char('y'))); // accept → save fails
+
+        assert_eq!(
+            app.session
+                .instance
+                .config
+                .executables
+                .iter()
+                .map(|e| e.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["game"],
+            "a failed save leaves the target in memory so it still matches disk"
+        );
+        assert!(
+            app.message
+                .as_ref()
+                .is_some_and(|n| n.text.contains("Could not save")),
+            "the failure is reported"
         );
     }
 

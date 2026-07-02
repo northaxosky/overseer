@@ -1,7 +1,8 @@
 //! The Prompt modal: the new-profile name entry.
 
+use camino::Utf8Path;
 use overseer_core::apply;
-use overseer_core::instance::{InstanceError, ModKind};
+use overseer_core::instance::{Executable, InstanceError, ModKind};
 use ratatui::crossterm::event::{KeyCode, KeyEvent};
 
 use crate::app::{App, Focus, Modal, Prompt, PromptKind, SelectKind};
@@ -12,11 +13,13 @@ impl App {
         match key.code {
             KeyCode::Esc => match self.open_prompt_kind() {
                 Some(PromptKind::NewProfile) => self.open_select(SelectKind::Profile),
+                Some(PromptKind::AddExe) => self.open_select(SelectKind::Launch),
                 Some(PromptKind::RenameMod { .. }) => self.modal = None,
                 None => {}
             },
             KeyCode::Enter => match self.open_prompt_kind() {
                 Some(PromptKind::NewProfile) => self.submit_new_profile(),
+                Some(PromptKind::AddExe) => self.submit_add_exe(),
                 Some(PromptKind::RenameMod { old }) => self.submit_rename_mod(old),
                 None => {}
             },
@@ -29,7 +32,7 @@ impl App {
             // Accept any ordinary printable char
             KeyCode::Char(c) if !c.is_control() => {
                 if let Some(Modal::Prompt(prompt)) = self.modal.as_mut()
-                    && prompt.input.len() < 64
+                    && prompt.input.len() < prompt.kind.max_len()
                 {
                     prompt.input.push(c);
                     prompt.error = None;
@@ -76,6 +79,14 @@ impl App {
         }));
     }
 
+    pub(super) fn open_add_exe(&mut self) {
+        self.modal = Some(Modal::Prompt(Prompt {
+            kind: PromptKind::AddExe,
+            input: String::new(),
+            error: None,
+        }));
+    }
+
     /// Create the profile named in the open prompt; stay open on any error
     fn submit_new_profile(&mut self) {
         let Some(Modal::Prompt(prompt)) = self.modal.as_ref() else {
@@ -109,6 +120,63 @@ impl App {
             }
             Err(e) => Err(e.to_string()),
         }
+    }
+
+    /// Add the launch target at the path in the open prompt; stay open on any error
+    fn submit_add_exe(&mut self) {
+        let Some(Modal::Prompt(prompt)) = self.modal.as_ref() else {
+            return;
+        };
+        let path = prompt.input.trim().to_owned();
+
+        match self.add_named_exe(&path) {
+            Ok(name) => {
+                self.open_select(SelectKind::Launch);
+                if let Some(Modal::Select(s)) = self.modal.as_mut()
+                    && let Some(i) = s.items.iter().position(|p| p == &name)
+                {
+                    s.state.select(Some(i));
+                }
+                self.ok(format!("Added launch target: {name}"));
+            }
+            Err(msg) => self.set_prompt_error(msg),
+        }
+    }
+
+    /// Derive a name from the path's file stem, then add + persist the target
+    fn add_named_exe(&mut self, path: &str) -> Result<String, String> {
+        if path.is_empty() {
+            return Err("Path cannot be empty".to_owned());
+        }
+        // Store an absolute path so the target doesn't depend on the process cwd (matches `exe add`).
+        let path = overseer_frontend::absolutize(Utf8Path::new(path))
+            .map_err(|e| format!("Invalid path: {e}"))?;
+        let name = path
+            .file_stem()
+            .filter(|stem| !stem.is_empty())
+            .ok_or_else(|| "Could not derive a name from that path".to_owned())?
+            .to_owned();
+        validate_name(&name)?;
+        if self
+            .session
+            .instance
+            .config
+            .executables
+            .iter()
+            .any(|e| e.name == name)
+        {
+            return Err(format!("A launch target named {name} already exists"));
+        }
+        self.session.instance.config.executables.push(Executable {
+            name: name.clone(),
+            path,
+            args: Vec::new(),
+        });
+        if let Err(e) = self.session.instance.save() {
+            self.session.instance.config.executables.pop();
+            return Err(format!("Could not save instance: {e}"));
+        }
+        Ok(name)
     }
 
     fn submit_rename_mod(&mut self, old: String) {
@@ -450,5 +518,113 @@ mod tests {
             "duplicate name stays inline"
         );
         assert_eq!(app.session.profile.mods[0].name, "CoolMod");
+    }
+
+    #[test]
+    fn submitting_a_path_adds_a_derived_launch_target() {
+        let (_tmp, instance) = overseer_core::test_support::temp_instance();
+        let mut app = App::sample();
+        app.session.instance = instance;
+        std::fs::create_dir_all(&app.session.instance.root).unwrap();
+
+        app.handle_key(key(KeyCode::Char('l'))); // launch picker (empty)
+        app.handle_key(key(KeyCode::Char('a'))); // add-exe prompt
+        for c in "C:/Tools/FO4Edit.exe".chars() {
+            app.handle_key(key(KeyCode::Char(c)));
+        }
+        app.handle_key(key(KeyCode::Enter));
+
+        // The name is derived from the file stem and selected in the reopened picker.
+        match &app.modal {
+            Some(Modal::Select(s)) => {
+                let i = s
+                    .items
+                    .iter()
+                    .position(|p| p == "FO4Edit")
+                    .expect("the derived target is listed");
+                assert_eq!(s.state.selected(), Some(i), "the new target is selected");
+            }
+            _ => panic!("a successful add returns to the launch picker"),
+        }
+        let reloaded =
+            overseer_core::instance::Instance::load(app.session.instance.root.clone()).unwrap();
+        let names: Vec<_> = reloaded
+            .config
+            .executables
+            .iter()
+            .map(|e| e.name.as_str())
+            .collect();
+        assert_eq!(names, vec!["FO4Edit"], "the derived target is persisted");
+    }
+
+    #[test]
+    fn esc_from_the_add_exe_prompt_returns_to_the_launch_picker() {
+        let mut app = App::sample();
+        app.handle_key(key(KeyCode::Char('l')));
+        app.handle_key(key(KeyCode::Char('a')));
+        app.handle_key(key(KeyCode::Esc));
+        assert!(
+            matches!(
+                app.modal,
+                Some(Modal::Select(Select {
+                    kind: SelectKind::Launch,
+                    ..
+                }))
+            ),
+            "Esc cancels back to the launch picker"
+        );
+    }
+
+    #[test]
+    fn submitting_a_duplicate_derived_name_keeps_the_prompt_with_an_error() {
+        let (_tmp, instance) = overseer_core::test_support::temp_instance();
+        let mut app = App::sample();
+        app.session.instance = instance;
+        app.session.instance.config.executables = vec![Executable {
+            name: "FO4Edit".to_owned(),
+            path: camino::Utf8PathBuf::from("C:/old/FO4Edit.exe"),
+            args: Vec::new(),
+        }];
+
+        app.handle_key(key(KeyCode::Char('l')));
+        app.handle_key(key(KeyCode::Char('a')));
+        for c in "D:/new/FO4Edit.exe".chars() {
+            app.handle_key(key(KeyCode::Char(c)));
+        }
+        app.handle_key(key(KeyCode::Enter));
+
+        match prompt_state(&app) {
+            Some((input, error)) => {
+                assert_eq!(input, "D:/new/FO4Edit.exe", "the input is preserved");
+                assert!(error.is_some(), "a duplicate derived name errors inline");
+            }
+            None => panic!("the prompt stays open on a duplicate"),
+        }
+    }
+
+    #[test]
+    fn a_relative_path_is_absolutized_before_it_is_stored() {
+        let (_tmp, instance) = overseer_core::test_support::temp_instance();
+        let mut app = App::sample();
+        app.session.instance = instance;
+        std::fs::create_dir_all(&app.session.instance.root).unwrap();
+
+        app.handle_key(key(KeyCode::Char('l')));
+        app.handle_key(key(KeyCode::Char('a')));
+        for c in "tools/MyTool.exe".chars() {
+            app.handle_key(key(KeyCode::Char(c)));
+        }
+        app.handle_key(key(KeyCode::Enter));
+
+        // A relative path is resolved against cwd, so config never stores a cwd-dependent path.
+        let exe = app
+            .session
+            .instance
+            .config
+            .executables
+            .iter()
+            .find(|e| e.name == "MyTool")
+            .expect("the target was added under its derived name");
+        assert!(exe.path.is_absolute(), "the stored path is absolutized");
     }
 }

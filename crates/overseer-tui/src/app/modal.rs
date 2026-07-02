@@ -27,6 +27,7 @@ pub(crate) struct Prompt {
 pub(crate) enum PromptKind {
     NewProfile,
     RenameMod { old: String },
+    AddExe,
 }
 
 impl PromptKind {
@@ -35,6 +36,15 @@ impl PromptKind {
         match self {
             PromptKind::NewProfile => "New profile".to_owned(),
             PromptKind::RenameMod { old } => format!("Rename: {old}"),
+            PromptKind::AddExe => "Add launch target — full path".to_owned(),
+        }
+    }
+
+    /// Cap on the prompt's input length: a path needs more room than a name
+    pub(crate) fn max_len(&self) -> usize {
+        match self {
+            PromptKind::AddExe => 260, // Windows MAX_PATh
+            _ => 64,
         }
     }
 }
@@ -86,7 +96,7 @@ impl SelectKind {
     /// Extra hint appended after the close hint, for kinds with a side-action
     pub(crate) fn extra_hint(self) -> &'static str {
         match self {
-            SelectKind::Launch => "",
+            SelectKind::Launch => " · a add · x remove",
             SelectKind::Profile => " · n new",
             SelectKind::Instance => "",
         }
@@ -107,6 +117,8 @@ pub(crate) enum ConfirmAction {
     InstallDownload(Utf8PathBuf),
     /// Delete the `.fos` save at this path (and its script-extender co-save)
     DeleteSave(Utf8PathBuf),
+    /// Remove the launch target with this name from the instance config
+    RemoveExe(String),
 }
 
 /// A dismiss-only reference modal with a title and key/description rows.

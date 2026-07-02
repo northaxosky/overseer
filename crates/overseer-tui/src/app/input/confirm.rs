@@ -21,6 +21,7 @@ impl App {
         match confirm.action {
             ConfirmAction::InstallDownload(path) => self.install_download(&path),
             ConfirmAction::DeleteSave(path) => self.delete_selected_save(&path),
+            ConfirmAction::RemoveExe(name) => self.remove_exe(&name),
         }
     }
 }
