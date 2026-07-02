@@ -36,5 +36,8 @@ fn main() -> Result<()> {
         Command::Exe { command } => commands::exe::run(command),
         Command::Doctor { target } => commands::doctor::run(&target),
         Command::Patch { command } => commands::patch::run(command),
+        Command::Conflicts { target } => commands::conflicts::run(&target),
+        Command::Downloads { instance } => commands::downloads::run(instance),
+        Command::Saves { command } => commands::saves::run(command),
     }
 }

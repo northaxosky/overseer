@@ -405,3 +405,163 @@ fn patch_ba2_skips_unsupported_and_fails_on_invalid() {
         .failure()
         .stdout(predicate::str::contains("BTDX"));
 }
+
+#[test]
+fn profile_new_creates_a_profile_directory() {
+    let tmp = TempDir::new().unwrap();
+    let inst = tmp.path().join("inst");
+    let inst_s = inst.to_str().unwrap();
+
+    overseer(&[
+        "instance",
+        "init",
+        "--path",
+        inst_s,
+        "--game-dir",
+        tmp.path().join("game").to_str().unwrap(),
+        "--local",
+        tmp.path().join("local").to_str().unwrap(),
+    ])
+    .success();
+
+    overseer(&["profile", "new", "Hardcore", "--instance", inst_s])
+        .success()
+        .stdout(predicate::str::contains("Created profile"));
+
+    assert!(
+        inst.join("profiles").join("Hardcore").is_dir(),
+        "the new profile directory should exist"
+    );
+}
+
+#[test]
+fn mod_rename_renames_the_installed_mod() {
+    let tmp = TempDir::new().unwrap();
+    let inst = tmp.path().join("inst");
+    let inst_s = inst.to_str().unwrap();
+
+    overseer(&[
+        "instance",
+        "init",
+        "--path",
+        inst_s,
+        "--game-dir",
+        tmp.path().join("game").to_str().unwrap(),
+        "--local",
+        tmp.path().join("local").to_str().unwrap(),
+    ])
+    .success();
+
+    // Stage + enable a mod so it lands in the Default profile's modlist.
+    let mod_file = inst.join("mods").join("CoolMod").join("readme.txt");
+    std::fs::create_dir_all(mod_file.parent().unwrap()).unwrap();
+    std::fs::write(&mod_file, "hi").unwrap();
+    overseer(&["mod", "enable", "CoolMod", "--instance", inst_s]).success();
+
+    overseer(&[
+        "mod",
+        "rename",
+        "CoolMod",
+        "BetterMod",
+        "--instance",
+        inst_s,
+    ])
+    .success()
+    .stdout(predicate::str::contains("Renamed"));
+
+    // The folder is renamed on disk and the modlist follows.
+    assert!(inst.join("mods").join("BetterMod").is_dir());
+    assert!(!inst.join("mods").join("CoolMod").exists());
+    overseer(&["mod", "list", "--instance", inst_s])
+        .success()
+        .stdout(predicate::str::contains("BetterMod"));
+}
+
+/// Create a temp instance with every path under `tmp` (saves resolve to `<tmp>/ini/Saves/<profile>`).
+fn init_instance(tmp: &TempDir) -> std::path::PathBuf {
+    let root = tmp.path();
+    let inst = root.join("inst");
+    overseer(&[
+        "instance",
+        "init",
+        "--path",
+        inst.to_str().unwrap(),
+        "--game-dir",
+        root.join("game").to_str().unwrap(),
+        "--local",
+        root.join("local").to_str().unwrap(),
+        "--ini-dir",
+        root.join("ini").to_str().unwrap(),
+    ])
+    .success();
+    inst
+}
+
+#[test]
+fn conflicts_lists_files_provided_by_two_mods() {
+    let tmp = TempDir::new().unwrap();
+    let inst = init_instance(&tmp);
+    let inst_s = inst.to_str().unwrap();
+
+    // Two enabled mods provide the same file.
+    for m in ["AlphaMod", "BetaMod"] {
+        let f = inst
+            .join("mods")
+            .join(m)
+            .join("Textures")
+            .join("shared.dds");
+        std::fs::create_dir_all(f.parent().unwrap()).unwrap();
+        std::fs::write(&f, m).unwrap();
+        overseer(&["mod", "enable", m, "--instance", inst_s]).success();
+    }
+
+    overseer(&["conflicts", "--instance", inst_s])
+        .success()
+        .stdout(predicate::str::contains("shared.dds"))
+        .stdout(predicate::str::contains("AlphaMod"))
+        .stdout(predicate::str::contains("BetaMod"));
+}
+
+#[test]
+fn conflicts_reports_none_for_a_clean_profile() {
+    let tmp = TempDir::new().unwrap();
+    let inst = init_instance(&tmp);
+    overseer(&["conflicts", "--instance", inst.to_str().unwrap()])
+        .success()
+        .stdout(predicate::str::contains("No file conflicts"));
+}
+
+#[test]
+fn downloads_lists_installable_archives() {
+    let tmp = TempDir::new().unwrap();
+    let inst = init_instance(&tmp);
+    let dl = inst.join("downloads");
+    std::fs::create_dir_all(&dl).unwrap();
+    std::fs::write(dl.join("CoolMod.7z"), b"not-a-real-archive").unwrap();
+
+    overseer(&["downloads", "--instance", inst.to_str().unwrap()])
+        .success()
+        .stdout(predicate::str::contains("CoolMod.7z"));
+}
+
+#[test]
+fn saves_list_and_delete_manage_fos_files() {
+    let tmp = TempDir::new().unwrap();
+    let inst = init_instance(&tmp);
+    let inst_s = inst.to_str().unwrap();
+
+    // saves_dir resolves to <ini>/Saves/Default; a `.fos` with an unreadable header still lists.
+    let saves = tmp.path().join("ini").join("Saves").join("Default");
+    std::fs::create_dir_all(&saves).unwrap();
+    let save = saves.join("Save1_abc.fos");
+    std::fs::write(&save, b"not-a-real-save").unwrap();
+
+    overseer(&["saves", "list", "--instance", inst_s])
+        .success()
+        .stdout(predicate::str::contains("Save1_abc.fos"));
+
+    overseer(&["saves", "delete", "Save1_abc.fos", "--instance", inst_s])
+        .success()
+        .stdout(predicate::str::contains("Deleted"));
+    assert!(!save.exists(), "the .fos should be gone after delete");
+}

@@ -5,6 +5,8 @@ use anyhow::{Context, Result};
 use crate::cli::{ModCommand, ProfileArgs};
 use crate::context::{load_reconciled, open_instance};
 use crate::ui::{heading, list_item, success};
+use camino::Utf8Path;
+use overseer_core::apply;
 
 pub fn run(command: ModCommand) -> Result<()> {
     match command {
@@ -12,6 +14,11 @@ pub fn run(command: ModCommand) -> Result<()> {
         ModCommand::Enable { name, target } => set_status(&target, &name, true),
         ModCommand::Disable { name, target } => set_status(&target, &name, false),
         ModCommand::Move { name, to, target } => move_mod(&target, &name, to),
+        ModCommand::Rename {
+            name,
+            new_name,
+            instance,
+        } => rename(&instance, &name, &new_name),
     }
 }
 
@@ -73,5 +80,13 @@ fn move_mod(target: &ProfileArgs, mod_name: &str, to_1based: usize) -> Result<()
         "Moved `{mod_name}` to position {to_1based} in profile `{}`",
         profile.name
     ));
+    Ok(())
+}
+
+fn rename(instance_dir: &Utf8Path, old: &str, new: &str) -> Result<()> {
+    let instance = open_instance(instance_dir)?;
+    apply::rename_mod(&instance, old, new)
+        .with_context(|| format!("renaming `{old}` to `{new}`"))?;
+    success(format!("Renamed mod `{old}` to `{new}`"));
     Ok(())
 }

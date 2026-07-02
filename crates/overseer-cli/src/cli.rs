@@ -48,6 +48,13 @@ pub enum Command {
         name: Option<String>,
     },
 
+    /// List the installable archives in the instance's downloads/ directory
+    Downloads {
+        /// Instance directory (contains mods/ and profiles/)
+        #[arg(long)]
+        instance: Utf8PathBuf,
+    },
+
     /// Manage the mods in a profile
     Mod {
         #[command(subcommand)]
@@ -66,6 +73,12 @@ pub enum Command {
         command: ProfileCommand,
     },
 
+    /// List or delete a profile's save files
+    Saves {
+        #[command(subcommand)]
+        command: SaveCommand,
+    },
+
     /// Create or inspect an Overseer instance
     Instance {
         #[command(subcommand)]
@@ -77,6 +90,12 @@ pub enum Command {
         /// Instance directory (contains mods/ and profiles/)
         #[arg(long)]
         instance: Utf8PathBuf,
+    },
+
+    /// List files that more than one enabled mod provies (winner + overridden)
+    Conflicts {
+        #[command(flatten)]
+        target: ProfileArgs,
     },
 
     /// Launch the game, its script extender, or a configured tool
@@ -149,6 +168,16 @@ pub enum ModCommand {
         #[command(flatten)]
         target: ProfileArgs,
     },
+    /// Rename an installed mod (updates every profile that uses it)
+    Rename {
+        /// Current mod name (the folder under mods/)
+        name: String,
+        /// New name for the mod
+        new_name: String,
+        /// Instance directory (contains mods/ and profiles/)
+        #[arg(long)]
+        instance: Utf8PathBuf,
+    },
 }
 
 #[derive(Subcommand)]
@@ -180,6 +209,30 @@ pub enum ProfileCommand {
     Saves {
         /// `on` or `off`; omit to show the current setting
         state: Option<Toggle>,
+        #[command(flatten)]
+        target: ProfileArgs,
+    },
+    /// Create a new profile
+    New {
+        /// Name for the new profile
+        name: String,
+        /// Instance directory (contains mods/ and profiles/)
+        #[arg(long)]
+        instance: Utf8PathBuf,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum SaveCommand {
+    /// List the profile's saves, newest first
+    List {
+        #[command(flatten)]
+        target: ProfileArgs,
+    },
+    /// Delete a save (and its script-extender co-save) by file name
+    Delete {
+        /// The save's file name, e.g. `Save7_...fos`
+        file: String,
         #[command(flatten)]
         target: ProfileArgs,
     },
