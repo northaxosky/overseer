@@ -14,7 +14,7 @@ pub fn is_plugin_file(name: &str) -> bool {
 }
 
 /// Metadata read from a plugin's header
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct PluginMeta {
     /// The plugin's file name
     pub name: String,
@@ -24,6 +24,8 @@ pub struct PluginMeta {
     pub is_light: bool,
     /// The plugins this one depends on (masters), in header order
     pub masters: Vec<String>,
+    /// The TES4/HEDR module version, if the header carried one
+    pub header_version: Option<f32>,
 }
 
 /// Read a plugin's metadata from its header
@@ -50,6 +52,7 @@ pub fn read_metadata(
         is_master: plugin.is_master_file(),
         is_light: plugin.is_light_plugin(),
         masters,
+        header_version: plugin.header_version(),
     })
 }
 
@@ -60,7 +63,7 @@ pub fn read_metadata(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::{FLAG_LIGHT, FLAG_MASTER, write_plugin};
+    use crate::test_support::{FLAG_LIGHT, FLAG_MASTER, write_plugin, write_plugin_versioned};
     use camino::Utf8PathBuf;
     use tempfile::TempDir;
 
@@ -141,6 +144,19 @@ mod tests {
         let path = write_plugin(&base, "Dependent.esp", 0, &["Fallout4.esm", "DLCCoast.esm"]);
         let meta = read_metadata(GameId::Fallout4, "Dependent.esp", &path).expect("parse");
         assert_eq!(meta.masters, ["Fallout4.esm", "DLCCoast.esm"]);
+    }
+
+    #[test]
+    fn reads_the_header_version_from_the_hedr_field() {
+        // The default builder stamps 1.0; a versioned fixture round-trips its own value.
+        let (_t, base) = temp();
+        let default_path = write_plugin(&base, "Default.esp", 0, &[]);
+        let default_meta = read_metadata(GameId::Fallout4, "Default.esp", &default_path).unwrap();
+        assert_eq!(default_meta.header_version, Some(1.0));
+
+        let old_path = write_plugin_versioned(&base, "Old.esp", 0, &[], 0.94);
+        let old_meta = read_metadata(GameId::Fallout4, "Old.esp", &old_path).unwrap();
+        assert_eq!(old_meta.header_version, Some(0.94));
     }
 
     #[test]

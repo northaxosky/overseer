@@ -3,6 +3,7 @@
 mod archives;
 mod creation_club;
 mod f4se;
+mod header_versions;
 mod ini_config;
 mod loose_files;
 mod loose_folders;
@@ -17,6 +18,7 @@ use camino::Utf8Path;
 use archives::Archives;
 use creation_club::CreationClub;
 use f4se::F4se;
+use header_versions::HeaderVersions;
 use ini_config::IniConfig;
 use loose_files::LooseFiles;
 use loose_folders::LooseFolders;
@@ -45,6 +47,7 @@ pub fn all() -> Vec<Box<dyn Check>> {
         Box::new(IniConfig),
         Box::new(Archives),
         Box::new(F4se),
+        Box::new(HeaderVersions),
     ]
 }
 

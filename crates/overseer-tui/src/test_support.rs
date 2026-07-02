@@ -60,6 +60,7 @@ impl App {
                     is_master: true,
                     is_light: false,
                     masters: Vec::new(),
+                    header_version: None,
                 }],
                 status: None,
             },

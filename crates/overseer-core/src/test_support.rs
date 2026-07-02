@@ -16,13 +16,18 @@ pub const FLAG_LIGHT: u32 = 0x200;
 
 /// Build minimal Fallout 4 plugin bytes with a `TES4` header and enough data for esplugin's header parse.
 pub fn tes4_bytes(flags: u32, masters: &[&str]) -> Vec<u8> {
+    tes4_bytes_versioned(flags, masters, 1.0)
+}
+
+/// Like [`tes4_bytes`], but writes a chosen `HEDR` module version so header-version fixtures can be built.
+pub fn tes4_bytes_versioned(flags: u32, masters: &[&str], header_version: f32) -> Vec<u8> {
     // Subrecord data block first, so we can compute the record's data size.
     let mut data = Vec::new();
 
     // HEDR: version (f32) + num records (i32) + next object id (u32) = 12 bytes.
     data.extend_from_slice(b"HEDR");
     data.extend_from_slice(&12u16.to_le_bytes());
-    data.extend_from_slice(&1.0f32.to_le_bytes());
+    data.extend_from_slice(&header_version.to_le_bytes());
     data.extend_from_slice(&0i32.to_le_bytes());
     data.extend_from_slice(&1u32.to_le_bytes());
 
@@ -53,9 +58,21 @@ pub fn tes4_bytes(flags: u32, masters: &[&str]) -> Vec<u8> {
 
 /// Write a generated plugin file into `dir` (creating it if needed) and return its path.
 pub fn write_plugin(dir: &Utf8Path, name: &str, flags: u32, masters: &[&str]) -> Utf8PathBuf {
+    write_plugin_versioned(dir, name, flags, masters, 1.0)
+}
+
+/// Like [`write_plugin`], but stamps a chosen `HEDR` module version into the plugin.
+pub fn write_plugin_versioned(
+    dir: &Utf8Path,
+    name: &str,
+    flags: u32,
+    masters: &[&str],
+    header_version: f32,
+) -> Utf8PathBuf {
     std::fs::create_dir_all(dir).expect("create mod dir");
     let path = dir.join(name);
-    std::fs::write(&path, tes4_bytes(flags, masters)).expect("write plugin");
+    std::fs::write(&path, tes4_bytes_versioned(flags, masters, header_version))
+        .expect("write plugin");
     path
 }
 
@@ -200,5 +217,6 @@ pub fn plugin_meta(
         is_master,
         is_light,
         masters: masters.iter().map(|m| (*m).to_owned()).collect(),
+        header_version: None,
     }
 }
