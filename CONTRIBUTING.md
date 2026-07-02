@@ -41,6 +41,7 @@ git config core.hooksPath .githooks
 | `overseer-core` | UI-agnostic domain logic. No UI/CLI dependencies. |
 | `overseer-frontend` | Shared front-end support (logging, theming). |
 | `overseer-cli` | The `overseer` command-line binary. |
+| `overseer-diagnostics` | Setup health checks (consumes core's public API); drives `overseer doctor`. |
 | `overseer-tui` | The terminal UI — the primary interactive front end. |
 
 ## Conventions
