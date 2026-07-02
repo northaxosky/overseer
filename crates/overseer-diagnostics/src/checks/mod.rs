@@ -1,5 +1,6 @@
 //! The setup health checks: the `Check` trait and every check that implements it
 
+mod archive_names;
 mod archives;
 mod creation_club;
 mod f4se;
@@ -15,6 +16,7 @@ use crate::context::GameContext;
 use crate::finding::Finding;
 use camino::Utf8Path;
 
+use archive_names::ArchiveNames;
 use archives::Archives;
 use creation_club::CreationClub;
 use f4se::F4se;
@@ -48,6 +50,7 @@ pub fn all() -> Vec<Box<dyn Check>> {
         Box::new(Archives),
         Box::new(F4se),
         Box::new(HeaderVersions),
+        Box::new(ArchiveNames),
     ]
 }
 

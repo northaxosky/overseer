@@ -95,6 +95,8 @@ pub struct ArchiveInfo {
     pub name: String,
     /// The mod that owns it (conflict winner)
     pub mod_name: String,
+    /// Path relative to the game root, including the `Data/`/`Root/` prefix
+    pub relative: Utf8PathBuf,
     /// What reading its header found
     pub scan: ArchiveScan,
 }
@@ -321,6 +323,7 @@ fn scan_archives(plan: &DeployPlan) -> Vec<ArchiveInfo> {
         .map(|f| ArchiveInfo {
             name: f.relative.file_name().unwrap_or_default().to_owned(),
             mod_name: f.winner.clone(),
+            relative: f.relative.clone(),
             scan: match Ba2Header::read(&f.source) {
                 Ok(header) => ArchiveScan::Header(header),
                 Err(Ba2Error::BadMagic | Ba2Error::TooShort) => ArchiveScan::Invalid,

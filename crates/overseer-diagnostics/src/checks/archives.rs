@@ -113,6 +113,7 @@ mod tests {
         ArchiveInfo {
             name: name.to_owned(),
             mod_name: "ModA".to_owned(),
+            relative: camino::Utf8Path::new("Data").join(name),
             scan,
         }
     }
