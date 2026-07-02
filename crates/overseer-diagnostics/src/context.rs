@@ -1,13 +1,15 @@
 //! Facts about the setup, gathered once and shared by every check
 
+use crate::binaries::{self, BinaryScan};
 use crate::error::DiagnosticError;
 use camino::{Utf8Path, Utf8PathBuf};
 use overseer_core::archive::{Ba2Error, Ba2Header, Ba2Kind};
 use overseer_core::deploy::{DATA_DIR, DeployPlan, F4SE_PLUGINS_DIR, strip_data_prefix};
 use overseer_core::detect::{
-    self, RuntimeFamily, address_library_name, file_version, loader_family,
+    self, Edition, RuntimeFamily, address_library_name, file_version, loader_family,
 };
 use overseer_core::f4se::{F4seDll, F4sePlugin, parse_f4se_dll};
+use overseer_core::game::GameKind;
 use overseer_core::ini::{GameInis, read_game_inis};
 use overseer_core::instance::{Instance, Profile};
 use overseer_core::plugins::{
@@ -15,6 +17,38 @@ use overseer_core::plugins::{
 };
 use std::collections::{BTreeMap, BTreeSet};
 
+/// The base F4SE Papyrus scripts that ship loose in `Data/Scripts/` (lowercase `<name>.pex`)
+const BASE_SCRIPT_NAMES: &[&str] = &[
+    "actor.pex",
+    "actorbase.pex",
+    "armor.pex",
+    "armoraddon.pex",
+    "cell.pex",
+    "component.pex",
+    "constructibleobject.pex",
+    "defaultobject.pex",
+    "encounterzone.pex",
+    "equipslot.pex",
+    "f4se.pex",
+    "favoritesmanager.pex",
+    "form.pex",
+    "game.pex",
+    "headpart.pex",
+    "input.pex",
+    "instancedata.pex",
+    "location.pex",
+    "matswap.pex",
+    "math.pex",
+    "miscobject.pex",
+    "objectmod.pex",
+    "objectreference.pex",
+    "perk.pex",
+    "scriptobject.pex",
+    "ui.pex",
+    "utility.pex",
+    "watertype.pex",
+    "weapon.pex",
+];
 /// The state a diagnostic run inspects. Gathered once using [`GameContext::gather`]
 #[derive(Default)]
 pub struct GameContext {
@@ -44,6 +78,12 @@ pub struct GameContext {
     pub runtime_packed: Option<u32>,
     /// Loaded BA2 counts across base game archives and active mod archives
     pub loaded_archive_counts: LoadedArchiveCounts,
+    /// Loose top-level `Data/Scripts/*.pex` files that shadow a base F4SE script
+    pub script_overrides: Vec<ScriptOverrideScan>,
+    /// The detected Fallout 4 edition, or `None` when the game isn't Fallout 4
+    pub game_edition: Option<Edition>,
+    /// The core game binaries (`Fallout4Launcher.exe`, `steam_api64.dll`) and their generation
+    pub binaries: Vec<BinaryScan>,
 }
 
 /// Loaded BA2 counts split by content kind and Fallout 4 archive generation
@@ -99,6 +139,14 @@ pub struct ArchiveInfo {
     pub relative: Utf8PathBuf,
     /// What reading its header found
     pub scan: ArchiveScan,
+}
+
+/// A loose top-level `Data/Scripts/<name>.pex` that shadows a base F4SE script
+pub struct ScriptOverrideScan {
+    /// File name, e.g. `Actor.pex`
+    pub name: String,
+    /// The mod that owns it (conflict winner) — not the F4SE package
+    pub mod_name: String,
 }
 
 /// The outcome of reading a BA2 header during gather
@@ -195,6 +243,14 @@ impl GameContext {
         let address_library = address_library_status(&data_files, install.version);
         let f4se_plugins = scan_f4se_plugins(&plan);
         let runtime_packed = install.version.map(detect::packed_runtime);
+        let script_overrides = scan_script_overrides(&plan);
+
+        // Core binary consistency: only meaningful for Fallout 4 currently
+        let game_edition = (instance.config.game == GameKind::Fallout4)
+            .then(|| detect::edition(&install, &instance.config.game_dir));
+        let binaries = game_edition
+            .map(|_| binaries::scan(&instance.config.game_dir))
+            .unwrap_or_default();
 
         Ok(Self {
             active_plugins,
@@ -210,6 +266,9 @@ impl GameContext {
             f4se_plugins,
             runtime_packed,
             loaded_archive_counts,
+            script_overrides,
+            game_edition,
+            binaries,
         })
     }
 }
@@ -331,6 +390,59 @@ fn scan_archives(plan: &DeployPlan) -> Vec<ArchiveInfo> {
             },
         })
         .collect()
+}
+
+/// Top-level `Data/Scripts/*.pex` base scripts whose winner isn't the F4SE package (the mod that
+/// provides the most base scripts). Robust to F4SE version changes — no CRCs to keep current
+fn scan_script_overrides(plan: &DeployPlan) -> Vec<ScriptOverrideScan> {
+    let candidates: Vec<(&str, &str)> = plan
+        .files()
+        .iter()
+        .filter_map(|f| Some((base_script_pex_name(&f.relative)?, f.winner.as_str())))
+        .collect();
+
+    let Some(provider) = dominant_provider(&candidates) else {
+        return Vec::new();
+    };
+    candidates
+        .iter()
+        .filter(|(_, winner)| *winner != provider)
+        .map(|(name, winner)| ScriptOverrideScan {
+            name: (*name).to_owned(),
+            mod_name: (*winner).to_owned(),
+        })
+        .collect()
+}
+
+/// The mod that provides the most base scripts — the F4SE package. `None` on no candidates or a tie
+/// (no single mod dominates), so an ambiguous set never flags an arbitrary "override"
+fn dominant_provider<'a>(candidates: &[(&str, &'a str)]) -> Option<&'a str> {
+    let mut counts: BTreeMap<&'a str, usize> = BTreeMap::new();
+    for &(_, winner) in candidates {
+        *counts.entry(winner).or_default() += 1;
+    }
+    let max = counts.values().copied().max()?;
+    let mut leaders = counts.into_iter().filter(|&(_, n)| n == max);
+    match (leaders.next(), leaders.next()) {
+        (Some((provider, _)), None) => Some(provider),
+        _ => None,
+    }
+}
+
+///The filename if `relative` is a top-level `Data/Scripts/<name>.pex` naming a base script
+fn base_script_pex_name(relative: &Utf8Path) -> Option<&str> {
+    strip_data_prefix(relative)?;
+    let mut components = relative.components();
+    components.next();
+    let scripts = components.next()?;
+    let file = components.next()?.as_str();
+    if components.next().is_some() || !scripts.as_str().eq_ignore_ascii_case("scripts") {
+        return None;
+    }
+    let is_pex = Utf8Path::new(file)
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("pex"));
+    (is_pex && BASE_SCRIPT_NAMES.contains(&file.to_lowercase().as_str())).then_some(file)
 }
 
 /// Count loaded BA2 archives from `Data/` plus the current deploy plan
@@ -541,6 +653,98 @@ mod tests {
                 .unwrap();
 
         assert!(scan_sadd(&plan, &[meta("Clean.esp")]).is_empty());
+    }
+
+    // --- script overrides (provenance: the F4SE package vs. other mods) ---
+
+    #[test]
+    fn base_script_pex_name_accepts_only_top_level_base_scripts() {
+        let ok = |p| base_script_pex_name(Utf8Path::new(p));
+        assert_eq!(ok("Data/Scripts/Actor.pex"), Some("Actor.pex"));
+        // Folder + extension match case-insensitively; the returned name keeps its casing.
+        assert_eq!(ok("Data/scripts/ACTOR.PEX"), Some("ACTOR.PEX"));
+        // Not one of the base script names.
+        assert_eq!(ok("Data/Scripts/MyCustom.pex"), None);
+        // Nested below Scripts/ — the engine path differs, out of scope.
+        assert_eq!(ok("Data/Scripts/source/Actor.pex"), None);
+        // A base name but not under Scripts/, or not under Data/ at all.
+        assert_eq!(ok("Data/Actor.pex"), None);
+        assert_eq!(ok("Root/Actor.pex"), None);
+    }
+
+    #[test]
+    fn the_base_script_list_has_twenty_nine_unique_entries() {
+        let names: BTreeSet<&str> = BASE_SCRIPT_NAMES.iter().copied().collect();
+        assert_eq!(names.len(), 29);
+    }
+
+    #[test]
+    fn dominant_provider_picks_the_biggest_supplier() {
+        assert_eq!(dominant_provider(&[]), None);
+        assert_eq!(
+            dominant_provider(&[
+                ("actor.pex", "F4SE"),
+                ("game.pex", "F4SE"),
+                ("form.pex", "Other"),
+            ]),
+            Some("F4SE")
+        );
+        // A tie has no clear F4SE package, so no mod is treated as the provider.
+        assert_eq!(
+            dominant_provider(&[("actor.pex", "A"), ("game.pex", "B")]),
+            None
+        );
+    }
+
+    fn write_file(path: &Utf8Path, bytes: &[u8]) {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, bytes).unwrap();
+    }
+
+    #[test]
+    fn the_f4se_package_alone_reports_no_overrides() {
+        // The mod that ships the base scripts is the F4SE package — its own scripts are not
+        // overrides, whatever their bytes (this is the AE / newer-F4SE case that must stay silent).
+        let (_tmp, base) = temp_base();
+        let f4se = base.join("mods/F4SE");
+        write_file(&f4se.join("Scripts/Actor.pex"), b"ae bytes");
+        write_file(&f4se.join("Scripts/Game.pex"), b"ae bytes");
+        write_file(&f4se.join("Scripts/Form.pex"), b"ae bytes");
+
+        let plan =
+            DeployPlan::from_rooted_mods(base.join("game"), &[ModSource::new("F4SE", &f4se)])
+                .unwrap();
+        assert!(scan_script_overrides(&plan).is_empty());
+    }
+
+    #[test]
+    fn a_base_script_from_a_non_provider_mod_is_flagged() {
+        let (_tmp, base) = temp_base();
+        let f4se = base.join("mods/F4SE");
+        write_file(&f4se.join("Scripts/Actor.pex"), b"f4se");
+        write_file(&f4se.join("Scripts/Game.pex"), b"f4se");
+        write_file(&f4se.join("Scripts/Form.pex"), b"f4se");
+        // A different mod ships a base script — an override the F4SE package doesn't own.
+        let other = base.join("mods/Other");
+        write_file(&other.join("Scripts/Weapon.pex"), b"override");
+
+        let plan = DeployPlan::from_rooted_mods(
+            base.join("game"),
+            &[
+                ModSource::new("F4SE", &f4se),
+                ModSource::new("Other", &other),
+            ],
+        )
+        .unwrap();
+        let scans = scan_script_overrides(&plan);
+
+        assert_eq!(
+            scans.len(),
+            1,
+            "only the non-provider's base script is flagged"
+        );
+        assert_eq!(scans[0].name, "Weapon.pex");
+        assert_eq!(scans[0].mod_name, "Other");
     }
 
     // --- gather: installed implicit (base/DLC/CC) plugins (real temp-dir install) ---

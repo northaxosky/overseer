@@ -5,6 +5,7 @@
 //! the resulting [`Finding`]s into a [`Report`]. Checks are pure functions of the context,
 //! so they unit-test without touching the filesystem.
 
+mod binaries;
 mod checks;
 mod context;
 mod error;

@@ -2,6 +2,7 @@
 
 mod archive_names;
 mod archives;
+mod binaries;
 mod creation_club;
 mod f4se;
 mod header_versions;
@@ -11,6 +12,7 @@ mod loose_folders;
 mod missing_masters;
 mod plugin_count;
 mod race_subgraphs;
+mod script_overrides;
 
 use crate::context::GameContext;
 use crate::finding::Finding;
@@ -18,6 +20,7 @@ use camino::Utf8Path;
 
 use archive_names::ArchiveNames;
 use archives::Archives;
+use binaries::Binaries;
 use creation_club::CreationClub;
 use f4se::F4se;
 use header_versions::HeaderVersions;
@@ -27,6 +30,7 @@ use loose_folders::LooseFolders;
 use missing_masters::MissingMasters;
 use plugin_count::PluginCount;
 use race_subgraphs::RaceSubgraphs;
+use script_overrides::ScriptOverrides;
 
 /// A single setup/health check: pure function of the gathered context
 pub trait Check {
@@ -51,6 +55,8 @@ pub fn all() -> Vec<Box<dyn Check>> {
         Box::new(F4se),
         Box::new(HeaderVersions),
         Box::new(ArchiveNames),
+        Box::new(ScriptOverrides),
+        Box::new(Binaries),
     ]
 }
 

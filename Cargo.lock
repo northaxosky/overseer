@@ -1569,6 +1569,7 @@ name = "overseer-diagnostics"
 version = "0.0.0"
 dependencies = [
  "camino",
+ "crc32fast",
  "overseer-core",
  "tempfile",
  "thiserror 2.0.18",
