@@ -69,6 +69,28 @@ impl App {
             Err(e) => self.fail(format!("Delete failed: {e}")),
         }
     }
+
+    /// toggle the current profile's LocalSaves flag; inert unless the Saves pane is focused
+    pub(super) fn toggle_local_saves(&mut self) {
+        if self.focus != Focus::Workspace || self.workspace != Workspace::Saves {
+            return;
+        }
+        self.session.profile.local_saves = !self.session.profile.local_saves;
+        match self.session.profile.save(&self.session.instance) {
+            Ok(()) => {
+                let state = if self.session.profile.local_saves {
+                    "on"
+                } else {
+                    "off"
+                };
+                self.ok(format!("Local saves {state}"));
+            }
+            Err(e) => {
+                self.session.profile.local_saves = !self.session.profile.local_saves;
+                self.fail(format!("Could not save profile: {e}"));
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -180,6 +202,44 @@ mod tests {
         assert!(
             !co_save.exists(),
             "the co-save is removed alongside the .fos"
+        );
+    }
+
+    #[test]
+    fn toggling_local_saves_flips_and_persists() {
+        let (_tmp, mut app) = app_with_saves("Default", 1);
+        app.handle_key(key(KeyCode::Char('4')));
+        app.focus = Focus::Workspace;
+
+        let name = app.session.profile.name.clone();
+        let before = app.session.profile.local_saves;
+        app.handle_key(key(KeyCode::Char('L')));
+
+        assert_eq!(app.session.profile.local_saves, !before, "L flips the flag");
+        assert!(
+            app.message
+                .as_ref()
+                .is_some_and(|n| n.text.contains("Local saves")),
+            "a status notice is shown"
+        );
+        // Persisted: reloading from disk reflects the new value.
+        let reloaded =
+            overseer_core::instance::Profile::load(&app.session.instance, &name).unwrap();
+        assert_eq!(
+            reloaded.local_saves, !before,
+            "the toggle is written to disk"
+        );
+    }
+
+    #[test]
+    fn local_saves_toggle_is_inert_off_the_saves_pane() {
+        let (_tmp, mut app) = app_with_saves("Default", 1);
+        // Still focused on Mods, not the Saves workspace.
+        let before = app.session.profile.local_saves;
+        app.handle_key(key(KeyCode::Char('L')));
+        assert_eq!(
+            app.session.profile.local_saves, before,
+            "inert unless the Saves pane is focused"
         );
     }
 

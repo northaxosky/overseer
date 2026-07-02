@@ -66,6 +66,8 @@ impl App {
 
             // `x` deletes the selected save; self-guards to the focused Saves pane.
             KeyCode::Char('x') => self.begin_delete_selected_save(),
+            // `L` toggles the profile's LocalSaves; self-gaurds to the focused Saves pane
+            KeyCode::Char('L') => self.toggle_local_saves(),
 
             // Main view related controls
             KeyCode::Char(' ') | KeyCode::Enter => self.toggle_selected(),
