@@ -25,6 +25,15 @@ pub(crate) fn read_opt(path: &Utf8Path) -> Result<Option<Vec<u8>>, IoError> {
     }
 }
 
+/// The size in bytes of a file; `Ok(None)` when it doesn't exist
+pub(crate) fn size_opt(path: &Utf8Path) -> Result<Option<u64>, IoError> {
+    match std::fs::metadata(path) {
+        Ok(m) => Ok(Some(m.len())),
+        Err(e) if e.kind() == ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(io_err(path, e)),
+    }
+}
+
 /// `create_dir_all`, binding `path` on error.
 pub(crate) fn ensure_dir(path: &Utf8Path) -> Result<(), IoError> {
     std::fs::create_dir_all(path).map_err(|e| io_err(path, e))
