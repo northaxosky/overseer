@@ -4,6 +4,7 @@
 //! nothing else. Per-game policy (which version means which edition, which transitions are
 //! valid) lives in submodules like [`fallout4`].
 
+pub mod delta;
 pub mod fallout4;
 
 use crate::archive::{Ba2Error, Ba2Header, HEADER_LEN};
