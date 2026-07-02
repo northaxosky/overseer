@@ -23,16 +23,18 @@ pub(crate) struct Prompt {
 }
 
 /// Which prompt a [`Prompt`] drives; its title and what submitting it does
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum PromptKind {
     NewProfile,
+    RenameMod { old: String },
 }
 
 impl PromptKind {
     /// Heading shown on the prompt's frame
-    pub(crate) fn title(self) -> &'static str {
+    pub(crate) fn title(&self) -> String {
         match self {
-            PromptKind::NewProfile => "New profile",
+            PromptKind::NewProfile => "New profile".to_owned(),
+            PromptKind::RenameMod { old } => format!("Rename: {old}"),
         }
     }
 }

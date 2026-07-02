@@ -45,12 +45,19 @@ impl Profile {
 
     /// Write the profile's `modlist.txt` + `settings.ini`, creating the dir if needed
     pub fn save(&self, instance: &Instance) -> Result<(), InstanceError> {
+        self.save_modlist(instance)?;
+        let dir = instance.profile_dir(&self.name);
+        write_local_saves(&dir, self.local_saves)?;
+        Ok(())
+    }
+
+    /// Write only `modlist.txt` (a single atomic write), leaving `settings.ini` untouched.
+    pub(crate) fn save_modlist(&self, instance: &Instance) -> Result<(), InstanceError> {
         let dir = instance.profile_dir(&self.name);
         fs::write_atomic(
             &dir.join("modlist.txt"),
             self.to_modlist_string().as_bytes(),
         )?;
-        write_local_saves(&dir, self.local_saves)?;
         Ok(())
     }
 

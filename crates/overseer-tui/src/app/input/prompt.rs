@@ -1,17 +1,25 @@
 //! The Prompt modal: the new-profile name entry.
 
-use overseer_core::instance::InstanceError;
+use overseer_core::apply;
+use overseer_core::instance::{InstanceError, ModKind};
 use ratatui::crossterm::event::{KeyCode, KeyEvent};
 
-use crate::app::{App, Modal, Prompt, PromptKind, SelectKind};
+use crate::app::{App, Focus, Modal, Prompt, PromptKind, SelectKind};
 
 impl App {
     /// Keys for Prompt modal: edit the line, submit, or cancel
     pub(super) fn handle_prompt_key(&mut self, key: KeyEvent) {
         match key.code {
-            // cancel returns to the picker the prompt was opened from
-            KeyCode::Esc => self.open_select(SelectKind::Profile),
-            KeyCode::Enter => self.submit_new_profile(),
+            KeyCode::Esc => match self.open_prompt_kind() {
+                Some(PromptKind::NewProfile) => self.open_select(SelectKind::Profile),
+                Some(PromptKind::RenameMod { .. }) => self.modal = None,
+                None => {}
+            },
+            KeyCode::Enter => match self.open_prompt_kind() {
+                Some(PromptKind::NewProfile) => self.submit_new_profile(),
+                Some(PromptKind::RenameMod { old }) => self.submit_rename_mod(old),
+                None => {}
+            },
             KeyCode::Backspace => {
                 if let Some(Modal::Prompt(prompt)) = self.modal.as_mut() {
                     prompt.input.pop();
@@ -31,9 +39,38 @@ impl App {
         }
     }
 
+    fn open_prompt_kind(&self) -> Option<PromptKind> {
+        match &self.modal {
+            Some(Modal::Prompt(prompt)) => Some(prompt.kind.clone()),
+            _ => None,
+        }
+    }
+
     pub(super) fn open_new_profile(&mut self) {
         self.modal = Some(Modal::Prompt(Prompt {
             kind: PromptKind::NewProfile,
+            input: String::new(),
+            error: None,
+        }));
+    }
+
+    pub(super) fn open_rename_mod(&mut self) {
+        if self.focus != Focus::Mods {
+            self.note("Switch to the mods pane to rename a mod");
+            return;
+        }
+        let Some(i) = self.mods_state.selected() else {
+            return;
+        };
+        let entry = &self.session.profile.mods[i];
+        if entry.kind != ModKind::Managed {
+            self.note("Only managed mods can be renamed");
+            return;
+        }
+        self.modal = Some(Modal::Prompt(Prompt {
+            kind: PromptKind::RenameMod {
+                old: entry.name.clone(),
+            },
             input: String::new(),
             error: None,
         }));
@@ -64,7 +101,7 @@ impl App {
 
     /// Validate then create a profile, mapping any failure to a user-facing message.
     fn create_named_profile(&self, name: &str) -> Result<(), String> {
-        validate_profile_name(name)?;
+        validate_name(name)?;
         match self.session.instance.create_profile(name) {
             Ok(_) => Ok(()),
             Err(InstanceError::ProfileExists(_)) => {
@@ -72,6 +109,38 @@ impl App {
             }
             Err(e) => Err(e.to_string()),
         }
+    }
+
+    fn submit_rename_mod(&mut self, old: String) {
+        let Some(Modal::Prompt(prompt)) = self.modal.as_ref() else {
+            return;
+        };
+        let new = prompt.input.trim().to_owned();
+
+        match self.rename_selected_mod(&old, &new) {
+            Ok(()) => {
+                self.modal = None;
+                self.ok(format!("Renamed {old} \u{2192} {new}"));
+            }
+            Err(msg) => self.set_prompt_error(msg),
+        }
+    }
+
+    /// Validate then rename a mod, mapping any failure to a user-facing message.
+    fn rename_selected_mod(&mut self, old: &str, new: &str) -> Result<(), String> {
+        validate_name(new)?;
+        apply::rename_mod(&self.session.instance, old, new).map_err(rename_error_message)?;
+        if let Some(entry) = self
+            .session
+            .profile
+            .mods
+            .iter_mut()
+            .find(|entry| entry.name.eq_ignore_ascii_case(old))
+        {
+            entry.name = new.to_owned();
+        }
+        self.mark_conflicts_stale();
+        Ok(())
     }
 
     /// Show an inline error on the open prompt (no-op if no prompt is open).
@@ -82,7 +151,24 @@ impl App {
     }
 }
 
-fn validate_profile_name(name: &str) -> Result<(), String> {
+fn rename_error_message(error: apply::ApplyError) -> String {
+    match error {
+        apply::ApplyError::DeployedCannotRename { .. } => "Purge before renaming mods".to_owned(),
+        apply::ApplyError::Instance(InstanceError::ModAlreadyInstalled(name)) => {
+            format!("A mod named {name} is already installed")
+        }
+        apply::ApplyError::Instance(InstanceError::ModAlreadyInList(_)) => {
+            "A profile already lists both mod names".to_owned()
+        }
+        apply::ApplyError::Instance(InstanceError::ModNotInstalled(name)) => {
+            format!("No installed mod named {name}")
+        }
+        apply::ApplyError::Instance(InstanceError::InvalidModName(msg)) => msg,
+        other => other.to_string(),
+    }
+}
+
+fn validate_name(name: &str) -> Result<(), String> {
     const BAD: &[char] = &['/', '\\', ':', '*', '?', '"', '<', '>', '|'];
     // Windows device names are reserved as a whole component, case-insensitively.
     const RESERVED: &[&str] = &[
@@ -91,6 +177,8 @@ fn validate_profile_name(name: &str) -> Result<(), String> {
     ];
     if name.is_empty() {
         Err("Name cannot be empty".to_owned())
+    } else if name.chars().count() > 64 {
+        Err("Name cannot be longer than 64 characters".to_owned())
     } else if name.contains("..") || name.contains(BAD) || name.contains(char::is_control) {
         Err("Name cannot contain .. or any of / \\ : * ? \" < > |".to_owned())
     } else if name.ends_with('.') || name.ends_with(' ') {
@@ -108,6 +196,8 @@ mod tests {
     use super::*;
     use crate::app::Select;
     use crate::app::input::test_helpers::*;
+    use overseer_core::test_support::{install_mod, save_profile};
+    use ratatui::widgets::ListState;
 
     #[test]
     fn n_in_the_profile_picker_opens_the_new_profile_prompt() {
@@ -236,21 +326,129 @@ mod tests {
     }
 
     #[test]
-    fn validate_profile_name_rejects_windows_unsafe_names() {
+    fn validate_name_rejects_windows_unsafe_names() {
         // Windows strips a trailing dot/space, so these would create a different
         // directory than requested and silently desync from Profile.name.
-        assert!(validate_profile_name("Foo.").is_err(), "trailing dot");
-        assert!(validate_profile_name("Foo ").is_err(), "trailing space");
+        assert!(validate_name("Foo.").is_err(), "trailing dot");
+        assert!(validate_name("Foo ").is_err(), "trailing space");
         // Reserved device names are rejected as a whole, case-insensitively.
-        assert!(validate_profile_name("nul").is_err(), "reserved, lowercase");
+        assert!(validate_name("nul").is_err(), "reserved, lowercase");
+        assert!(validate_name("COM1").is_err(), "reserved, uppercase");
+    }
+
+    #[test]
+    fn validate_name_allows_an_interior_space() {
+        assert!(validate_name("Survival Build").is_ok());
+    }
+
+    #[test]
+    fn r_on_a_managed_mod_opens_an_empty_rename_prompt() {
+        let mut app = App::sample();
+
+        app.handle_key(key(KeyCode::Char('R')));
+
+        match &app.modal {
+            Some(Modal::Prompt(Prompt {
+                kind: PromptKind::RenameMod { old },
+                input,
+                error,
+            })) => {
+                assert_eq!(old, "CoolMod");
+                assert_eq!(input, "");
+                assert!(error.is_none());
+            }
+            other => panic!("expected rename prompt, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn r_on_unrenameable_rows_or_plugins_pane_is_a_note() {
+        let mut app = App::sample();
+        app.session
+            .profile
+            .mods
+            .push(overseer_core::instance::ModListEntry {
+                name: "DLC".to_owned(),
+                enabled: true,
+                kind: ModKind::Foreign,
+            });
+        app.mods_state.select(Some(2));
+
+        app.handle_key(key(KeyCode::Char('R')));
+
+        assert!(app.modal.is_none());
+        assert!(app.message.is_some());
+
+        app.session.profile.mods[2].kind = ModKind::Separator;
+        app.message = None;
+        app.handle_key(key(KeyCode::Char('R')));
+        assert!(app.modal.is_none());
+        assert!(app.message.is_some());
+
+        app.focus = Focus::Workspace;
+        app.message = None;
+        app.handle_key(key(KeyCode::Char('R')));
+        assert!(app.modal.is_none());
+        assert!(app.message.is_some());
+    }
+
+    #[test]
+    fn submitting_a_valid_mod_rename_updates_memory_and_keeps_selection() {
+        let (_tmp, instance) = overseer_core::test_support::temp_instance();
+        install_mod(&instance, "CoolMod", &[("Textures/a.dds", "pixels")]);
+        save_profile(&instance, "Default", &[("CoolMod", true)]);
+        let mut app = App::sample();
+        app.session.instance = instance;
+        app.mods_state.select(Some(0));
+
+        app.handle_key(key(KeyCode::Char('R')));
+        for c in "BetterMod".chars() {
+            app.handle_key(key(KeyCode::Char(c)));
+        }
+        app.handle_key(key(KeyCode::Enter));
+
+        assert!(app.modal.is_none(), "successful rename closes prompt");
+        assert_eq!(app.session.profile.mods[0].name, "BetterMod");
+        assert_eq!(app.mods_state.selected(), Some(0));
+        assert!(app.message.is_some(), "an ok notice is shown");
+    }
+
+    #[test]
+    fn submitting_an_invalid_mod_rename_keeps_the_prompt_with_error() {
+        let mut app = App::sample();
+        app.handle_key(key(KeyCode::Char('R')));
+        for c in "a/b".chars() {
+            app.handle_key(key(KeyCode::Char(c)));
+        }
+        app.handle_key(key(KeyCode::Enter));
+
         assert!(
-            validate_profile_name("COM1").is_err(),
-            "reserved, uppercase"
+            matches!(prompt_state(&app), Some(("a/b", Some(_)))),
+            "invalid name stays inline"
         );
     }
 
     #[test]
-    fn validate_profile_name_allows_an_interior_space() {
-        assert!(validate_profile_name("Survival Build").is_ok());
+    fn submitting_a_duplicate_mod_rename_keeps_the_prompt_with_error() {
+        let (_tmp, instance) = overseer_core::test_support::temp_instance();
+        install_mod(&instance, "CoolMod", &[("Textures/a.dds", "pixels")]);
+        install_mod(&instance, "Existing", &[("Textures/b.dds", "pixels")]);
+        save_profile(&instance, "Default", &[("CoolMod", true)]);
+        let mut app = App::sample();
+        app.session.instance = instance;
+        app.mods_state = ListState::default();
+        app.mods_state.select(Some(0));
+
+        app.handle_key(key(KeyCode::Char('R')));
+        for c in "Existing".chars() {
+            app.handle_key(key(KeyCode::Char(c)));
+        }
+        app.handle_key(key(KeyCode::Enter));
+
+        assert!(
+            matches!(prompt_state(&app), Some(("Existing", Some(_)))),
+            "duplicate name stays inline"
+        );
+        assert_eq!(app.session.profile.mods[0].name, "CoolMod");
     }
 }

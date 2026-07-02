@@ -16,6 +16,15 @@ pub enum InstanceError {
     #[error("a mod named `{0}` is already in this profile")]
     ModAlreadyInList(String),
 
+    #[error("invalid mod name `{0}`")]
+    InvalidModName(String),
+
+    #[error("no installed mod named `{0}`")]
+    ModNotInstalled(String),
+
+    #[error("an installed mod named `{0}` already exists")]
+    ModAlreadyInstalled(String),
+
     #[error("no Overseer instance at `{path}` (run `overseer instance init` first)")]
     NotAnInstance { path: Utf8PathBuf },
 

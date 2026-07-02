@@ -17,6 +17,10 @@ pub enum ApplyError {
     #[error("no live deployment found at `{path}`")]
     NotDeployed { path: Utf8PathBuf },
 
+    /// Refuse to rename a mod while a deployment is live
+    #[error("cannot rename mods while `{path}` has a live deployment; purge it first")]
+    DeployedCannotRename { path: Utf8PathBuf },
+
     /// The deployment state file could not be read or written as JSON
     #[error("deployment state `{path}`: {source}")]
     State {

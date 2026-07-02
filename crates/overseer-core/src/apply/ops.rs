@@ -218,6 +218,20 @@ pub fn status(instance: &Instance) -> Result<Option<DeploymentStatus>, ApplyErro
     }))
 }
 
+/// Rename an installed mod, refusing while any deployment is live.
+pub fn rename_mod(instance: &Instance, old: &str, new: &str) -> Result<(), ApplyError> {
+    let _lock = InstanceLock::acquire(instance)?;
+    recover_if_needed(instance, &NullSink)?;
+
+    if Deployment::exists(instance) {
+        return Err(ApplyError::DeployedCannotRename {
+            path: Deployment::path(instance),
+        });
+    }
+
+    instance.rename_mod(old, new).map_err(Into::into)
+}
+
 /// Lock held recovery used by every mutating entry point
 fn recover_if_needed(instance: &Instance, progress: &dyn ProgressSink) -> Result<(), ApplyError> {
     if !Deployment::exists(instance) {
@@ -405,6 +419,32 @@ mod tests {
         let err =
             deploy_profile(&instance, "Default", &NullSink).expect_err("second deploy must fail");
         assert!(matches!(err, ApplyError::AlreadyDeployed { .. }));
+    }
+
+    #[test]
+    fn rename_mod_is_refused_while_a_deployment_is_live() {
+        let (_tmp, instance) = temp_instance();
+        install_mod(&instance, "CoolMod", &[("Textures/a.dds", "pixels")]);
+        save_profile(&instance, "Default", &[("CoolMod", true)]);
+        deploy_profile(&instance, "Default", &NullSink).expect("deploy");
+
+        let err = rename_mod(&instance, "CoolMod", "BetterMod")
+            .expect_err("rename must be refused while deployed");
+        assert!(matches!(err, ApplyError::DeployedCannotRename { .. }));
+        assert!(instance.mods_dir().join("CoolMod").is_dir());
+        assert!(!instance.mods_dir().join("BetterMod").exists());
+    }
+
+    #[test]
+    fn rename_mod_succeeds_when_no_deployment_is_live() {
+        let (_tmp, instance) = temp_instance();
+        install_mod(&instance, "CoolMod", &[("Textures/a.dds", "pixels")]);
+        save_profile(&instance, "Default", &[("CoolMod", true)]);
+
+        rename_mod(&instance, "CoolMod", "BetterMod").expect("rename");
+
+        assert!(!instance.mods_dir().join("CoolMod").exists());
+        assert!(instance.mods_dir().join("BetterMod").is_dir());
     }
 
     #[test]

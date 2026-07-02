@@ -29,6 +29,7 @@ pub(crate) const HELP_ENTRIES: &[(&str, &str)] = &[
     ("Space / Enter", "toggle enabled · install download"),
     ("x", "delete save"),
     ("J / K", "reorder mod (priority)"),
+    ("R", "rename selected mod"),
     ("1 / 2 / 3 / 4", "switch workspace"),
     ("[ / ]", "cycle workspace"),
     ("r", "scan conflicts · refresh downloads"),

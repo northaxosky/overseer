@@ -40,6 +40,7 @@ impl App {
             KeyCode::Char('s') => self.open_select(SelectKind::Instance),
             KeyCode::Char('l') => self.open_select(SelectKind::Launch),
             KeyCode::Char('p') => self.open_select(SelectKind::Profile),
+            KeyCode::Char('R') => self.open_rename_mod(),
 
             // Workspace view related controls
             KeyCode::Char('d') => self.open_doctor(),

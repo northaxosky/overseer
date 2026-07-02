@@ -1,5 +1,5 @@
 use super::error::{InstanceError, io_err};
-use super::profile::Profile;
+use super::profile::{ModKind, Profile};
 use crate::deploy::DeployerKind;
 use crate::game::GameKind;
 use camino::{Utf8Path, Utf8PathBuf};
@@ -248,6 +248,113 @@ impl Instance {
         profile.save(self)?;
         Ok(profile)
     }
+
+    /// Rename an installed mod folder and every profile entry that references it.
+    pub(crate) fn rename_mod(&self, old: &str, new: &str) -> Result<(), InstanceError> {
+        validate_mod_name(new)?;
+        if new == old {
+            return Err(InstanceError::InvalidModName(
+                "new name matches the old name".to_owned(),
+            ));
+        }
+        if new.eq_ignore_ascii_case(old) {
+            return Err(InstanceError::InvalidModName(
+                "case-only rename isn't supported yet".to_owned(),
+            ));
+        }
+
+        let installed = self.installed_mods()?;
+        let old_name = installed
+            .iter()
+            .find(|m| m.name.eq_ignore_ascii_case(old))
+            .map(|m| m.name.clone())
+            .ok_or_else(|| InstanceError::ModNotInstalled(old.to_owned()))?;
+
+        if installed
+            .iter()
+            .any(|m| !m.name.eq_ignore_ascii_case(&old_name) && m.name.eq_ignore_ascii_case(new))
+        {
+            return Err(InstanceError::ModAlreadyInstalled(new.to_owned()));
+        }
+
+        let mut profiles = Vec::new();
+        for profile_name in self.profiles()? {
+            let profile = Profile::load(self, &profile_name)?;
+            if profile.contains(&old_name) && profile.contains(new) {
+                return Err(InstanceError::ModAlreadyInList(new.to_owned()));
+            }
+            if profile_has_managed(&profile, &old_name) {
+                profiles.push(profile);
+            }
+        }
+
+        let old_dir = self.mods_dir().join(&old_name);
+        let new_dir = self.mods_dir().join(new);
+        std::fs::rename(&old_dir, &new_dir)
+            .map_err(|e| InstanceError::from(io_err(&old_dir, e)))?;
+
+        for mut profile in profiles {
+            for entry in &mut profile.mods {
+                if entry.kind == ModKind::Managed && entry.name.eq_ignore_ascii_case(&old_name) {
+                    entry.name = new.to_owned();
+                }
+            }
+            // A rename only changes the mod name, which lives in modlist.txt;
+            profile.save_modlist(self)?;
+        }
+
+        Ok(())
+    }
+}
+
+/// Validate a managed mod folder name.
+pub(crate) fn validate_mod_name(name: &str) -> Result<(), InstanceError> {
+    const BAD: &[char] = &['/', '\\', ':', '*', '?', '"', '<', '>', '|'];
+    const RESERVED: &[&str] = &[
+        "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8",
+        "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+    ];
+    if name.is_empty() {
+        Err(InstanceError::InvalidModName(
+            "name cannot be empty".to_owned(),
+        ))
+    } else if name.chars().count() > 64 {
+        Err(InstanceError::InvalidModName(
+            "name cannot be longer than 64 characters".to_owned(),
+        ))
+    } else if name.contains("..") || name.contains(BAD) || name.contains(char::is_control) {
+        Err(InstanceError::InvalidModName(
+            "name cannot contain .. or any of / \\ : * ? \" < > |".to_owned(),
+        ))
+    } else if name.ends_with('.') || name.ends_with(' ') {
+        Err(InstanceError::InvalidModName(
+            "name cannot end with a space or '.'".to_owned(),
+        ))
+    } else if RESERVED.iter().any(|r| r.eq_ignore_ascii_case(name)) {
+        Err(InstanceError::InvalidModName(
+            "that name is reserved by Windows".to_owned(),
+        ))
+    } else if name.ends_with("_separator") {
+        Err(InstanceError::InvalidModName(
+            "mod names cannot end with _separator".to_owned(),
+        ))
+    } else if ["overwrite", "downloads"]
+        .iter()
+        .any(|reserved| reserved.eq_ignore_ascii_case(name))
+    {
+        Err(InstanceError::InvalidModName(
+            "that name is reserved by the instance layout".to_owned(),
+        ))
+    } else {
+        Ok(())
+    }
+}
+
+fn profile_has_managed(profile: &Profile, name: &str) -> bool {
+    profile
+        .mods
+        .iter()
+        .any(|entry| entry.kind == ModKind::Managed && entry.name.eq_ignore_ascii_case(name))
 }
 
 /// Names of the immediate subdirectories of `dir`, sorted; a missing dir is an empty list
@@ -282,9 +389,10 @@ fn read_subdirs(dir: &Utf8Path) -> Result<Vec<String>, InstanceError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::instance::{ModKind, ModListEntry};
     use tempfile::TempDir;
 
-    use crate::test_support::temp_instance;
+    use crate::test_support::{install_mod, save_profile, temp_instance};
 
     #[test]
     fn path_helpers_compose_under_root() {
@@ -502,5 +610,147 @@ mod tests {
             .create_profile("Default")
             .expect_err("should refuse");
         assert!(matches!(err, InstanceError::ProfileExists(name) if name == "Default"));
+    }
+
+    #[test]
+    fn rename_mod_renames_folder_and_rewrites_referencing_profiles() {
+        let (_tmp, instance) = temp_instance();
+        install_mod(
+            &instance,
+            "CoolMod",
+            &[("Cool.esp", "plugin bytes"), ("plugins.txt", "*Cool.esp\n")],
+        );
+        install_mod(&instance, "Other", &[("Data.txt", "other")]);
+        save_profile(&instance, "Default", &[("CoolMod", true), ("Other", false)]);
+
+        let mut survival = Profile {
+            name: "Survival".to_owned(),
+            mods: vec![
+                ModListEntry {
+                    name: "Other".to_owned(),
+                    enabled: true,
+                    kind: ModKind::Managed,
+                },
+                ModListEntry {
+                    name: "CoolMod".to_owned(),
+                    enabled: false,
+                    kind: ModKind::Managed,
+                },
+            ],
+            local_saves: false,
+        };
+        survival.save(&instance).expect("save survival");
+        save_profile(&instance, "Clean", &[("Other", true)]);
+        let clean_before =
+            std::fs::read_to_string(instance.profile_dir("Clean").join("modlist.txt"))
+                .expect("read clean before");
+
+        instance
+            .rename_mod("CoolMod", "BetterMod")
+            .expect("rename mod");
+
+        assert!(!instance.mods_dir().join("CoolMod").exists());
+        assert!(instance.mods_dir().join("BetterMod").is_dir());
+        assert_eq!(
+            std::fs::read_to_string(instance.mods_dir().join("BetterMod").join("Cool.esp"))
+                .expect("read plugin"),
+            "plugin bytes"
+        );
+        assert_eq!(
+            std::fs::read_to_string(instance.mods_dir().join("BetterMod").join("plugins.txt"))
+                .expect("read plugins.txt"),
+            "*Cool.esp\n"
+        );
+
+        let default = Profile::load(&instance, "Default").expect("load default");
+        assert_eq!(default.mods[0].name, "BetterMod");
+        assert!(default.mods[0].enabled);
+        assert_eq!(default.mods[1].name, "Other");
+        assert!(!default.mods[1].enabled);
+
+        survival = Profile::load(&instance, "Survival").expect("load survival");
+        assert_eq!(survival.mods[0].name, "Other");
+        assert!(survival.mods[0].enabled);
+        assert_eq!(survival.mods[1].name, "BetterMod");
+        assert!(!survival.mods[1].enabled);
+
+        let clean_after =
+            std::fs::read_to_string(instance.profile_dir("Clean").join("modlist.txt"))
+                .expect("read clean after");
+        assert_eq!(clean_after, clean_before, "unreferencing profile untouched");
+    }
+
+    #[test]
+    fn rename_mod_rejects_a_colliding_target_folder() {
+        let (_tmp, instance) = temp_instance();
+        install_mod(&instance, "CoolMod", &[("a.txt", "a")]);
+        install_mod(&instance, "Existing", &[("b.txt", "b")]);
+
+        let err = instance
+            .rename_mod("CoolMod", "existing")
+            .expect_err("collision must be rejected");
+        assert!(matches!(err, InstanceError::ModAlreadyInstalled(name) if name == "existing"));
+        assert!(instance.mods_dir().join("CoolMod").is_dir());
+        assert!(instance.mods_dir().join("Existing").is_dir());
+    }
+
+    #[test]
+    fn rename_mod_rejects_reserved_and_separator_names() {
+        let (_tmp, instance) = temp_instance();
+        install_mod(&instance, "CoolMod", &[("a.txt", "a")]);
+
+        for name in ["Foo_separator", "overwrite"] {
+            let err = instance
+                .rename_mod("CoolMod", name)
+                .expect_err("invalid target must be rejected");
+            assert!(
+                matches!(err, InstanceError::InvalidModName(_)),
+                "{name} should be invalid, got {err:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn rename_mod_rejects_case_only_and_noop_renames() {
+        let (_tmp, instance) = temp_instance();
+        install_mod(&instance, "CoolMod", &[("a.txt", "a")]);
+
+        let err = instance
+            .rename_mod("CoolMod", "coolmod")
+            .expect_err("case-only rename must be rejected");
+        assert!(matches!(err, InstanceError::InvalidModName(_)));
+
+        let err = instance
+            .rename_mod("CoolMod", "CoolMod")
+            .expect_err("same-name rename must be rejected");
+        assert!(matches!(err, InstanceError::InvalidModName(_)));
+    }
+
+    #[test]
+    fn rename_mod_rejects_profiles_that_already_list_both_names() {
+        let (_tmp, instance) = temp_instance();
+        install_mod(&instance, "CoolMod", &[("a.txt", "a")]);
+        save_profile(
+            &instance,
+            "Default",
+            &[("CoolMod", true), ("BetterMod", true)],
+        );
+
+        let err = instance
+            .rename_mod("CoolMod", "BetterMod")
+            .expect_err("both names in a profile must be rejected");
+        assert!(matches!(err, InstanceError::ModAlreadyInList(name) if name == "BetterMod"));
+        assert!(instance.mods_dir().join("CoolMod").is_dir());
+        assert!(!instance.mods_dir().join("BetterMod").exists());
+    }
+
+    #[test]
+    fn rename_mod_reports_missing_source_mod() {
+        let (_tmp, instance) = temp_instance();
+
+        let err = instance
+            .rename_mod("Missing", "BetterMod")
+            .expect_err("missing mod must be rejected");
+        assert!(matches!(err, InstanceError::ModNotInstalled(name) if name == "Missing"));
     }
 }
