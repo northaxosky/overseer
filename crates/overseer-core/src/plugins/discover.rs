@@ -76,9 +76,7 @@ pub(crate) fn find_plugin_files(dir: &Utf8Path) -> Result<Vec<camino::Utf8PathBu
     Ok(found)
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------; Tests; ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
@@ -131,8 +129,7 @@ mod tests {
     #[test]
     fn higher_priority_mod_wins_a_plugin_name_conflict() {
         let (_t, instance) = temp_instance();
-        // Both mods provide Shared.esp; the higher-priority one (ModA, listed first) is a
-        // master, the lower-priority one is not — we must read the winner's metadata.
+        // Both mods provide Shared.esp; the higher-priority one (ModA, listed first) is a; master, the lower-priority one is not — we must read the winner's metadata.
         write_plugin(
             &instance.mods_dir().join("ModA"),
             "Shared.esp",

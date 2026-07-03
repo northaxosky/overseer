@@ -594,8 +594,7 @@ mod tests {
 
     #[test]
     fn validate_name_rejects_windows_unsafe_names() {
-        // Windows strips a trailing dot/space, so these would create a different
-        // directory than requested and silently desync from Profile.name.
+        // Windows strips a trailing dot/space, so these would create a different; directory than requested and silently desync from Profile.name.
         assert!(validate_name("Foo.").is_err(), "trailing dot");
         assert!(validate_name("Foo ").is_err(), "trailing space");
         // Reserved device names are rejected as a whole, case-insensitively.

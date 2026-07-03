@@ -17,8 +17,7 @@ impl Check for F4se {
     fn run(&self, ctx: &GameContext) -> Vec<Finding> {
         let mut findings = Vec::new();
 
-        // A loader for the wrong runtime fails to launch the game. Only flag when both the game
-        // and loader families are known and disagree.
+        // A loader for the wrong runtime fails to launch the game; only flag when both the game and loader families are known and disagree.
         if let (Some(game), Some(loader)) = (ctx.runtime_family, ctx.loader_family)
             && game != loader
         {
@@ -62,9 +61,7 @@ impl Check for F4se {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------; Tests; ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {

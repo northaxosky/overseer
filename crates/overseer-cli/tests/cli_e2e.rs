@@ -223,8 +223,7 @@ fn doctor_reports_a_clean_fresh_instance() {
     // A complete install ships its Creation Club manifest in the game root.
     std::fs::write(game.join("Fallout4.ccc"), "ccBGSFO4001-PipBoy(Black).esl\n").unwrap();
 
-    // A controlled INI dir with archive invalidation correctly configured, so the check is
-    // clean and deterministic instead of reading the real `My Games\Fallout4`.
+    // A controlled INI dir with archive invalidation correctly configured, so the check is; clean and deterministic instead of reading the real `My Games\Fallout4`.
     let ini = tmp.path().join("ini");
     std::fs::create_dir_all(&ini).unwrap();
     std::fs::write(

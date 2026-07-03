@@ -87,8 +87,7 @@ mod tests {
         assert_eq!(parse_f4se_dll(&[]), F4seDll::NotPe);
     }
 
-    // A real 64-bit PE with exports but no F4SE entry points classifies as NotF4se. Uses a
-    // stock Windows DLL so we exercise pelite's export parsing on a genuine binary.
+    // A real 64-bit PE with exports but no F4SE entry points classifies as NotF4se. Uses a; stock Windows DLL so we exercise pelite's export parsing on a genuine binary.
     #[cfg(windows)]
     #[test]
     fn a_real_non_f4se_dll_is_not_f4se() {

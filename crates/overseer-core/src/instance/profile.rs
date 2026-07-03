@@ -294,9 +294,7 @@ fn parse_modlist(text: &str) -> Vec<ModListEntry> {
         .collect()
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------; Tests; ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
@@ -452,8 +450,7 @@ mod tests {
 
     #[test]
     fn deploy_sources_excludes_foreign_mods() {
-        // Foreign (game-shipped DLC/CC) entries have no `mods/` dir; including them would crash the
-        // deploy/diagnose plan with MissingStaging on any real MO2 profile that lists DLC.
+        // Foreign (game-shipped DLC/CC) entries have no `mods/` dir; including them would crash the; deploy/diagnose plan with MissingStaging on any real MO2 profile that lists DLC.
         let (_tmp, instance) = temp_instance();
         let profile = Profile {
             name: "P".to_owned(),
@@ -861,8 +858,7 @@ mod tests {
         };
 
         let changed = profile.reconcile(&instance).expect("reconcile");
-        // A separator has no mods/ folder but must survive reconcile (and the save that follows),
-        // so importing an MO2 profile and running `mod list` can't silently destroy it.
+        // A separator has no mods/ folder but must survive reconcile (and the save that follows), so importing an MO2 profile and running `mod list` can't silently destroy it.
         assert!(!changed, "a separator is not a change to reconcile away");
         assert!(
             profile.mods.iter().any(|e| e.kind == ModKind::Separator),

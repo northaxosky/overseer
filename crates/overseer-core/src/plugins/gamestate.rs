@@ -79,9 +79,7 @@ pub fn restore_plugins_txt_if_ours(
     )
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------; Tests; ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
@@ -253,8 +251,7 @@ mod tests {
         let implicit =
             implicit_active_plugins(GameId::Fallout4, &game, &local).expect("implicit actives");
 
-        // The hardcoded base master and a DLC ESM are always candidates, even
-        // though no files exist on disk: the set is deliberately not presence-filtered.
+        // The hardcoded base master and a DLC ESM are always candidates, even; though no files exist on disk: the set is deliberately not presence-filtered.
         assert!(implicit.iter().any(|p| p == "Fallout4.esm"));
         assert!(implicit.iter().any(|p| p == "DLCCoast.esm"));
         // The Creation Club plugins from the manifest are folded in.

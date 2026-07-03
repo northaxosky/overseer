@@ -437,9 +437,7 @@ fn read_subdirs(dir: &Utf8Path) -> Result<Vec<String>, InstanceError> {
     Ok(names)
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------; Tests; ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
@@ -586,9 +584,7 @@ mod tests {
 
     #[test]
     fn legacy_config_without_game_key_defaults_to_fallout4() {
-        // A pre-multi-game overseer.toml only had `game_dir`; serde defaults fill
-        // in the rest, and `game` must resolve to Fallout 4 so existing instances
-        // keep working untouched.
+        // A pre-multi-game overseer.toml only had `game_dir`; serde defaults fill; in the rest, and `game` must resolve to Fallout 4 so existing instances; keep working untouched.
         let cfg: InstanceConfig = toml::from_str("game_dir = \"D:/FO4\"\n").expect("legacy load");
         assert_eq!(cfg.game, GameKind::Fallout4);
         assert_eq!(cfg.default_profile, "Default");

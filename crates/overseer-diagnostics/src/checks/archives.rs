@@ -99,9 +99,7 @@ fn limit_finding(count: usize, limit: usize, label: &str) -> Option<Finding> {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------; Tests; ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
@@ -282,8 +280,7 @@ mod tests {
 
     #[test]
     fn an_other_tag_is_not_counted_in_the_buckets() {
-        // A console GNMF archive parses as `Other` — neither general nor texture, and v1
-        // is supported, so a lone one produces no findings at all.
+        // A console GNMF archive parses as `Other` — neither general nor texture, and v1; is supported, so a lone one produces no findings at all.
         let findings = run(vec![info(
             "Console.ba2",
             header(1, Ba2Kind::Other(*b"GNMF")),

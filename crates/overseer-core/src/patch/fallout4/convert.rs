@@ -331,8 +331,7 @@ mod tests {
         );
     }
 
-    // A decoder that ignores the delta and writes a scripted result, so convert_item's
-    // ordering/verification can be exercised without a real xdelta3.
+    // A decoder that ignores the delta and writes a scripted result, so convert_item's; ordering/verification can be exercised without a real xdelta3.
     enum FakeDecoder {
         /// Write these exact bytes to `dest` (simulates a good or a wrong delta).
         Writes(Vec<u8>),
@@ -465,8 +464,7 @@ mod tests {
 
     #[test]
     fn a_right_crc_but_wrong_size_result_is_rejected() {
-        // Guards the CRC32-collision path: the item's CRC matches the output, but the size does
-        // not, so the two-factor check must still refuse and leave the real file untouched.
+        // Guards the CRC32-collision path: the item's CRC matches the output, but the size does; not, so the two-factor check must still refuse and leave the real file untouched.
         let (_tmp, root) = seed_source(b"AE-version");
         let item = ConvertItem {
             rel_path: "check.bin",
@@ -488,8 +486,7 @@ mod tests {
         assert!(!root.join("check.bin.overseer-bak").exists());
     }
 
-    // A decoder that writes the target bytes for a "good" dest and garbage for anything else,
-    // so a batch can mix a verifiable job with a failing one.
+    // A decoder that writes the target bytes for a "good" dest and garbage for anything else, so a batch can mix a verifiable job with a failing one.
     struct PerDestDecoder;
     impl DeltaDecoder for PerDestDecoder {
         fn apply(

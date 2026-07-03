@@ -242,9 +242,7 @@ fn volume_id(path: &Utf8Path) -> Option<String> {
     None
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------; Tests; ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
@@ -501,8 +499,7 @@ mod tests {
             "preexisting"
         );
         assert!(!data.join("made.txt").exists());
-        // Second reversal (a recovery retry) must be a no-op for the restored
-        // original — it must NOT fall through and delete it.
+        // Second reversal (a recovery retry) must be a no-op for the restored; original — it must NOT fall through and delete it.
         assert!(d.undeploy(&record, &NullSink).is_fully_resolved());
         assert_eq!(
             fs::read_to_string(data.join("kept.txt")).unwrap(),

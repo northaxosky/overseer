@@ -373,9 +373,7 @@ fn guard_no_orphaned_backup(backup_root: &Utf8Path) -> Result<(), ApplyError> {
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------; Tests; ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
@@ -861,13 +859,11 @@ mod tests {
         install_plugin(&instance, "CoolMod", "Cool.esp");
         save_profile(&instance, "Default", &[("CoolMod", true)]);
 
-        // Deploy, then forge the journal back to InProgress to mimic a crash that
-        // struck after the files landed but before the commit flip.
+        // Deploy, then forge the journal back to InProgress to mimic a crash that; struck after the files landed but before the commit flip.
         deploy_profile(&instance, "Default", &NullSink).expect("first deploy");
         force_status(&instance, Status::InProgress);
 
-        // A non-Committed journal must be reversed on the next entry; without
-        // recovery this second deploy would be refused with AlreadyDeployed.
+        // A non-Committed journal must be reversed on the next entry; without; recovery this second deploy would be refused with AlreadyDeployed.
         deploy_profile(&instance, "Default", &NullSink).expect("recovery clears the way");
 
         assert!(deployed(&instance, "Cool.esp").exists());
@@ -904,8 +900,7 @@ mod tests {
         install_plugin(&instance, "CoolMod", "Cool.esp");
         save_profile(&instance, "Default", &[("CoolMod", true)]);
 
-        // Deploy, then forge the journal back to InProgress to mimic a crash that
-        // struck after the files landed but before the commit flip.
+        // Deploy, then forge the journal back to InProgress to mimic a crash that; struck after the files landed but before the commit flip.
         deploy_profile(&instance, "Default", &NullSink).expect("deploy");
         force_status(&instance, Status::InProgress);
 
@@ -980,8 +975,7 @@ mod tests {
     #[test]
     fn a_reversal_that_cannot_finish_keeps_a_recovery_failed_journal() {
         let (_tmp, instance) = temp_instance();
-        // A vanilla file gets backed up on deploy, so a backup dir lives alongside
-        // the deployment until purge restores it.
+        // A vanilla file gets backed up on deploy, so a backup dir lives alongside; the deployment until purge restores it.
         let data_file = deployed(&instance, "conflict.txt");
         std::fs::create_dir_all(data_file.parent().expect("parent")).expect("mk Data");
         std::fs::write(&data_file, "vanilla").expect("seed vanilla");
@@ -990,8 +984,7 @@ mod tests {
 
         deploy_profile(&instance, "Default", &NullSink).expect("deploy");
 
-        // Plant a stray file no entry will claim, so the sweep at the end of
-        // reversal reports it as an unresolved residual backup.
+        // Plant a stray file no entry will claim, so the sweep at the end of; reversal reports it as an unresolved residual backup.
         let backup_root = instance.config.game_dir.join(".overseer-backup");
         std::fs::write(backup_root.join("stray.bin"), b"junk").expect("plant stray");
 

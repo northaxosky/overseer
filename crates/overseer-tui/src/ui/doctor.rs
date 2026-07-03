@@ -39,8 +39,7 @@ pub(super) fn render_doctor_modal(doctor: &mut DoctorReport, profile: &str, fram
         rows[0],
     );
 
-    // Wrap long titles to the findings pane so nothing clips horizontally
-    // (`render_overlay_list` reserves 2 cols for the selection marker).
+    // Wrap long titles to the findings pane so nothing clips horizontally; (`render_overlay_list` reserves 2 cols for the selection marker).
     let text_width = (rows[1].width as usize).saturating_sub(2);
     let items: Vec<ListItem<'static>> = doctor
         .report

@@ -483,8 +483,7 @@ mod tests {
         match &app.conflicts.status {
             ConflictsStatus::Ready(found) => {
                 assert_eq!(found.len(), 1, "the shared file is the only conflict");
-                // deploy_sources feeds detect_conflicts lowest priority first, so the
-                // higher-priority mod (top of the list) lands last as the winner.
+                // deploy_sources feeds detect_conflicts lowest priority first, so the; higher-priority mod (top of the list) lands last as the winner.
                 assert_eq!(found[0].providers, ["B", "A"]);
             }
             other => panic!("expected a completed scan, got {other:?}"),
@@ -507,8 +506,7 @@ mod tests {
         );
     }
 
-    // --- Characterization tests: pin today's workspace-dispatch behavior so the
-    // upcoming enum-method refactor can't drift. ---
+    // --- Characterization tests: pin today's workspace-dispatch behavior so the; upcoming enum-method refactor can't drift. ---
 
     #[test]
     fn workspace_iter_is_in_switch_order() {

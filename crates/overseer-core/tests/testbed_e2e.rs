@@ -172,13 +172,11 @@ fn recover_leftover_deployments(game_dir: &Utf8Path) {
 
 /// Scrub the synthetic namespace before deploy (reversal already ran via `recover_leftover_deployments`; this only clears orphans if the instance dir was lost).
 fn preflight_clean(data: &Utf8Path, backup_root: &Utf8Path) {
-    // (a) Orphan catch for the case the instance dir itself was lost: delete our files directly.
-    //     Safe because these paths are ours alone and never collide with base-game files.
+    // (a) Orphan catch for the case the instance dir itself was lost: delete our files directly. Safe because these paths are ours alone and never collide with base-game files.
     let _ = std::fs::remove_file(data.join(E2E_PLUGIN));
     let _ = std::fs::remove_dir_all(data.join("Textures").join(E2E_TEX_SUBDIR));
 
-    // (b) The unique-path design never backs a base file aside, so the backup root must be empty.
-    //     Anything else means a real file was clobbered — stop rather than guess.
+    // (b) The unique-path design never backs a base file aside, so the backup root must be empty. Anything else means a real file was clobbered — stop rather than guess.
     if backup_root.exists() {
         let has_entries = std::fs::read_dir(backup_root)
             .map(|mut d| d.next().is_some())
@@ -200,8 +198,7 @@ fn deploy_purge_roundtrip_leaves_testbed_pristine() {
     };
     let data = game_dir.join("Data");
 
-    // The game dir's `Data/` must canonicalize to inside the testbed — rejects a junction
-    // or reparse point that points `Data/` at a real install.
+    // The game dir's `Data/` must canonicalize to inside the testbed — rejects a junction; or reparse point that points `Data/` at a real install.
     let game_canon = game_dir.canonicalize_utf8().expect("canonicalize game dir");
     let data_canon = data.canonicalize_utf8().expect("canonicalize Data/");
     assert!(
@@ -212,8 +209,7 @@ fn deploy_purge_roundtrip_leaves_testbed_pristine() {
     // Hold the cross-process lock for the whole test.
     let _lock = TestbedLock::acquire(&game_dir);
 
-    // Deterministic working area on the same volume as the game (so hardlinks work and a
-    // crash-orphaned journal survives). Lives inside the disposable copy, outside `Data/`.
+    // Deterministic working area on the same volume as the game (so hardlinks work and a; crash-orphaned journal survives). Lives inside the disposable copy, outside `Data/`.
     let work = game_dir.join(SYNTHETIC_WORK);
     let instance_root = work.join("instance");
     let local_dir = work.join("local");
@@ -240,8 +236,7 @@ fn deploy_purge_roundtrip_leaves_testbed_pristine() {
         inst.config.ini_dir = Some(ini_dir.clone());
         Instance::init(&instance_root, inst.config).expect("init e2e instance")
     };
-    // Local/INI dirs must be explicitly redirected into the testbed, never the real
-    // `%LOCALAPPDATA%` / `Documents\My Games`.
+    // Local/INI dirs must be explicitly redirected into the testbed, never the real; `%LOCALAPPDATA%` / `Documents\My Games`.
     assert_eq!(
         instance.config.local_dir.as_deref(),
         Some(local_dir.as_path())
@@ -297,9 +292,7 @@ fn deploy_purge_roundtrip_leaves_testbed_pristine() {
         status.verified.missing
     );
 
-    // --- Diagnose the live install --- the doctor pipeline must run end-to-end on a real
-    // game without panicking. We don't assert "no errors" (our hermetic empty ini dir legitimately
-    // trips ini-config); we assert it produced findings and the F4SE binary checks stayed clean.
+    // --- Diagnose the live install --- the doctor pipeline must run end-to-end on a real; game without panicking. We don't assert "no errors" (our hermetic empty ini dir legitimately; trips ini-config); we assert it produced findings and the F4SE binary checks stayed clean.
     let report = overseer_diagnostics::diagnose(&instance, "e2e").expect("diagnose live install");
     assert!(!report.findings.is_empty(), "doctor produced no findings");
     assert!(
@@ -346,9 +339,7 @@ fn deploy_purge_roundtrip_leaves_testbed_pristine() {
     let _ = std::fs::remove_dir_all(&work);
 }
 
-// ---------------------------------------------------------------------------
-// Curated real-mod round-trip
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------; Curated real-mod round-trip; ---------------------------------------------------------------------------
 
 /// Curated real MO2 mods (from `OVERSEER_MO2_INSTANCE`) covering a real conflict (`Interface/MCM.swf`), ESM+ESP plugins, `.ba2` archives, and loose textures; highest-priority first so the first entry wins.
 const CURATED_MODS: &[&str] = &[
@@ -421,8 +412,7 @@ fn deploy_purge_roundtrip_with_real_mods_leaves_testbed_pristine() {
     };
     let data = game_dir.join("Data");
 
-    // The game dir's `Data/` must canonicalize inside the testbed — rejects a junction pointing
-    // `Data/` at a real install.
+    // The game dir's `Data/` must canonicalize inside the testbed — rejects a junction pointing; `Data/` at a real install.
     let game_canon = game_dir.canonicalize_utf8().expect("canonicalize game dir");
     let data_canon = data.canonicalize_utf8().expect("canonicalize Data/");
     assert!(
@@ -432,16 +422,14 @@ fn deploy_purge_roundtrip_with_real_mods_leaves_testbed_pristine() {
 
     let _lock = TestbedLock::acquire(&game_dir);
 
-    // Deterministic working area on the game's volume, in its own dir (distinct from the synthetic
-    // test) so a crash-orphaned journal survives for the next run to reverse.
+    // Deterministic working area on the game's volume, in its own dir (distinct from the synthetic; test) so a crash-orphaned journal survives for the next run to reverse.
     let work = game_dir.join(REAL_WORK);
     let instance_root = work.join("instance");
     let local_dir = work.join("local");
     let ini_dir = work.join("ini");
     let backup_root = game_dir.join(".overseer-backup");
 
-    // Reverse any leftover deployment from a crashed prior run of *either* round-trip before we
-    // snapshot the baseline, so leaked files can't masquerade as pristine.
+    // Reverse any leftover deployment from a crashed prior run of *either* round-trip before we; snapshot the baseline, so leaked files can't masquerade as pristine.
     recover_leftover_deployments(&game_dir);
     let backup_empty = !backup_root.exists()
         || std::fs::read_dir(&backup_root).map_or(true, |mut d| d.next().is_none());
@@ -467,8 +455,7 @@ fn deploy_purge_roundtrip_with_real_mods_leaves_testbed_pristine() {
         detect::Edition::Undetermined
     );
 
-    // Stage the curated subset onto the testbed volume — hardlink deploy needs the staging dir on
-    // the same volume as `Data/`. Skip any the user no longer has; require enough for a real run.
+    // Stage the curated subset onto the testbed volume — hardlink deploy needs the staging dir on; the same volume as `Data/`. Skip any the user no longer has; require enough for a real run.
     let mut staged: Vec<&str> = Vec::new();
     for &name in CURATED_MODS {
         let src = source.join("mods").join(name);
@@ -494,8 +481,7 @@ fn deploy_purge_roundtrip_with_real_mods_leaves_testbed_pristine() {
     // --- Deploy ---
     apply::deploy_profile(&instance, "real", &NullSink).expect("deploy real mods");
 
-    // (1) Every planned file is deployed as a hard link of its mod source, not a copy — covers
-    //     plugins, archives, loose textures, and each conflict winner in one sweep.
+    // (1) Every planned file is deployed as a hard link of its mod source, not a copy — covers; plugins, archives, loose textures, and each conflict winner in one sweep.
     let profile = Profile::load(&instance, "real").expect("reload profile");
     let sources = profile.deploy_sources(&instance);
     let plan = DeployPlan::from_rooted_mods(&game_dir, &sources).expect("build deploy plan");
@@ -514,8 +500,7 @@ fn deploy_purge_roundtrip_with_real_mods_leaves_testbed_pristine() {
         );
     }
 
-    // (2) The real conflict resolves to the higher-priority mod. The curated set makes the two
-    //     MCM mods share `Interface/MCM.swf`; the one listed first must win.
+    // (2) The real conflict resolves to the higher-priority mod. The curated set makes the two; MCM mods share `Interface/MCM.swf`; the one listed first must win.
     let conflicts = detect_conflicts(&sources).expect("detect conflicts on real mods");
     assert!(
         !conflicts.is_empty(),
@@ -535,8 +520,7 @@ fn deploy_purge_roundtrip_with_real_mods_leaves_testbed_pristine() {
         );
     }
 
-    // (3) Every staged plugin lands in the real Plugins.txt as its own active entry. Parse line by
-    //     line (stripping the `*` active marker) so a name can't false-match as a substring.
+    // (3) Every staged plugin lands in the real Plugins.txt as its own active entry. Parse line by; line (stripping the `*` active marker) so a name can't false-match as a substring.
     let plugins_txt =
         std::fs::read_to_string(local_dir.join("Plugins.txt")).expect("Plugins.txt written");
     let active: std::collections::BTreeSet<String> = plugins_txt
@@ -564,8 +548,7 @@ fn deploy_purge_roundtrip_with_real_mods_leaves_testbed_pristine() {
         status.verified.missing
     );
 
-    // (5) The doctor pipeline runs end-to-end on the real deployed install without panicking and
-    //     stays clean on the F4SE binary checks (as in the synthetic round-trip).
+    // (5) The doctor pipeline runs end-to-end on the real deployed install without panicking and; stays clean on the F4SE binary checks (as in the synthetic round-trip).
     let report =
         overseer_diagnostics::diagnose(&instance, "real").expect("diagnose live real-mod install");
     assert!(!report.findings.is_empty(), "doctor produced no findings");

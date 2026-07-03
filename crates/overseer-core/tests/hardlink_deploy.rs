@@ -43,8 +43,7 @@ fn higher_priority_wins_files_are_hardlinks_and_purge_is_clean() {
         "A-only"
     );
 
-    // Proof it's a hard link, not a copy: editing the staged source is reflected at
-    // the deployed path, because they share the same underlying file data.
+    // Proof it's a hard link, not a copy: editing the staged source is reflected at; the deployed path, because they share the same underlying file data.
     fs::write(mod_b.join("Textures/shared.dds"), "B-edited").unwrap();
     assert_eq!(fs::read_to_string(&shared).unwrap(), "B-edited");
 

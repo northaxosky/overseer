@@ -15,8 +15,7 @@ impl Check for MissingMasters {
     }
 
     fn run(&self, ctx: &GameContext) -> Vec<Finding> {
-        // A master is satisfied only if its provider is actually loaded: the active
-        // mod plugins plus the base/DLC/CC the engine force-loads (not merely on disk).
+        // A master is satisfied only if its provider is actually loaded: the active; mod plugins plus the base/DLC/CC the engine force-loads (not merely on disk).
         let loaded: BTreeSet<String> = ctx
             .loaded_plugins
             .iter()
@@ -60,9 +59,7 @@ impl MissingMasters {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------; Tests; ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {

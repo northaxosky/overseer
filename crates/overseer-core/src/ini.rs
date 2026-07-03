@@ -149,9 +149,7 @@ pub fn read_game_inis(instance: &Instance) -> Result<GameInis, IniError> {
     Ok(GameInis { settings, prefs })
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------; Tests; ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
@@ -170,8 +168,7 @@ mod tests {
 
     #[test]
     fn a_leading_utf8_bom_is_ignored() {
-        // Windows editors often save INIs with a BOM; without stripping it the first
-        // `[section]` header is misread and every key under it is lost.
+        // Windows editors often save INIs with a BOM; without stripping it the first; `[section]` header is misread and every key under it is lost.
         let ini = Ini::parse("\u{FEFF}[Archive]\nbInvalidateOlderFiles=1\n");
         assert_eq!(ini.get("Archive", "bInvalidateOlderFiles"), Some("1"));
     }
@@ -341,8 +338,7 @@ mod tests {
 
     #[test]
     fn set_key_preserves_other_sections_keys_and_comments() {
-        // The regression we care about: injecting a save path must not disturb the
-        // user's archive-invalidation block or their comments.
+        // The regression we care about: injecting a save path must not disturb the; user's archive-invalidation block or their comments.
         let original = "; my setup\r\n[General]\r\nuGridsToLoad=5\r\n\r\n[Archive]\r\nbInvalidateOlderFiles=1\r\nsResourceDataDirsFinal=\r\n";
         let out = set_key(original, "General", "SLocalSavePath", "Saves\\P\\");
 

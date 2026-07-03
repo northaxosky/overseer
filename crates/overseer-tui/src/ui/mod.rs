@@ -549,9 +549,7 @@ pub(super) fn wrap_text(text: &str, width: usize) -> Vec<String> {
     lines
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------; Tests; ---------------------------------------------------------------------------
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -957,8 +955,7 @@ mod tests {
             }]),
             list: initial_selection(1),
         }));
-        // The trailing word only survives if the title wrapped instead of
-        // clipping at the findings pane's edge.
+        // The trailing word only survives if the title wrapped instead of; clipping at the findings pane's edge.
         let out = render(&mut app, 80, 24);
         assert!(
             out.contains("row"),

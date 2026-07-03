@@ -63,8 +63,7 @@ impl App {
             Focus::Mods => {
                 if let Some(i) = self.mods_state.selected() {
                     let m = &mut self.session.profile.mods[i];
-                    // Only Managed mods serialize an enabled flag; flipping a DLC/CC
-                    // (Foreign) or Separator would be a silent no-op on save.
+                    // Only Managed mods serialize an enabled flag; flipping a DLC/CC; (Foreign) or Separator would be a silent no-op on save.
                     if m.kind != ModKind::Managed {
                         self.note("Only managed mods can be toggled");
                         return false;

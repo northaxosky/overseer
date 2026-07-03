@@ -584,9 +584,7 @@ fn active_plugins_name<'a>(relative: &'a Utf8Path, active: &BTreeSet<String>) ->
     active.contains(&name.to_lowercase()).then_some(name)
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------; Tests; ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
@@ -727,8 +725,7 @@ mod tests {
 
     #[test]
     fn the_f4se_package_alone_reports_no_overrides() {
-        // The mod that ships the base scripts is the F4SE package — its own scripts are not
-        // overrides, whatever their bytes (this is the AE / newer-F4SE case that must stay silent).
+        // The mod that ships the base scripts is the F4SE package — its own scripts are not; overrides, whatever their bytes (this is the AE / newer-F4SE case that must stay silent).
         let (_tmp, base) = temp_base();
         let f4se = base.join("mods/F4SE");
         write_file(&f4se.join("Scripts/Actor.pex"), b"ae bytes");
@@ -850,8 +847,7 @@ mod tests {
             7,
             b"GNRL",
         );
-        // A nested archive is not top-level in Data/, so the engine won't auto-load it —
-        // even though its basename matches the active plugin. Must not be counted.
+        // A nested archive is not top-level in Data/, so the engine won't auto-load it — even though its basename matches the active plugin. Must not be counted.
         write_ba2(
             &instance
                 .mods_dir()

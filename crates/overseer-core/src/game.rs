@@ -144,9 +144,7 @@ impl FromStr for GameKind {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------; Tests; ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
@@ -244,8 +242,7 @@ mod tests {
             game: GameKind,
         }
 
-        // Instances persist this in overseer.toml, so the on-disk form must stay
-        // stable -- a rename here would silently break existing instances.
+        // Instances persist this in overseer.toml, so the on-disk form must stay; stable -- a rename here would silently break existing instances.
         let toml_str = toml::to_string(&Wrap {
             game: GameKind::Starfield,
         })

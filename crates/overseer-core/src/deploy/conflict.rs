@@ -170,9 +170,7 @@ mod tests {
         assert!(conflicts.is_empty());
     }
 
-    // Two files differing only by case are distinct on a case-sensitive FS but
-    // collapse to one key; a single mod must never be reported as conflicting with
-    // itself. Can't be staged on Windows's case-insensitive FS, hence `cfg(unix)`.
+    // Two files differing only by case are distinct on a case-sensitive FS but; collapse to one key; a single mod must never be reported as conflicting with; itself. Can't be staged on Windows's case-insensitive FS, hence `cfg(unix)`.
     #[cfg(unix)]
     #[test]
     fn case_collision_within_one_mod_is_not_a_self_conflict() {

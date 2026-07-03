@@ -56,8 +56,7 @@ fn the_store_is_not_contradictory() {
     };
 
     let install = detect::detect(GameKind::Fallout4, &dir);
-    // A hand-copied install may be `Unknown`, but a real one must never look like both Steam *and*
-    // GOG at once.
+    // A hand-copied install may be `Unknown`, but a real one must never look like both Steam *and*; GOG at once.
     assert_ne!(install.store, detect::Store::Conflicting);
     eprintln!("store {:?}", install.store);
 }
@@ -152,8 +151,7 @@ fn patching_a_real_base_archive_changes_only_the_version_field() {
         "the entire archive body must be byte-for-byte preserved"
     );
 
-    // Flip back. The body is always preserved; a canonical archive (v1/v8, not v7) returns
-    // byte-identical, since patching back to its own edition rewrites the same version.
+    // Flip back. The body is always preserved; a canonical archive (v1/v8, not v7) returns; byte-identical, since patching back to its own edition rewrites the same version.
     fallout4::set_edition(&copy, current).expect("patch back to original edition");
     let restored = std::fs::read(&copy).expect("read restored");
     assert_eq!(

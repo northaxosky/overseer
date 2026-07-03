@@ -82,8 +82,7 @@ impl Check for IniConfig {
             }
         }
 
-        // `sTestFile*` entries make FO4 drive load order from plugin timestamps instead
-        // of `Plugins.txt`, which Overseer's deploy/purge doesn't manage.
+        // `sTestFile*` entries make FO4 drive load order from plugin timestamps instead; of `Plugins.txt`, which Overseer's deploy/purge doesn't manage.
         if (1..=10).any(|n| {
             settings
                 .get("General", &format!("sTestFile{n}"))
@@ -105,9 +104,7 @@ impl Check for IniConfig {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------; Tests; ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {

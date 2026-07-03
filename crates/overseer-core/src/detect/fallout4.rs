@@ -170,9 +170,7 @@ fn startup_signature(game_dir: &Utf8Path) -> StartupBa2Signature {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------; Tests; ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
@@ -213,8 +211,7 @@ mod tests {
 
     #[test]
     fn runtime_family_agrees_with_edition_on_obsolete_builds() {
-        // Regression: runtime_family and edition once disagreed on 1.10.980 (NextGen vs Obsolete).
-        // They now share one table, so an obsolete build is None here and Obsolete there.
+        // Regression: runtime_family and edition once disagreed on 1.10.980 (NextGen vs Obsolete); they now share one table, so an obsolete build is None here and Obsolete there.
         assert_eq!(runtime_family(v(1, 10, 980).unwrap()), None);
         assert_eq!(
             edition_from(v(1, 10, 980), StartupBa2Signature::Other),

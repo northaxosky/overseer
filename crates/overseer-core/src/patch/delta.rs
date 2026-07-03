@@ -129,8 +129,7 @@ mod tests {
         assert_eq!(crc32_file(&path).unwrap(), 0xCBF4_3926);
     }
 
-    // A real xdelta3 round-trip, gated on `OVERSEER_XDELTA3` (CI has no xdelta3):
-    // encode with the binary, decode through the trait, assert byte-exact.
+    // A real xdelta3 round-trip, gated on `OVERSEER_XDELTA3` (CI has no xdelta3):; encode with the binary, decode through the trait, assert byte-exact.
     #[test]
     fn xdelta3_round_trip_is_byte_exact() {
         let Ok(exe) = std::env::var("OVERSEER_XDELTA3") else {
