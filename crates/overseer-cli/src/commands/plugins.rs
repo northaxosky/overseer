@@ -2,7 +2,7 @@
 
 use anyhow::{Context, Result};
 use overseer_core::instance::Instance;
-use overseer_core::plugins::{PluginLoadOrder, PluginMeta, discover_plugins};
+use overseer_core::plugins::{PluginLoadOrder, PluginMeta};
 
 use crate::cli::{PluginCommand, ProfileArgs};
 use crate::ui::{heading, list_item, success};
@@ -18,13 +18,9 @@ pub fn run(command: PluginCommand) -> Result<()> {
 /// Reconcile the mod list, discover plugins from enabled mods, and load + reconcile the plugin load order.
 fn synced(target: &ProfileArgs) -> Result<(Instance, Vec<PluginMeta>, PluginLoadOrder)> {
     let (instance, profile) = target.load_context()?;
-    let profile_name = profile.name.as_str();
-    let discovered = discover_plugins(&instance, &profile).context("discovering plugins")?;
-    let mut order = PluginLoadOrder::load(&instance, profile_name)
-        .with_context(|| format!("loading plugins.txt for `{profile_name}`"))?;
-    if order.reconcile(&discovered) {
-        order.save(&instance).context("saving plugins.txt")?;
-    }
+    let (discovered, order) = profile
+        .sync_plugins(&instance)
+        .with_context(|| format!("syncing plugins for `{}`", profile.name))?;
     Ok((instance, discovered, order))
 }
 

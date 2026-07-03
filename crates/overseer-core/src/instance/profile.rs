@@ -2,6 +2,7 @@ use super::error::InstanceError;
 use super::model::Instance;
 use crate::deploy::ModSource;
 use crate::fs;
+use crate::plugins::{PluginError, PluginLoadOrder, PluginMeta, discover_plugins};
 use camino::{Utf8Path, Utf8PathBuf};
 
 /// What kind of `modlist.txt` line an entry is
@@ -221,6 +222,19 @@ impl Profile {
 
         Ok(removed + added > 0)
     }
+
+    /// Discover this profile's plugins, reconcile its load order, and persist changes.
+    pub fn sync_plugins(
+        &self,
+        instance: &Instance,
+    ) -> Result<(Vec<PluginMeta>, PluginLoadOrder), PluginError> {
+        let discovered = discover_plugins(instance, self)?;
+        let mut order = PluginLoadOrder::load(instance, &self.name)?;
+        if order.reconcile(&discovered) {
+            order.save(instance)?;
+        }
+        Ok((discovered, order))
+    }
 }
 
 /// `profiles/<p>/settings.ini` — the MO2-compatible per-profile settings file.
@@ -313,7 +327,7 @@ mod tests {
         }
     }
 
-    use crate::test_support::temp_instance;
+    use crate::test_support::{temp_instance, write_plugin};
 
     /// A profile with the given mods, all enabled and managed, in priority order.
     fn profile_of(names: &[&str]) -> Profile {
@@ -562,6 +576,27 @@ mod tests {
             !loaded.local_saves,
             "a missing settings.ini reads as LocalSaves off"
         );
+    }
+
+    #[test]
+    fn sync_plugins_persists_changed_order_and_returns_discovered_state() {
+        let (_tmp, instance) = temp_instance();
+        write_plugin(&instance.mods_dir().join("ModA"), "Patch.esp", 0, &[]);
+        let profile = profile_of(&["ModA"]);
+
+        let (discovered, order) = profile.sync_plugins(&instance).expect("sync");
+
+        assert_eq!(discovered.len(), 1);
+        assert_eq!(discovered[0].name, "Patch.esp");
+        assert_eq!(
+            order.plugins,
+            vec![crate::plugins::PluginEntry {
+                name: "Patch.esp".to_owned(),
+                active: true,
+            }]
+        );
+        let loaded = PluginLoadOrder::load(&instance, &profile.name).expect("load");
+        assert_eq!(loaded.plugins, order.plugins);
     }
 
     #[test]
