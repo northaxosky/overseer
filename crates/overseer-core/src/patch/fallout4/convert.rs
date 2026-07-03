@@ -149,7 +149,7 @@ fn prepare(
     let real = game_dir.join(item.rel_path);
     let tmp = game_dir.join(format!("{}.overseer-tmp", item.rel_path));
 
-    // Reconsutrct into a temp; the real file is still the untouched source
+    // Reconstruct into a temp; the real file is still the untouched source
     if let Err(source) = decoder.apply(&real, delta, &tmp) {
         let _ = remove_file_opt(&tmp);
         return Err(ConvertError::Delta {

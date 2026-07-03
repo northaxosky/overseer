@@ -1,6 +1,7 @@
 use super::error::{InstanceError, io_err};
 use super::profile::{ModKind, Profile};
 use crate::deploy::DeployerKind;
+use crate::fs;
 use crate::game::GameKind;
 use camino::{Utf8Path, Utf8PathBuf};
 use serde::{Deserialize, Serialize};
@@ -134,17 +135,17 @@ impl Instance {
         if path.exists() {
             return Err(InstanceError::AlreadyAnInstance { path });
         }
-        std::fs::create_dir_all(&root).map_err(|e| io_err(&root, e))?;
+        fs::ensure_dir(&root)?;
         let instance = Self { root, config };
         instance.save()?;
-        std::fs::create_dir_all(instance.mods_dir())
-            .map_err(|e| io_err(&instance.mods_dir(), e))?;
-        std::fs::create_dir_all(instance.profiles_dir())
-            .map_err(|e| io_err(&instance.profiles_dir(), e))?;
-        std::fs::create_dir_all(instance.overwrite_dir())
-            .map_err(|e| io_err(&instance.overwrite_dir(), e))?;
-        std::fs::create_dir_all(instance.downloads_dir())
-            .map_err(|e| io_err(&instance.downloads_dir(), e))?;
+        let mods_dir = instance.mods_dir();
+        fs::ensure_dir(&mods_dir)?;
+        let profiles_dir = instance.profiles_dir();
+        fs::ensure_dir(&profiles_dir)?;
+        let overwrite_dir = instance.overwrite_dir();
+        fs::ensure_dir(&overwrite_dir)?;
+        let downloads_dir = instance.downloads_dir();
+        fs::ensure_dir(&downloads_dir)?;
         Ok(instance)
     }
 

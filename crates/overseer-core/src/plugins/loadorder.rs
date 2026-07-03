@@ -101,7 +101,7 @@ impl PluginLoadOrder {
             }
         }
 
-        // Stabke sort masters before normal plugins
+        // Stable sort masters before normal plugins
         self.plugins
             .sort_by_key(|e| !is_master(&e.name, discovered));
         self.plugins != before

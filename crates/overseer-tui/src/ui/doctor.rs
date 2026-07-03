@@ -119,7 +119,7 @@ fn selected_detail(report: &Report, selected: Option<usize>) -> String {
     }
 }
 
-/// The role and glpyh for a severity, matches `overseer doctor`
+/// The role and glyph for a severity, matches `overseer doctor`
 fn severity_style(severity: Severity) -> (Role, &'static str) {
     match severity {
         Severity::Info => (Role::Success, "✓"),

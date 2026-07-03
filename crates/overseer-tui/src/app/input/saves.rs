@@ -37,7 +37,7 @@ impl App {
 
     /// Confirm deleting the selected save; inert unless the Saves pane is focused
     pub(super) fn begin_delete_selected_save(&mut self) {
-        // `x` is a main-view key, so gaurd it to the one pane it acts on
+        // `x` is a main-view key, so guard it to the one pane it acts on
         if self.focus != Focus::Workspace || self.workspace != Workspace::Saves {
             return;
         }

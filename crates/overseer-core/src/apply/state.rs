@@ -2,6 +2,7 @@
 
 use super::error::{ApplyError, io_err};
 use crate::deploy::DeployRecord;
+use crate::fs;
 use crate::instance::Instance;
 use atomicwrites::{AtomicFile, OverwriteBehavior};
 use camino::{Utf8Path, Utf8PathBuf};
@@ -76,7 +77,7 @@ impl Deployment {
     /// Write state file atomically
     pub(crate) fn save(&self, instance: &Instance) -> Result<(), ApplyError> {
         let dir = instance.state_dir();
-        std::fs::create_dir_all(&dir).map_err(|e| io_err(&dir, e))?;
+        fs::ensure_dir(&dir)?;
         let path = Self::path(instance);
         let text = serde_json::to_string_pretty(self).map_err(|source| ApplyError::State {
             path: path.clone(),

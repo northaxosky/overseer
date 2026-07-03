@@ -90,7 +90,7 @@ pub enum Command {
         instance: Utf8PathBuf,
     },
 
-    /// List files that more than one enabled mod provies (winner + overridden)
+    /// List files that more than one enabled mod provides (winner + overridden)
     Conflicts {
         #[command(flatten)]
         target: ProfileArgs,

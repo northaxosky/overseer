@@ -24,7 +24,7 @@ impl App {
         }
     }
 
-    /// The currently sleected download entry, if any
+    /// The currently selected download entry, if any
     fn selected_download(&self) -> Option<&DownloadEntry> {
         let i = self.downloads.list.selected()?;
         self.downloads.entries.get(i)

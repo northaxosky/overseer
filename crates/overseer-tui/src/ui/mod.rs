@@ -273,7 +273,7 @@ fn render_conflicts(app: &mut App, frame: &mut Frame, area: Rect) {
     frame.render_widget(detail, panes[1]);
 }
 
-/// The selected conflict's full path, winner, overriden mods, and the winner's staged path
+/// The selected conflict's full path, winner, overridden mods, and the winner's staged path
 fn conflict_detail_lines(conflict: &FileConflict, width: usize) -> Vec<Line<'static>> {
     let label = "File: ";
     let indent = label.chars().count();

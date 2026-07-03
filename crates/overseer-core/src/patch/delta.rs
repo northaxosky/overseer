@@ -78,7 +78,7 @@ impl DeltaDecoder for Xdelta3CliDecoder {
     }
 }
 
-/// CRC32 of a file, read in a streaming fashion (for veryfying multi-MB game files)
+/// CRC32 of a file, read in a streaming fashion (for verifying multi-MB game files)
 pub fn crc32_file(path: &Utf8Path) -> Result<u32, IoError> {
     let mut file = std::fs::File::open(path).map_err(|e| io_err(path, e))?;
     let mut hasher = crc32fast::Hasher::new();

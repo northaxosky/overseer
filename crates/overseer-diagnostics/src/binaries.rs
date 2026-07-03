@@ -61,18 +61,18 @@ pub fn classify(name: &str, version: Option<ExeVersion>, crc: u32) -> Option<Bin
     }
 }
 
-/// `Fallout4Launcher.exe` has no usable version resource, so its leyed purely on CRC32
+/// `Fallout4Launcher.exe` has no usable version resource, so it's keyed purely on CRC32
 fn launcher_from_crc(crc: u32) -> Option<BinaryEdition> {
     match crc {
         0x0244_5570 => Some(BinaryEdition::OldGen),
         0xF6A0_6FF5 => Some(BinaryEdition::NextGen),
-        0x720B_B9C3 => Some(BinaryEdition::Anniversary),
+        0x720B_B9C3 | 0xCA61_EDD7 => Some(BinaryEdition::Anniversary), // 1.11.191, 1.11.221
         0x0E69_6744 | 0xD15C_6A49 | 0x8C52_BE93 | 0x5910_09C9 => Some(BinaryEdition::Obsolete),
         _ => None,
     }
 }
 
-/// `steam_api64.dll` carries a relaible file version we can map directly
+/// `steam_api64.dll` carries a reliable file version we can map directly
 fn steam_api_from_version(version: ExeVersion) -> Option<BinaryEdition> {
     match (version.major, version.minor, version.patch, version.build) {
         (2, 89, 45, 4) => Some(BinaryEdition::OldGen),
@@ -148,6 +148,10 @@ mod tests {
         );
         assert_eq!(
             classify(LAUNCHER, None, 0x720B_B9C3),
+            Some(BinaryEdition::Anniversary)
+        );
+        assert_eq!(
+            classify(LAUNCHER, None, 0xCA61_EDD7),
             Some(BinaryEdition::Anniversary)
         );
     }

@@ -1,3 +1,4 @@
+use crate::fs;
 use camino::Utf8Path;
 use strum::{EnumIter, EnumString, IntoEnumIterator, IntoStaticStr};
 
@@ -34,7 +35,7 @@ impl ArchiveFormat {
 
 /// Extract a supported archive (`.7z` or `.zip`) into `dest`, creating it if needed
 pub fn extract(archive: &Utf8Path, dest: &Utf8Path) -> Result<(), InstallError> {
-    std::fs::create_dir_all(dest).map_err(|e| io_err(dest, e))?;
+    fs::ensure_dir(dest)?;
 
     let format =
         ArchiveFormat::from_path(archive).ok_or_else(|| InstallError::UnsupportedFormat {

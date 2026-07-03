@@ -20,7 +20,7 @@ pub enum F4seDll {
 /// What an F4SE plugin advertises about runtime support
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct F4sePlugin {
-    /// Exports the lagacy `F4SEPlugin_Query` (Old-Gen plugin API)
+    /// Exports the legacy `F4SEPlugin_Query` (Old-Gen plugin API)
     pub supports_og: bool,
     /// Exports `F4SEPlugin_Version` (the NG/AE plugin API)
     pub supports_ngae: bool,
@@ -60,7 +60,7 @@ pub fn parse_f4se_dll(bytes: &[u8]) -> F4seDll {
     {
         plugin.supports_ngae = true;
         if let Ok(buf) = pe.derva_slice::<u8>(rva, PREFIX_LEN) {
-            // dataVersion (first u32) must be 1, orelse unreadable
+            // dataVersion (first u32) must be 1, or else unreadable
             let data_version = u32::from_le_bytes(buf[0..4].try_into().expect("4 bytes"));
             if data_version == 1 {
                 for i in 0..16 {

@@ -1,6 +1,7 @@
 //! Per-instance advisory lock guarding instance mutating operations
 
 use super::error::{ApplyError, io_err};
+use crate::fs;
 use crate::instance::Instance;
 use std::fs::{File, OpenOptions, TryLockError};
 
@@ -14,7 +15,7 @@ impl InstanceLock {
     /// Try to take the instance lock without blocking. Returns [`ApplyError::Busy`]
     pub(crate) fn acquire(instance: &Instance) -> Result<Self, ApplyError> {
         let dir = instance.state_dir();
-        std::fs::create_dir_all(&dir).map_err(|e| io_err(&dir, e))?;
+        fs::ensure_dir(&dir)?;
         let path = dir.join("overseer.lock");
         let file = OpenOptions::new()
             .create(true)

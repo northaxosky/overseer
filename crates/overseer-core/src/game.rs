@@ -74,7 +74,7 @@ impl GameKind {
         self.specs().load_order_id
     }
 
-    /// The plugin perser id (`esplugin`), from the load order id
+    /// The plugin parser id (`esplugin`), from the load order id
     pub fn plugin_id(self) -> esplugin::GameId {
         self.load_order_id().to_esplugin_id()
     }

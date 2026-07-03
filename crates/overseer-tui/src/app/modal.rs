@@ -105,7 +105,7 @@ impl SelectKind {
     }
 }
 
-/// A yes/no confirmation that runs its [`ConfirmAction`] when accpeted
+/// A yes/no confirmation that runs its [`ConfirmAction`] when accepted
 #[derive(Debug)]
 pub(crate) struct Confirm {
     pub(crate) message: String,

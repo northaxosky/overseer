@@ -33,7 +33,7 @@ pub struct SaveMeta {
     pub character: String,
     /// The character's level
     pub level: u32,
-    /// The cell/workdspace the save was made in
+    /// The cell/workspace the save was made in
     pub location: String,
     /// Opaque in-game date text (format is engine-defined)
     pub game_date: String,

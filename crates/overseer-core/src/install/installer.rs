@@ -2,6 +2,7 @@ use super::archive::extract;
 use super::error::{InstallError, io_err};
 use super::root::find_content_root;
 use crate::error::non_utf8;
+use crate::fs;
 use crate::instance::{InstalledMod, Instance};
 use camino::{Utf8Path, Utf8PathBuf};
 use walkdir::WalkDir;
@@ -32,7 +33,7 @@ pub fn install(
         return Err(InstallError::EmptyArchive);
     }
 
-    crate::fs::ensure_dir(dest.parent().unwrap_or(&dest))?;
+    fs::ensure_dir(dest.parent().unwrap_or(&dest))?;
     move_dir(&content_root, &dest)?;
 
     Ok(InstalledMod {
@@ -86,7 +87,7 @@ fn child_named(
     Ok(None)
 }
 
-/// Move `from` to `to`, falling back to a recursive copy + remove when rename doesnt work
+/// Move `from` to `to`, falling back to a recursive copy + remove when rename doesn't work
 fn move_dir(from: &Utf8Path, to: &Utf8Path) -> Result<(), InstallError> {
     if std::fs::rename(from, to).is_ok() {
         return Ok(());
@@ -107,7 +108,7 @@ fn copy_dir(from: &Utf8Path, to: &Utf8Path) -> Result<(), InstallError> {
             .expect("walked entry is under `from`");
         let dest = to.join(relative);
         if entry.file_type().is_dir() {
-            std::fs::create_dir_all(&dest).map_err(|e| io_err(&dest, e))?;
+            fs::ensure_dir(&dest)?;
         } else {
             std::fs::copy(src, &dest).map_err(|e| io_err(&dest, e))?;
         }

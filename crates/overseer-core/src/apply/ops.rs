@@ -8,6 +8,7 @@ use crate::deploy::{
     BACKUP_DIR, DeployError, DeployPlan, DeployRecord, ModSource, NullSink, ProgressSink, ROOT_DIR,
     VerifyReport, deployer_for, strip_data_prefix,
 };
+use crate::fs;
 use crate::instance::{Instance, Profile};
 use crate::plugins::{self, PluginLoadOrder, PluginsRestore};
 use crate::saves;
@@ -38,7 +39,7 @@ pub fn deploy_profile(
 
     // Overwrite folder is the highest priority "mod": It wins every conflict
     let overwrite = instance.overwrite_dir();
-    std::fs::create_dir_all(&overwrite).map_err(|e| error::io_err(&overwrite, e))?;
+    fs::ensure_dir(&overwrite)?;
     sources.push(ModSource::new("Overwrite", &overwrite));
 
     let plan = DeployPlan::from_rooted_mods(&instance.config.game_dir, &sources)?;
@@ -51,13 +52,13 @@ pub fn deploy_profile(
     let record = DeployRecord::from_plan(&plan, backup_root, instance.config.deployer)?;
 
     let local_dir = instance.local_dir()?;
-    std::fs::create_dir_all(&local_dir).map_err(|e| error::io_err(&local_dir, e))?;
+    fs::ensure_dir(&local_dir)?;
 
-    // Profile bookkeeping doesnt touch anything so its safe
+    // Profile bookkeeping doesn't touch anything so it's safe
     let order = prepare_load_order(instance, &profile)?;
     let local_saves = profile.local_saves;
 
-    // Capture the users original Plugins.txt
+    // Capture the user's original Plugins.txt
     let plugins_txt_backup = plugins::read_plugins_txt(&local_dir)?;
 
     // First write: journal as InProgress
@@ -186,7 +187,7 @@ fn overwrite_staging_path(game_relative: &Utf8Path) -> Utf8PathBuf {
 /// Move a captured file into the overwrite folder, creating parents
 fn capture_move(from: &Utf8Path, to: &Utf8Path) -> Result<(), ApplyError> {
     if let Some(parent) = to.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| error::io_err(parent, e))?;
+        fs::ensure_dir(parent)?;
     }
     if std::fs::rename(from, to).is_err() {
         std::fs::copy(from, to).map_err(|e| error::io_err(to, e))?;
@@ -361,7 +362,7 @@ fn save_paths(
     Ok((custom_ini, saves_dir))
 }
 
-/// Dont start a deploy when the backup dir survives from a previous run
+/// Don't start a deploy when the backup dir survives from a previous run
 fn guard_no_orphaned_backup(backup_root: &Utf8Path) -> Result<(), ApplyError> {
     if backup_root.exists() {
         return Err(ApplyError::OrphanedBackup {
