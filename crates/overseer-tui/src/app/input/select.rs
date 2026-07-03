@@ -5,7 +5,6 @@ use camino::Utf8PathBuf;
 use overseer_core::launch;
 use ratatui::crossterm::event::{KeyCode, KeyEvent};
 
-use super::move_in_list;
 use crate::app::{
     App, Confirm, ConfirmAction, Focus, Modal, Select, SelectKind, Session, initial_selection,
 };
@@ -25,17 +24,10 @@ impl App {
             KeyCode::Char('a') if select.kind == SelectKind::Launch => self.open_add_exe(),
             KeyCode::Char('x') if select.kind == SelectKind::Launch => self.confirm_remove_exe(),
             KeyCode::Char(c) if c == toggle => self.modal = None,
-            KeyCode::Down | KeyCode::Char('j') => self.move_in_select(1),
-            KeyCode::Up | KeyCode::Char('k') => self.move_in_select(-1),
+            KeyCode::Down | KeyCode::Char('j') => self.move_in_modal_list(1),
+            KeyCode::Up | KeyCode::Char('k') => self.move_in_modal_list(-1),
             KeyCode::Enter => self.submit_modal(),
             _ => {}
-        }
-    }
-
-    /// Move the active Select modal's selection by `delta`, clamped to its items
-    fn move_in_select(&mut self, delta: isize) {
-        if let Some(Modal::Select(select)) = self.modal.as_mut() {
-            move_in_list(&mut select.state, select.items.len(), delta);
         }
     }
 

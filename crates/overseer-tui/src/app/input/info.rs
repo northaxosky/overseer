@@ -2,7 +2,6 @@
 
 use ratatui::crossterm::event::{KeyCode, KeyEvent};
 
-use super::move_in_list;
 use crate::app::{App, HELP_ENTRIES, Info, Modal, initial_selection};
 
 impl App {
@@ -10,18 +9,11 @@ impl App {
     pub(super) fn handle_info_key(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('?') => self.modal = None,
-            KeyCode::Down | KeyCode::Char('j') => self.move_in_info(1),
-            KeyCode::Up | KeyCode::Char('k') => self.move_in_info(-1),
+            KeyCode::Down | KeyCode::Char('j') => self.move_in_modal_list(1),
+            KeyCode::Up | KeyCode::Char('k') => self.move_in_modal_list(-1),
             // Dismiss-only: Enter does nothing.
             KeyCode::Enter => {}
             _ => {}
-        }
-    }
-
-    /// Move the open Info modal's selection by `delta`, clamped to its entries
-    fn move_in_info(&mut self, delta: isize) {
-        if let Some(Modal::Info(info)) = self.modal.as_mut() {
-            move_in_list(&mut info.state, info.entries.len(), delta);
         }
     }
 

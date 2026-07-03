@@ -55,67 +55,108 @@ pub(crate) fn downloads_sort_label(sort: DownloadsSort) -> String {
     format!("{} {}", sort.key, dir_arrow(sort.dir))
 }
 
+/// A view list (Saves or Downloads) sortable by a persisted key + direction.
+pub(super) trait SortablePane {
+    type Key: IntoEnumIterator + PartialEq + Copy + std::fmt::Display;
+
+    const LABEL: &'static str;
+
+    fn key(app: &App) -> Self::Key;
+    fn set_key(app: &mut App, key: Self::Key);
+    fn dir(app: &App) -> SortDir;
+    fn set_dir(app: &mut App, dir: SortDir);
+    fn default_dir(key: Self::Key) -> SortDir;
+    fn resort(app: &mut App);
+
+    fn label(app: &App) -> String {
+        format!("{} {}", Self::key(app), dir_arrow(Self::dir(app)))
+    }
+}
+
+pub(super) struct SavesPane;
+pub(super) struct DownloadsPane;
+
+impl SortablePane for SavesPane {
+    type Key = SavesSortKey;
+
+    const LABEL: &'static str = "Saves";
+
+    fn key(app: &App) -> Self::Key {
+        app.settings.saves_sort.key
+    }
+
+    fn set_key(app: &mut App, key: Self::Key) {
+        app.settings.saves_sort.key = key;
+    }
+
+    fn dir(app: &App) -> SortDir {
+        app.settings.saves_sort.dir
+    }
+
+    fn set_dir(app: &mut App, dir: SortDir) {
+        app.settings.saves_sort.dir = dir;
+    }
+
+    fn default_dir(key: Self::Key) -> SortDir {
+        default_saves_dir(key)
+    }
+
+    fn resort(app: &mut App) {
+        sort_saves(&mut app.saves.entries, app.settings.saves_sort);
+        app.saves
+            .list
+            .select((!app.saves.entries.is_empty()).then_some(0));
+    }
+}
+
+impl SortablePane for DownloadsPane {
+    type Key = DownloadsSortKey;
+
+    const LABEL: &'static str = "Downloads";
+
+    fn key(app: &App) -> Self::Key {
+        app.settings.downloads_sort.key
+    }
+
+    fn set_key(app: &mut App, key: Self::Key) {
+        app.settings.downloads_sort.key = key;
+    }
+
+    fn dir(app: &App) -> SortDir {
+        app.settings.downloads_sort.dir
+    }
+
+    fn set_dir(app: &mut App, dir: SortDir) {
+        app.settings.downloads_sort.dir = dir;
+    }
+
+    fn default_dir(key: Self::Key) -> SortDir {
+        default_downloads_dir(key)
+    }
+
+    fn resort(app: &mut App) {
+        sort_downloads(&mut app.downloads.entries, app.settings.downloads_sort);
+        app.downloads
+            .list
+            .select((!app.downloads.entries.is_empty()).then_some(0));
+    }
+}
+
 impl App {
-    /// Cycle Saves to the next sort key (wrapping) at its natural direction; re-sort + persist.
-    pub(super) fn cycle_saves_sort(&mut self) {
-        self.settings.saves_sort.key = next_variant(self.settings.saves_sort.key);
-        self.settings.saves_sort.dir = default_saves_dir(self.settings.saves_sort.key);
-        self.apply_saves_sort();
-        self.note(format!(
-            "Saves sort: {}",
-            saves_sort_label(self.settings.saves_sort)
-        ));
+    pub(super) fn cycle_sort<P: SortablePane>(&mut self) {
+        let next = next_variant(P::key(self));
+        P::set_key(self, next);
+        P::set_dir(self, P::default_dir(next));
+        P::resort(self);
+        self.note(format!("{} sort: {}", P::LABEL, P::label(self)));
         self.save_sort_preferences();
     }
 
-    /// Cycle Downloads to the next sort key (wrapping) at its natural direction; re-sort + persist.
-    pub(super) fn cycle_downloads_sort(&mut self) {
-        self.settings.downloads_sort.key = next_variant(self.settings.downloads_sort.key);
-        self.settings.downloads_sort.dir = default_downloads_dir(self.settings.downloads_sort.key);
-        self.apply_downloads_sort();
-        self.note(format!(
-            "Downloads sort: {}",
-            downloads_sort_label(self.settings.downloads_sort)
-        ));
+    pub(super) fn toggle_sort_dir<P: SortablePane>(&mut self) {
+        P::set_dir(self, toggle_dir(P::dir(self)));
+        P::resort(self);
+        self.note(format!("{} sort: {}", P::LABEL, P::label(self)));
         self.save_sort_preferences();
-    }
-
-    /// Flip the Saves sort direction, then re-sort, persist, and report.
-    pub(super) fn toggle_saves_sort_dir(&mut self) {
-        self.settings.saves_sort.dir = toggle_dir(self.settings.saves_sort.dir);
-        self.apply_saves_sort();
-        self.note(format!(
-            "Saves sort: {}",
-            saves_sort_label(self.settings.saves_sort)
-        ));
-        self.save_sort_preferences();
-    }
-
-    /// Flip the Downloads sort direction, then re-sort, persist, and report.
-    pub(super) fn toggle_downloads_sort_dir(&mut self) {
-        self.settings.downloads_sort.dir = toggle_dir(self.settings.downloads_sort.dir);
-        self.apply_downloads_sort();
-        self.note(format!(
-            "Downloads sort: {}",
-            downloads_sort_label(self.settings.downloads_sort)
-        ));
-        self.save_sort_preferences();
-    }
-
-    /// Sort the saves list and move the cursor to the top row.
-    pub(super) fn apply_saves_sort(&mut self) {
-        sort_saves(&mut self.saves.entries, self.settings.saves_sort);
-        self.saves
-            .list
-            .select((!self.saves.entries.is_empty()).then_some(0));
-    }
-
-    /// Sort the downloads list and move the cursor to the top row.
-    pub(super) fn apply_downloads_sort(&mut self) {
-        sort_downloads(&mut self.downloads.entries, self.settings.downloads_sort);
-        self.downloads
-            .list
-            .select((!self.downloads.entries.is_empty()).then_some(0));
     }
 
     /// Persist the sort preferences best-effort — a failed write is logged, not fatal.
@@ -303,7 +344,7 @@ mod tests {
             key: DownloadsSortKey::Name,
             dir: SortDir::Asc,
         };
-        app.apply_downloads_sort();
+        DownloadsPane::resort(&mut app);
         assert_eq!(app.downloads.entries[0].name, "A.zip");
         assert_eq!(app.downloads.list.selected(), Some(0));
     }

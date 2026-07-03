@@ -5,7 +5,6 @@ use ratatui::crossterm::event::{KeyCode, KeyEvent};
 
 use overseer_diagnostics::diagnose;
 
-use super::move_in_list;
 use crate::app::{App, DoctorReport, Modal, initial_selection};
 
 impl App {
@@ -13,18 +12,11 @@ impl App {
     pub(super) fn handle_doctor_key(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('d') => self.modal = None,
-            KeyCode::Down | KeyCode::Char('j') => self.move_in_doctor(1),
-            KeyCode::Up | KeyCode::Char('k') => self.move_in_doctor(-1),
+            KeyCode::Down | KeyCode::Char('j') => self.move_in_modal_list(1),
+            KeyCode::Up | KeyCode::Char('k') => self.move_in_modal_list(-1),
             // Dismiss-only: Enter does nothing.
             KeyCode::Enter => {}
             _ => {}
-        }
-    }
-
-    /// Move the open Doctor modal's selection by `delta`, clamped to its findings
-    fn move_in_doctor(&mut self, delta: isize) {
-        if let Some(Modal::Doctor(doctor)) = self.modal.as_mut() {
-            move_in_list(&mut doctor.list, doctor.report.findings.len(), delta);
         }
     }
 

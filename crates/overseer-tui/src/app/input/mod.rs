@@ -14,7 +14,14 @@ use ratatui::widgets::ListState;
 
 use overseer_core::deploy::detect_conflicts;
 
+use super::sort::{DownloadsPane, SavesPane};
 use super::{App, ConflictsStatus, Focus, Modal, SelectKind, Workspace, initial_selection};
+
+#[derive(Clone, Copy)]
+enum RefreshCause {
+    Shown,
+    Explicit,
+}
 
 impl App {
     pub(crate) fn handle_key(&mut self, key: KeyEvent) {
@@ -37,9 +44,10 @@ impl App {
         match key.code {
             // Modal-opening keys
             KeyCode::Char('?') => self.open_help(),
-            KeyCode::Char('s') => self.open_select(SelectKind::Instance),
-            KeyCode::Char('l') => self.open_select(SelectKind::Launch),
-            KeyCode::Char('p') => self.open_select(SelectKind::Profile),
+            KeyCode::Char(c) if SelectKind::from_toggle_key(c).is_some() => {
+                let kind = SelectKind::from_toggle_key(c).expect("guard ensured a select key");
+                self.open_select(kind);
+            }
             KeyCode::Char('R') => self.open_rename_mod(),
 
             // Workspace view related controls
@@ -53,7 +61,7 @@ impl App {
             // `r` refreshes the active workspace's data; inert in Plugins.
             KeyCode::Char('r') => {
                 let ws = self.workspace;
-                ws.on_refresh(self);
+                ws.refresh(self, RefreshCause::Explicit);
             }
             KeyCode::Char('o') => {
                 let ws = self.workspace;
@@ -109,12 +117,8 @@ impl App {
 
     /// Reload the active workspace's lazy list; Plugins/Conflicts do nothing here, and Conflicts rescans on `r`.
     fn refresh_visible_lazy_data(&mut self) {
-        match self.workspace {
-            Workspace::Plugins => {}
-            Workspace::Conflicts => {}
-            Workspace::Downloads => self.refresh_downloads(),
-            Workspace::Saves => self.refresh_saves(),
-        }
+        let ws = self.workspace;
+        ws.refresh(self, RefreshCause::Shown);
     }
 
     /// Move the selection within the focused pane, clamped to its bounds.
@@ -153,14 +157,27 @@ impl App {
         self.mark_conflicts_stale();
         self.refresh_visible_lazy_data();
     }
+
+    fn move_in_modal_list(&mut self, delta: isize) {
+        let len = match self.modal.as_ref() {
+            Some(Modal::Select(select)) => select.items.len(),
+            Some(Modal::Info(info)) => info.entries.len(),
+            Some(Modal::Doctor(doctor)) => doctor.report.findings.len(),
+            Some(Modal::Prompt(_)) | Some(Modal::Confirm(_)) | None => return,
+        };
+        if let Some(state) = self.modal.as_mut().and_then(Modal::list_state_mut) {
+            move_in_list(state, len, delta);
+        }
+    }
 }
 
 impl Workspace {
-    /// Handle `r` in this workspace: rescan conflicts or re-list downloads/saves; Plugins has nothing to refresh.
-    fn on_refresh(self, app: &mut App) {
+    /// Refresh this workspace for either a view-shown or explicit user refresh.
+    fn refresh(self, app: &mut App, cause: RefreshCause) {
         match self {
             Workspace::Plugins => {}
-            Workspace::Conflicts => app.scan_conflicts(),
+            Workspace::Conflicts if matches!(cause, RefreshCause::Explicit) => app.scan_conflicts(),
+            Workspace::Conflicts => {}
             Workspace::Downloads => app.refresh_downloads(),
             Workspace::Saves => app.refresh_saves(),
         }
@@ -170,8 +187,8 @@ impl Workspace {
     fn cycle_sort(self, app: &mut App) {
         match self {
             Workspace::Plugins | Workspace::Conflicts => app.note("Only Saves and Downloads sort"),
-            Workspace::Downloads => app.cycle_downloads_sort(),
-            Workspace::Saves => app.cycle_saves_sort(),
+            Workspace::Downloads => app.cycle_sort::<DownloadsPane>(),
+            Workspace::Saves => app.cycle_sort::<SavesPane>(),
         }
     }
 
@@ -179,8 +196,8 @@ impl Workspace {
     fn toggle_sort_dir(self, app: &mut App) {
         match self {
             Workspace::Plugins | Workspace::Conflicts => app.note("Only Saves and Downloads sort"),
-            Workspace::Downloads => app.toggle_downloads_sort_dir(),
-            Workspace::Saves => app.toggle_saves_sort_dir(),
+            Workspace::Downloads => app.toggle_sort_dir::<DownloadsPane>(),
+            Workspace::Saves => app.toggle_sort_dir::<SavesPane>(),
         }
     }
 

@@ -11,13 +11,9 @@ impl App {
     /// Keys for Prompt modal: edit the line, submit, or cancel
     pub(super) fn handle_prompt_key(&mut self, key: KeyEvent) {
         match key.code {
-            KeyCode::Esc => match self.open_prompt_kind() {
-                Some(PromptKind::NewProfile) | Some(PromptKind::RenameProfile { .. }) => {
-                    self.open_select(SelectKind::Profile)
-                }
-                Some(PromptKind::AddExe) => self.open_select(SelectKind::Launch),
-                Some(PromptKind::RenameMod { .. }) => self.modal = None,
-                None => {}
+            KeyCode::Esc => match self.open_prompt_kind().and_then(|kind| kind.cancel_to()) {
+                Some(kind) => self.open_select(kind),
+                None => self.modal = None,
             },
             KeyCode::Enter => match self.open_prompt_kind() {
                 Some(PromptKind::NewProfile) => self.submit_new_profile(),

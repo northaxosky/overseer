@@ -49,6 +49,15 @@ impl PromptKind {
             _ => 64,
         }
     }
+
+    /// Selection modal to reopen when this prompt is cancelled.
+    pub(crate) fn cancel_to(&self) -> Option<SelectKind> {
+        match self {
+            PromptKind::NewProfile | PromptKind::RenameProfile { .. } => Some(SelectKind::Profile),
+            PromptKind::AddExe => Some(SelectKind::Launch),
+            PromptKind::RenameMod { .. } => None,
+        }
+    }
 }
 
 /// Pick one item from a list and act on it
@@ -68,6 +77,16 @@ pub(crate) enum SelectKind {
 }
 
 impl SelectKind {
+    /// Selection kind opened by a main-view toggle key.
+    pub(crate) fn from_toggle_key(c: char) -> Option<Self> {
+        match c {
+            'l' => Some(SelectKind::Launch),
+            'p' => Some(SelectKind::Profile),
+            's' => Some(SelectKind::Instance),
+            _ => None,
+        }
+    }
+
     /// Accelerator that opens this selection from the main view
     pub(crate) fn toggle_key(self) -> char {
         match self {
@@ -101,6 +120,18 @@ impl SelectKind {
             SelectKind::Launch => " · a add · x remove",
             SelectKind::Profile => " · n new · r rename",
             SelectKind::Instance => "",
+        }
+    }
+}
+
+impl Modal {
+    /// List selection state for modal variants that own a selectable list.
+    pub(crate) fn list_state_mut(&mut self) -> Option<&mut ListState> {
+        match self {
+            Modal::Select(select) => Some(&mut select.state),
+            Modal::Info(info) => Some(&mut info.state),
+            Modal::Doctor(doctor) => Some(&mut doctor.list),
+            Modal::Prompt(_) | Modal::Confirm(_) => None,
         }
     }
 }
