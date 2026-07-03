@@ -323,30 +323,39 @@ pub enum PatchCommand {
         #[arg(long)]
         yes: bool,
     },
-    /// Downgrade a Fallout 4 install to Old-Gen by applying xdelta3 binary deltas
+    /// Convert a Fallout 4 install between verified binary generations
     Convert {
         /// Target edition
-        #[arg(long, value_name = "og", hide_possible_values = true)]
+        #[arg(long, value_name = "og|ng|ae", hide_possible_values = true)]
         to: GenerationArg,
-        /// Fallout 4 install directory
-        #[arg(long)]
-        game_dir: Utf8PathBuf,
+        /// Directory containing `.vcdiff` or `.xdelta` files with usable app headers
+        #[arg(long, value_name = "DIR")]
+        deltas: Option<Utf8PathBuf>,
+        /// Instance directory; supplies the game dir when `--game-dir` is omitted
+        #[arg(long, value_name = "DIR")]
+        instance: Option<Utf8PathBuf>,
+        /// Fallout 4 install directory; overrides the instance config
+        #[arg(long, value_name = "DIR")]
+        game_dir: Option<Utf8PathBuf>,
         /// xdelta3 delta for `Fallout4.exe`
         #[arg(long, value_name = "PATH")]
-        exe_delta: Utf8PathBuf,
+        exe_delta: Option<Utf8PathBuf>,
         /// xdelta3 delta for `Fallout4Launcher.exe`
         #[arg(long, value_name = "PATH")]
-        launcher_delta: Utf8PathBuf,
+        launcher_delta: Option<Utf8PathBuf>,
         /// xdelta3 delta for `steam_api64.dll`
         #[arg(long, value_name = "PATH")]
-        steamapi_delta: Utf8PathBuf,
-        /// Path to the `xdelta3` executable (default: `xdelta3` on PATH)
+        steamapi_delta: Option<Utf8PathBuf>,
+        /// Path to the `xdelta3` executable
         #[arg(long, value_name = "PATH")]
         xdelta3: Option<Utf8PathBuf>,
+        /// Permit an incomplete repair instead of a complete generation conversion
+        #[arg(long)]
+        allow_incomplete_repair: bool,
         /// Show the plan without writing
         #[arg(long)]
         dry_run: bool,
-        /// apply the conversion (required since it mutates the real install)
+        /// Apply the conversion (required since it mutates the real install)
         #[arg(long)]
         yes: bool,
     },

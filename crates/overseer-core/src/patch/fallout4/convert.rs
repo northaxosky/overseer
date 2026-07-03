@@ -1,341 +1,474 @@
-//! Fallout 4 whole install edition conversion: applying binary deltas to swap game binaries between gens
+//! Fallout 4 whole-install edition conversion through verified binary deltas.
 
+use super::fingerprint::{
+    BinaryFingerprint, CORE_BINARIES, fingerprints_for, known_source, target_fingerprint,
+    target_table_complete,
+};
 use crate::detect::Generation;
-use crate::error::IoError;
-use crate::fs::{copy, fsync, remove_file_opt, rename, size_opt};
-use crate::patch::delta::{DeltaDecoder, DeltaError, crc32_file};
+use crate::error::{IoError, io_err};
+use crate::fs::{copy, fsync, remove_file_opt, rename};
+use crate::patch::delta::{DeltaDecoder, DeltaError};
+use crate::patch::fingerprint::{FileFingerprint, VerifiedBy, fingerprint_file};
 use camino::{Utf8Path, Utf8PathBuf};
+use std::fs::OpenOptions;
 use thiserror::Error;
+use tracing::warn;
 
-/// A convertible game file, identified by its known-clean *target* fingerprint
 #[derive(Debug, Clone, Copy)]
 pub struct ConvertItem {
-    /// Path relative to the game directory
     pub rel_path: &'static str,
-    /// Size in bytes of the clean target file
-    pub target_size: u64,
-    /// CRC32 of the clean target file
-    pub target_crc: u32,
+    pub target: &'static BinaryFingerprint,
 }
 
-/// The AE/NG -> OG Downgrade set: the three core binaries
-pub const OLD_GEN_ITEMS: &[ConvertItem] = &[
-    ConvertItem {
-        rel_path: "Fallout4.exe",
-        target_size: 65_503_104,
-        target_crc: 0xC605_3902,
-    },
-    ConvertItem {
-        rel_path: "Fallout4Launcher.exe",
-        target_size: 4_522_496,
-        target_crc: 0x0244_5570,
-    },
-    ConvertItem {
-        rel_path: "steam_api64.dll",
-        target_size: 206_760,
-        target_crc: 0xBBD9_12FC,
-    },
-];
-
-/// Where one game file stands relative to its target edition
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ItemState {
-    /// Already the clean target file; nothing to do
     AlreadyTarget,
-    /// Present but not the target; a delta can convert it
     NeedsConversion,
-    /// Absent from the game directory
     Missing,
 }
 
-/// The manifest of files to convert an install *to* `target` (only Old-Gen today; upgrades yield nothing).
-pub fn items(target: Generation) -> &'static [ConvertItem] {
-    match target {
-        Generation::OldGen => OLD_GEN_ITEMS,
-        Generation::NextGen | Generation::Anniversary => &[],
-    }
+#[derive(Debug, Clone)]
+pub struct ItemPlan {
+    pub item: ConvertItem,
+    pub state: ItemState,
+    pub current: Option<FileFingerprint>,
+    pub known_source: Option<&'static BinaryFingerprint>,
 }
 
-/// Classify an on-disk `(size, crc)` against an item's target
-fn identify(on_disk: Option<(u64, u32)>, item: &ConvertItem) -> ItemState {
-    match on_disk {
-        None => ItemState::Missing,
-        Some((size, crc)) if size == item.target_size && crc == item.target_crc => {
-            ItemState::AlreadyTarget
-        }
-        Some(_) => ItemState::NeedsConversion,
-    }
+#[derive(Debug, Clone)]
+pub struct ConvertJob {
+    pub item: ConvertItem,
+    pub delta: Utf8PathBuf,
 }
 
-/// Classify one item against the file in `game_dir`, hashing only when the size already matches
-pub fn classify(game_dir: &Utf8Path, item: &ConvertItem) -> Result<ItemState, IoError> {
-    let path = game_dir.join(item.rel_path);
-    let Some(size) = size_opt(&path)? else {
-        return Ok(ItemState::Missing);
-    };
-    // A size mismatch can't be the target, skip hashing
-    if size != item.target_size {
-        return Ok(ItemState::NeedsConversion);
-    }
-    Ok(identify(Some((size, crc32_file(&path)?)), item))
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Outcome {
+    Converted,
+    AlreadyTarget,
+    Missing,
 }
 
-/// Classify every item in `target`'s manifest against `game_dir`
-pub fn plan(
-    game_dir: &Utf8Path,
-    target: Generation,
-) -> Result<Vec<(&'static ConvertItem, ItemState)>, IoError> {
-    items(target)
-        .iter()
-        .map(|item| Ok((item, classify(game_dir, item)?)))
-        .collect()
-}
-
-/// A failure that stops a conversion
 #[derive(Debug, Error)]
 pub enum ConvertError {
-    /// The delta decoder failed on this file
+    #[error(
+        "target {target} is incomplete; refusing conversion until all core binary fingerprints are known"
+    )]
+    IncompleteTarget { target: Generation },
     #[error("delta application failed for `{item}`")]
     Delta {
         item: String,
         #[source]
         source: DeltaError,
     },
-    /// The reconstructed file was not the expected target
-    #[error("`{item}` did not reconstruct the target (crc {found:08X}, expected {expected:08X})")]
+    #[error(
+        "`{item}` did not reconstruct {expected_label} (size {found_size}, crc {found_crc:08X}, sha256 {found_sha256})"
+    )]
     TargetMismatch {
         item: String,
-        found: u32,
-        expected: u32,
+        expected_label: String,
+        found_size: u64,
+        found_crc: u32,
+        found_sha256: String,
+    },
+    #[error("source `{item}` changed before commit; refusing to swap")]
+    SourceChanged { item: String },
+    #[error("backup `{backup}` already exists and does not match the current source")]
+    BackupConflict { backup: Utf8PathBuf },
+    #[error("commit failed for `{item}`; rollback was attempted")]
+    CommitFailed {
+        item: String,
+        #[source]
+        source: IoError,
     },
     #[error(transparent)]
     Io(#[from] IoError),
 }
 
-/// What converting one item did
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Outcome {
-    /// The file was downgraded and verified against its target
-    Converted,
-    /// The file was already the target edition; left untouched
-    AlreadyTarget,
-    /// The file was absent; nothing to convert
-    Missing,
-}
-
-/// Initial result for one item: a verified temp to swap, or a no op
+#[derive(Debug)]
 enum Prepared {
-    /// A verified temp file that must replace the item's live file
-    Ready { tmp: Utf8PathBuf },
-    /// Already the target edition; nothing to do
-    AlreadyTarget,
-    /// Absent from the game directory; nothing to convert
-    Missing,
+    Ready {
+        item: ConvertItem,
+        tmp: Utf8PathBuf,
+        source: FileFingerprint,
+        verified_by: VerifiedBy,
+    },
+    AlreadyTarget {
+        item: ConvertItem,
+    },
+    Missing {
+        item: ConvertItem,
+    },
 }
 
-/// Reconstruct `item` to a temp and verify it against the target, without touching the live file
+pub fn items(target: Generation) -> Vec<ConvertItem> {
+    fingerprints_for(target)
+        .into_iter()
+        .map(|target| ConvertItem {
+            rel_path: target.rel_path,
+            target,
+        })
+        .collect()
+}
+
+pub fn target_is_complete(target: Generation) -> bool {
+    target_table_complete(target)
+}
+
+pub fn classify(game_dir: &Utf8Path, item: ConvertItem) -> Result<ItemPlan, IoError> {
+    let path = game_dir.join(item.rel_path);
+    let current = fingerprint_file(&path)?;
+    let known = current
+        .as_ref()
+        .and_then(|fp| known_source(item.rel_path, fp));
+    let state = match &current {
+        None => ItemState::Missing,
+        Some(fp) if item.target.matches_file(fp) => ItemState::AlreadyTarget,
+        Some(_) => ItemState::NeedsConversion,
+    };
+    Ok(ItemPlan {
+        item,
+        state,
+        current,
+        known_source: known,
+    })
+}
+
+pub fn plan(game_dir: &Utf8Path, target: Generation) -> Result<Vec<ItemPlan>, ConvertError> {
+    if !target_table_complete(target) {
+        return Err(ConvertError::IncompleteTarget { target });
+    }
+    items(target)
+        .into_iter()
+        .map(|item| Ok(classify(game_dir, item)?))
+        .collect()
+}
+
+pub fn explicit_item(target: Generation, rel_path: &str) -> Option<ConvertItem> {
+    target_fingerprint(target, rel_path).map(|target| ConvertItem {
+        rel_path: target.rel_path,
+        target,
+    })
+}
+
 fn prepare(
     game_dir: &Utf8Path,
-    item: &ConvertItem,
-    delta: &Utf8Path,
+    job: &ConvertJob,
     decoder: &dyn DeltaDecoder,
 ) -> Result<Prepared, ConvertError> {
-    match classify(game_dir, item)? {
-        ItemState::AlreadyTarget => return Ok(Prepared::AlreadyTarget),
-        ItemState::Missing => return Ok(Prepared::Missing),
+    let item = job.item;
+    cleanup_leftover_tmp(game_dir, item)?;
+    let plan = classify(game_dir, item)?;
+    match plan.state {
+        ItemState::AlreadyTarget => return Ok(Prepared::AlreadyTarget { item }),
+        ItemState::Missing => return Ok(Prepared::Missing { item }),
         ItemState::NeedsConversion => {}
     }
-
+    let source = plan
+        .current
+        .expect("needs-conversion has a source fingerprint");
+    if let Some(source_label) = plan.known_source {
+        warn!(
+            binary = item.rel_path,
+            source = %source_label.label(),
+            target = %item.target.label(),
+            "prechecked known Fallout 4 binary before applying delta"
+        );
+    } else {
+        warn!(
+            binary = item.rel_path,
+            "source binary is unknown; target hash remains enforced"
+        );
+    }
     let real = game_dir.join(item.rel_path);
-    let tmp = game_dir.join(format!("{}.overseer-tmp", item.rel_path));
-
-    // Reconstruct into a temp; the real file is still the untouched source
-    if let Err(source) = decoder.apply(&real, delta, &tmp) {
+    let tmp = tmp_path(game_dir, item);
+    if let Err(source_err) = decoder.apply(&real, &job.delta, &tmp) {
         let _ = remove_file_opt(&tmp);
         return Err(ConvertError::Delta {
             item: item.rel_path.to_owned(),
-            source,
+            source: source_err,
         });
     }
-
-    // Verify the candidate is the exact clean target: size and CRC
-    let size = size_opt(&tmp).inspect_err(|_| {
+    let Some(found) = fingerprint_file(&tmp).inspect_err(|_| {
         let _ = remove_file_opt(&tmp);
-    })?;
-    let found = crc32_file(&tmp).inspect_err(|_| {
-        let _ = remove_file_opt(&tmp);
-    })?;
-    if size != Some(item.target_size) || found != item.target_crc {
+    })?
+    else {
         remove_file_opt(&tmp)?;
         return Err(ConvertError::TargetMismatch {
             item: item.rel_path.to_owned(),
-            found,
-            expected: item.target_crc,
+            expected_label: item.target.label(),
+            found_size: 0,
+            found_crc: 0,
+            found_sha256: "missing".to_owned(),
         });
-    }
-
-    // Flush the reconstructed bytes
+    };
+    let Some(verified_by) = item.target.verify_file(&found) else {
+        remove_file_opt(&tmp)?;
+        return Err(ConvertError::TargetMismatch {
+            item: item.rel_path.to_owned(),
+            expected_label: item.target.label(),
+            found_size: found.size,
+            found_crc: found.crc32,
+            found_sha256: found.sha256,
+        });
+    };
     fsync(&tmp)?;
-    Ok(Prepared::Ready { tmp })
+    Ok(Prepared::Ready {
+        item,
+        tmp,
+        source,
+        verified_by,
+    })
 }
 
-/// Swap a verified temp into place: back up the original by copying, then atomically replace it
-fn commit(game_dir: &Utf8Path, item: &ConvertItem, tmp: &Utf8Path) -> Result<(), ConvertError> {
-    let real = game_dir.join(item.rel_path);
-    let bak = game_dir.join(format!("{}.overseer-bak", item.rel_path));
-    copy(&real, &bak)?;
-    rename(tmp, &real)?;
+fn preflight_writable(game_dir: &Utf8Path, ready: &[PreparedReady]) -> Result<(), ConvertError> {
+    for ready in ready {
+        let real = game_dir.join(ready.item.rel_path);
+        OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&real)
+            .map_err(|e| io_err(&real, e))?;
+    }
     Ok(())
 }
 
-/// Convert one `item` in `game_dir` by applying `delta`
-pub fn convert_item(
-    game_dir: &Utf8Path,
-    item: &ConvertItem,
-    delta: &Utf8Path,
-    decoder: &dyn DeltaDecoder,
-) -> Result<Outcome, ConvertError> {
-    match prepare(game_dir, item, delta, decoder)? {
-        Prepared::Ready { tmp } => {
-            commit(game_dir, item, &tmp)?;
-            Ok(Outcome::Converted)
-        }
-        Prepared::AlreadyTarget => Ok(Outcome::AlreadyTarget),
-        Prepared::Missing => Ok(Outcome::Missing),
+#[derive(Debug)]
+struct PreparedReady {
+    item: ConvertItem,
+    tmp: Utf8PathBuf,
+    source: FileFingerprint,
+    verified_by: VerifiedBy,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BackupAction {
+    Created,
+    Reused,
+}
+
+trait RenameOp {
+    fn rename(&mut self, from: &Utf8Path, to: &Utf8Path) -> Result<(), IoError>;
+}
+
+struct FsRename;
+
+impl RenameOp for FsRename {
+    fn rename(&mut self, from: &Utf8Path, to: &Utf8Path) -> Result<(), IoError> {
+        rename(from, to)
     }
 }
 
-/// Apply each resolved `(item, delta)` job as a batch
+fn commit_batch(game_dir: &Utf8Path, ready: &[PreparedReady]) -> Result<(), ConvertError> {
+    commit_batch_with_renamer(game_dir, ready, &mut FsRename)
+}
+
+fn commit_batch_with_renamer(
+    game_dir: &Utf8Path,
+    ready: &[PreparedReady],
+    renamer: &mut dyn RenameOp,
+) -> Result<(), ConvertError> {
+    preflight_writable(game_dir, ready)?;
+    let mut backups = Vec::new();
+    for ready in ready {
+        let action = ensure_backup(game_dir, ready)?;
+        backups.push((backup_path(game_dir, ready.item), action));
+    }
+    let mut swapped: Vec<&PreparedReady> = Vec::new();
+    for (idx, current) in ready.iter().enumerate() {
+        debug_assert!(matches!(
+            current.verified_by,
+            VerifiedBy::Sha256 | VerifiedBy::Crc32
+        ));
+        if !source_still_matches(game_dir, current)? {
+            rollback(game_dir, &swapped);
+            cleanup_remaining_temps(&ready[idx..]);
+            cleanup_created_backups(&backups);
+            return Err(ConvertError::SourceChanged {
+                item: current.item.rel_path.to_owned(),
+            });
+        }
+        let real = game_dir.join(current.item.rel_path);
+        match renamer.rename(&current.tmp, &real) {
+            Ok(()) => swapped.push(current),
+            Err(source) => {
+                rollback(game_dir, &swapped);
+                cleanup_remaining_temps(&ready[idx..]);
+                cleanup_created_backups(&backups);
+                return Err(ConvertError::CommitFailed {
+                    item: current.item.rel_path.to_owned(),
+                    source,
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
+fn cleanup_remaining_temps(ready: &[PreparedReady]) {
+    for ready in ready {
+        let _ = remove_file_opt(&ready.tmp);
+    }
+}
+
+fn cleanup_created_backups(backups: &[(Utf8PathBuf, BackupAction)]) {
+    for (path, action) in backups {
+        if *action == BackupAction::Created {
+            let _ = remove_file_opt(path);
+        }
+    }
+}
+
+fn ensure_backup(game_dir: &Utf8Path, ready: &PreparedReady) -> Result<BackupAction, ConvertError> {
+    let real = game_dir.join(ready.item.rel_path);
+    let bak = backup_path(game_dir, ready.item);
+    if let Some(existing) = fingerprint_file(&bak)? {
+        if existing.size == ready.source.size
+            && existing.crc32 == ready.source.crc32
+            && existing.sha256.eq_ignore_ascii_case(&ready.source.sha256)
+        {
+            return Ok(BackupAction::Reused);
+        }
+        return Err(ConvertError::BackupConflict { backup: bak });
+    }
+    copy(&real, &bak)?;
+    fsync(&bak)?;
+    Ok(BackupAction::Created)
+}
+
+fn source_still_matches(game_dir: &Utf8Path, ready: &PreparedReady) -> Result<bool, ConvertError> {
+    let real = game_dir.join(ready.item.rel_path);
+    let Some(current) = fingerprint_file(&real)? else {
+        return Ok(false);
+    };
+    Ok(current.size == ready.source.size
+        && current.crc32 == ready.source.crc32
+        && current.sha256.eq_ignore_ascii_case(&ready.source.sha256))
+}
+
+fn rollback(game_dir: &Utf8Path, swapped: &[&PreparedReady]) {
+    for ready in swapped.iter().rev() {
+        let real = game_dir.join(ready.item.rel_path);
+        let bak = backup_path(game_dir, ready.item);
+        let _ = copy(&bak, &real);
+    }
+}
+
+fn cleanup_leftover_tmp(game_dir: &Utf8Path, item: ConvertItem) -> Result<(), ConvertError> {
+    remove_file_opt(&tmp_path(game_dir, item))?;
+    Ok(())
+}
+
+fn tmp_path(game_dir: &Utf8Path, item: ConvertItem) -> Utf8PathBuf {
+    game_dir.join(format!("{}.overseer-tmp", item.rel_path))
+}
+
+fn backup_path(game_dir: &Utf8Path, item: ConvertItem) -> Utf8PathBuf {
+    game_dir.join(format!("{}.overseer-bak", item.rel_path))
+}
+
+pub fn convert_item(
+    game_dir: &Utf8Path,
+    item: ConvertItem,
+    delta: &Utf8Path,
+    decoder: &dyn DeltaDecoder,
+) -> Result<Outcome, ConvertError> {
+    let job = ConvertJob {
+        item,
+        delta: delta.to_owned(),
+    };
+    match prepare(game_dir, &job, decoder)? {
+        Prepared::Ready {
+            item,
+            tmp,
+            source,
+            verified_by,
+        } => {
+            let ready = [PreparedReady {
+                item,
+                tmp,
+                source,
+                verified_by,
+            }];
+            commit_batch(game_dir, &ready)?;
+            Ok(Outcome::Converted)
+        }
+        Prepared::AlreadyTarget { .. } => Ok(Outcome::AlreadyTarget),
+        Prepared::Missing { .. } => Ok(Outcome::Missing),
+    }
+}
+
 pub fn convert(
     game_dir: &Utf8Path,
-    jobs: &[(&ConvertItem, &Utf8Path)],
+    jobs: &[ConvertJob],
     decoder: &dyn DeltaDecoder,
-) -> Result<Vec<(&'static str, Outcome)>, ConvertError> {
-    let mut ready: Vec<(&ConvertItem, Utf8PathBuf)> = Vec::new();
-    let mut outcomes: Vec<(&'static str, Outcome)> = Vec::new();
-    for (item, delta) in jobs {
-        match prepare(game_dir, item, delta, decoder) {
-            Ok(Prepared::Ready { tmp }) => {
-                ready.push((item, tmp));
-                outcomes.push((item.rel_path, Outcome::Converted));
+) -> Result<Vec<(String, Outcome)>, ConvertError> {
+    let mut ready = Vec::new();
+    let mut outcomes = Vec::new();
+    for job in jobs {
+        match prepare(game_dir, job, decoder) {
+            Ok(Prepared::Ready {
+                item,
+                tmp,
+                source,
+                verified_by,
+            }) => {
+                ready.push(PreparedReady {
+                    item,
+                    tmp,
+                    source,
+                    verified_by,
+                });
+                outcomes.push((item.rel_path.to_owned(), Outcome::Converted));
             }
-            Ok(Prepared::AlreadyTarget) => outcomes.push((item.rel_path, Outcome::AlreadyTarget)),
-            Ok(Prepared::Missing) => outcomes.push((item.rel_path, Outcome::Missing)),
+            Ok(Prepared::AlreadyTarget { item }) => {
+                outcomes.push((item.rel_path.to_owned(), Outcome::AlreadyTarget));
+            }
+            Ok(Prepared::Missing { item }) => {
+                outcomes.push((item.rel_path.to_owned(), Outcome::Missing));
+            }
             Err(e) => {
-                for (_, tmp) in &ready {
-                    let _ = remove_file_opt(tmp);
+                for ready in &ready {
+                    let _ = remove_file_opt(&ready.tmp);
                 }
                 return Err(e);
             }
         }
     }
-
-    // Every required temp is verified; swap them in
-    for (item, tmp) in &ready {
-        commit(game_dir, item, tmp)?;
-    }
+    commit_batch(game_dir, &ready)?;
     Ok(outcomes)
 }
 
-/// Downgrade the three core binaries to Old-Gen, pairing each with its delta; convenience over [`convert`]
-pub fn convert_to_old_gen(
-    game_dir: &Utf8Path,
-    fallout4_exe: &Utf8Path,
-    launcher: &Utf8Path,
-    steam_api64: &Utf8Path,
-    decoder: &dyn DeltaDecoder,
-) -> Result<Vec<(&'static str, Outcome)>, ConvertError> {
-    let jobs = [
-        (&OLD_GEN_ITEMS[0], fallout4_exe),
-        (&OLD_GEN_ITEMS[1], launcher),
-        (&OLD_GEN_ITEMS[2], steam_api64),
-    ];
-    convert(game_dir, &jobs, decoder)
+pub fn core_binary_names() -> &'static [&'static str] {
+    CORE_BINARIES
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::patch::delta::DeltaError;
+    use crate::patch::fingerprint::ExpectedFingerprint;
     use crate::test_support::temp;
 
-    // A tiny synthetic item whose target is the bytes "123456789".
-    const ITEM: ConvertItem = ConvertItem {
+    static TEST_FP: BinaryFingerprint = BinaryFingerprint {
+        generation: Generation::OldGen,
         rel_path: "check.bin",
-        target_size: 9,
-        target_crc: 0xCBF4_3926,
+        build: "test",
+        expected: ExpectedFingerprint {
+            size: 9,
+            crc32: 0xCBF4_3926,
+            sha256: Some("15e2b0d3c33891ebb0f1ef609ec419420c20e320ce94c65fbc8c3312448eb225"),
+        },
     };
 
-    #[test]
-    fn identify_maps_the_three_states() {
-        assert_eq!(identify(None, &ITEM), ItemState::Missing);
-        assert_eq!(
-            identify(Some((9, 0xCBF4_3926)), &ITEM),
-            ItemState::AlreadyTarget
-        );
-        // Right size, wrong crc — a different build that happens to share a size.
-        assert_eq!(
-            identify(Some((9, 0xDEAD_BEEF)), &ITEM),
-            ItemState::NeedsConversion
-        );
-        // Wrong size — can't be the target.
-        assert_eq!(
-            identify(Some((10, 0xCBF4_3926)), &ITEM),
-            ItemState::NeedsConversion
-        );
+    fn item() -> ConvertItem {
+        ConvertItem {
+            rel_path: "check.bin",
+            target: &TEST_FP,
+        }
     }
 
-    #[test]
-    fn classify_recognizes_the_clean_target() {
-        let (_tmp, root) = temp();
-        std::fs::write(root.join("check.bin"), b"123456789").unwrap();
-        assert_eq!(classify(&root, &ITEM).unwrap(), ItemState::AlreadyTarget);
-    }
-
-    #[test]
-    fn classify_flags_a_file_that_differs_by_size_without_hashing() {
-        let (_tmp, root) = temp();
-        std::fs::write(root.join("check.bin"), b"a different length").unwrap();
-        assert_eq!(classify(&root, &ITEM).unwrap(), ItemState::NeedsConversion);
-    }
-
-    #[test]
-    fn classify_flags_a_same_size_but_different_file() {
-        let (_tmp, root) = temp();
-        std::fs::write(root.join("check.bin"), b"987654321").unwrap(); // 9 bytes, different crc
-        assert_eq!(classify(&root, &ITEM).unwrap(), ItemState::NeedsConversion);
-    }
-
-    #[test]
-    fn classify_reports_a_missing_file() {
-        let (_tmp, root) = temp();
-        assert_eq!(classify(&root, &ITEM).unwrap(), ItemState::Missing);
-    }
-
-    #[test]
-    fn plan_over_a_bare_dir_is_all_missing() {
-        let (_tmp, root) = temp();
-        let states: Vec<_> = plan(&root, Generation::OldGen)
-            .unwrap()
-            .into_iter()
-            .map(|(_, state)| state)
-            .collect();
-        assert_eq!(states, vec![ItemState::Missing; OLD_GEN_ITEMS.len()]);
-    }
-
-    #[test]
-    fn the_old_gen_manifest_is_the_three_core_binaries() {
-        let names: Vec<_> = OLD_GEN_ITEMS.iter().map(|i| i.rel_path).collect();
-        assert_eq!(
-            names,
-            ["Fallout4.exe", "Fallout4Launcher.exe", "steam_api64.dll"]
-        );
-    }
-
-    // A decoder that ignores the delta and writes a scripted result, so convert_item's; ordering/verification can be exercised without a real xdelta3.
     enum FakeDecoder {
-        /// Write these exact bytes to `dest` (simulates a good or a wrong delta).
         Writes(Vec<u8>),
-        /// Fail as if the decoder errored, writing nothing.
         Fails,
     }
 
@@ -359,136 +492,138 @@ mod tests {
         }
     }
 
-    /// Seed `game_dir/check.bin` with `bytes` (a not-yet-target file).
-    fn seed_source(bytes: &[u8]) -> (tempfile::TempDir, camino::Utf8PathBuf) {
+    fn seed_source(bytes: &[u8]) -> (tempfile::TempDir, Utf8PathBuf) {
         let (tmp, root) = temp();
         std::fs::write(root.join("check.bin"), bytes).unwrap();
         (tmp, root)
     }
 
     #[test]
-    fn convert_item_downgrades_verifies_and_backs_up() {
-        let (_tmp, root) = seed_source(b"AE-version");
-        // A "good delta": the decoder produces the exact target bytes.
-        let decoder = FakeDecoder::Writes(b"123456789".to_vec());
-
-        let outcome = convert_item(&root, &ITEM, Utf8Path::new("d.vcdiff"), &decoder).unwrap();
-
-        assert_eq!(outcome, Outcome::Converted);
-        assert_eq!(
-            std::fs::read(root.join("check.bin")).unwrap(),
-            b"123456789",
-            "the real file is now the target"
-        );
-        assert_eq!(
-            std::fs::read(root.join("check.bin.overseer-bak")).unwrap(),
-            b"AE-version",
-            "the original is backed up"
-        );
-        assert!(
-            !root.join("check.bin.overseer-tmp").exists(),
-            "the temp is consumed by the rename"
-        );
-    }
-
-    #[test]
-    fn a_wrong_delta_leaves_the_real_file_untouched() {
-        let (_tmp, root) = seed_source(b"AE-version");
-        // A "bad delta": right length (9) but wrong bytes, so the CRC won't match.
-        let decoder = FakeDecoder::Writes(b"987654321".to_vec());
-
-        let err =
-            convert_item(&root, &ITEM, Utf8Path::new("d.vcdiff"), &decoder).expect_err("mismatch");
-
-        assert!(matches!(err, ConvertError::TargetMismatch { .. }));
-        assert_eq!(
-            std::fs::read(root.join("check.bin")).unwrap(),
-            b"AE-version",
-            "a bad delta must never touch the real file"
-        );
-        assert!(
-            !root.join("check.bin.overseer-tmp").exists(),
-            "the rejected temp is cleaned up"
-        );
-        assert!(
-            !root.join("check.bin.overseer-bak").exists(),
-            "no backup is made when the conversion is rejected"
-        );
-    }
-
-    #[test]
-    fn a_decoder_failure_is_reported_and_cleans_up() {
-        let (_tmp, root) = seed_source(b"AE-version");
-        let err = convert_item(&root, &ITEM, Utf8Path::new("d.vcdiff"), &FakeDecoder::Fails)
-            .expect_err("decoder failed");
-
-        assert!(matches!(err, ConvertError::Delta { .. }));
-        assert_eq!(
-            std::fs::read(root.join("check.bin")).unwrap(),
-            b"AE-version",
-            "the real file is untouched"
-        );
-        assert!(!root.join("check.bin.overseer-tmp").exists());
-    }
-
-    #[test]
-    fn convert_item_is_idempotent_on_an_already_target_file() {
+    fn classify_recognizes_the_clean_target() {
         let (_tmp, root) = temp();
-        std::fs::write(root.join("check.bin"), b"123456789").unwrap(); // already the target
-        // A decoder that would corrupt if ever called — it must not be.
-        let decoder = FakeDecoder::Writes(b"corrupted".to_vec());
-
-        let outcome = convert_item(&root, &ITEM, Utf8Path::new("d.vcdiff"), &decoder).unwrap();
-
-        assert_eq!(outcome, Outcome::AlreadyTarget);
+        std::fs::write(root.join("check.bin"), b"123456789").unwrap();
         assert_eq!(
-            std::fs::read(root.join("check.bin")).unwrap(),
-            b"123456789",
-            "an already-target file is left exactly as-is"
+            classify(&root, item()).unwrap().state,
+            ItemState::AlreadyTarget
         );
-        assert!(!root.join("check.bin.overseer-bak").exists());
     }
 
     #[test]
-    fn convert_item_reports_a_missing_file() {
+    fn classify_flags_different_file() {
         let (_tmp, root) = temp();
+        std::fs::write(root.join("check.bin"), b"987654321").unwrap();
+        assert_eq!(
+            classify(&root, item()).unwrap().state,
+            ItemState::NeedsConversion
+        );
+    }
+
+    #[test]
+    fn classify_reports_a_missing_file() {
+        let (_tmp, root) = temp();
+        assert_eq!(classify(&root, item()).unwrap().state, ItemState::Missing);
+    }
+
+    #[test]
+    fn plan_refuses_incomplete_ng_target() {
+        let (_tmp, root) = temp();
+        assert!(matches!(
+            plan(&root, Generation::NextGen),
+            Err(ConvertError::IncompleteTarget { .. })
+        ));
+    }
+
+    #[test]
+    fn converts_verifies_and_backs_up() {
+        let (_tmp, root) = seed_source(b"AE-version");
         let outcome = convert_item(
             &root,
-            &ITEM,
+            item(),
             Utf8Path::new("d.vcdiff"),
             &FakeDecoder::Writes(b"123456789".to_vec()),
         )
         .unwrap();
-        assert_eq!(outcome, Outcome::Missing);
+        assert_eq!(outcome, Outcome::Converted);
+        assert_eq!(std::fs::read(root.join("check.bin")).unwrap(), b"123456789");
+        assert_eq!(
+            std::fs::read(root.join("check.bin.overseer-bak")).unwrap(),
+            b"AE-version"
+        );
     }
 
     #[test]
-    fn a_right_crc_but_wrong_size_result_is_rejected() {
-        // Guards the CRC32-collision path: the item's CRC matches the output, but the size does; not, so the two-factor check must still refuse and leave the real file untouched.
+    fn wrong_target_hash_leaves_real_file_untouched() {
         let (_tmp, root) = seed_source(b"AE-version");
-        let item = ConvertItem {
-            rel_path: "check.bin",
-            target_size: 9_999,      // deliberately not the 9-byte output size
-            target_crc: 0xCBF4_3926, // the CRC of "123456789"
-        };
-        let decoder = FakeDecoder::Writes(b"123456789".to_vec());
-
-        let err = convert_item(&root, &item, Utf8Path::new("d.vcdiff"), &decoder)
-            .expect_err("size mismatch");
-
+        let err = convert_item(
+            &root,
+            item(),
+            Utf8Path::new("d.vcdiff"),
+            &FakeDecoder::Writes(b"987654321".to_vec()),
+        )
+        .expect_err("mismatch");
         assert!(matches!(err, ConvertError::TargetMismatch { .. }));
         assert_eq!(
             std::fs::read(root.join("check.bin")).unwrap(),
-            b"AE-version",
-            "a size mismatch must not touch the real file"
+            b"AE-version"
         );
         assert!(!root.join("check.bin.overseer-tmp").exists());
         assert!(!root.join("check.bin.overseer-bak").exists());
     }
 
-    // A decoder that writes the target bytes for a "good" dest and garbage for anything else, so a batch can mix a verifiable job with a failing one.
-    struct PerDestDecoder;
-    impl DeltaDecoder for PerDestDecoder {
+    #[test]
+    fn corrupted_delta_cleans_up() {
+        let (_tmp, root) = seed_source(b"AE-version");
+        let err = convert_item(
+            &root,
+            item(),
+            Utf8Path::new("d.vcdiff"),
+            &FakeDecoder::Fails,
+        )
+        .expect_err("decoder failed");
+        assert!(matches!(err, ConvertError::Delta { .. }));
+        assert_eq!(
+            std::fs::read(root.join("check.bin")).unwrap(),
+            b"AE-version"
+        );
+        assert!(!root.join("check.bin.overseer-tmp").exists());
+    }
+
+    #[test]
+    fn already_target_is_idempotent() {
+        let (_tmp, root) = temp();
+        std::fs::write(root.join("check.bin"), b"123456789").unwrap();
+        let outcome = convert_item(
+            &root,
+            item(),
+            Utf8Path::new("d.vcdiff"),
+            &FakeDecoder::Writes(b"corrupted".to_vec()),
+        )
+        .unwrap();
+        assert_eq!(outcome, Outcome::AlreadyTarget);
+        assert!(!root.join("check.bin.overseer-bak").exists());
+    }
+
+    #[test]
+    fn backup_conflict_refuses_to_clobber() {
+        let (_tmp, root) = seed_source(b"AE-version");
+        std::fs::write(root.join("check.bin.overseer-bak"), b"other").unwrap();
+        let err = convert_item(
+            &root,
+            item(),
+            Utf8Path::new("d.vcdiff"),
+            &FakeDecoder::Writes(b"123456789".to_vec()),
+        )
+        .expect_err("backup conflict");
+        assert!(matches!(err, ConvertError::BackupConflict { .. }));
+        assert_eq!(
+            std::fs::read(root.join("check.bin")).unwrap(),
+            b"AE-version"
+        );
+    }
+
+    struct PerPathDecoder;
+
+    impl DeltaDecoder for PerPathDecoder {
         fn apply(
             &self,
             _source: &Utf8Path,
@@ -506,55 +641,168 @@ mod tests {
     }
 
     #[test]
-    fn a_bad_delta_in_the_batch_converts_nothing() {
+    fn bad_delta_in_batch_converts_nothing() {
+        static GOOD_FP: BinaryFingerprint = BinaryFingerprint {
+            generation: Generation::OldGen,
+            rel_path: "good.bin",
+            build: "test",
+            expected: ExpectedFingerprint {
+                size: 9,
+                crc32: 0xCBF4_3926,
+                sha256: Some("15e2b0d3c33891ebb0f1ef609ec419420c20e320ce94c65fbc8c3312448eb225"),
+            },
+        };
+        static BAD_FP: BinaryFingerprint = BinaryFingerprint {
+            generation: Generation::OldGen,
+            rel_path: "bad.bin",
+            build: "test",
+            expected: ExpectedFingerprint {
+                size: 9,
+                crc32: 0xCBF4_3926,
+                sha256: Some("15e2b0d3c33891ebb0f1ef609ec419420c20e320ce94c65fbc8c3312448eb225"),
+            },
+        };
         let (_tmp, root) = temp();
         std::fs::write(root.join("good.bin"), b"OLD-good").unwrap();
         std::fs::write(root.join("bad.bin"), b"OLD-bad").unwrap();
-        let good = ConvertItem {
-            rel_path: "good.bin",
-            target_size: 9,
-            target_crc: 0xCBF4_3926,
-        };
-        let bad = ConvertItem {
-            rel_path: "bad.bin",
-            target_size: 9,
-            target_crc: 0xCBF4_3926,
-        };
-        let d = Utf8Path::new("d.vcdiff");
-        let jobs = [(&good, d), (&bad, d)];
-
-        let err =
-            convert(&root, &jobs, &PerDestDecoder).expect_err("the batch fails on the bad delta");
+        let jobs = [
+            ConvertJob {
+                item: ConvertItem {
+                    rel_path: "good.bin",
+                    target: &GOOD_FP,
+                },
+                delta: Utf8PathBuf::from("d.vcdiff"),
+            },
+            ConvertJob {
+                item: ConvertItem {
+                    rel_path: "bad.bin",
+                    target: &BAD_FP,
+                },
+                delta: Utf8PathBuf::from("d.vcdiff"),
+            },
+        ];
+        let err = convert(&root, &jobs, &PerPathDecoder).expect_err("batch fails");
         assert!(matches!(err, ConvertError::TargetMismatch { .. }));
-        // Two-phase: because one delta failed verification, no live file was swapped.
-        assert_eq!(
-            std::fs::read(root.join("good.bin")).unwrap(),
-            b"OLD-good",
-            "the good file is untouched"
-        );
-        assert_eq!(
-            std::fs::read(root.join("bad.bin")).unwrap(),
-            b"OLD-bad",
-            "the bad file is untouched"
-        );
-        assert!(
-            !root.join("good.bin.overseer-bak").exists(),
-            "no backup is made when the batch is rejected"
-        );
-        assert!(
-            !root.join("good.bin.overseer-tmp").exists(),
-            "staged temps are cleaned up"
-        );
-        assert!(!root.join("bad.bin.overseer-tmp").exists());
+        assert_eq!(std::fs::read(root.join("good.bin")).unwrap(), b"OLD-good");
+        assert_eq!(std::fs::read(root.join("bad.bin")).unwrap(), b"OLD-bad");
+    }
+
+    struct FailSecondRename {
+        calls: usize,
+    }
+
+    impl RenameOp for FailSecondRename {
+        fn rename(&mut self, from: &Utf8Path, to: &Utf8Path) -> Result<(), IoError> {
+            self.calls += 1;
+            if self.calls == 2 {
+                return Err(IoError::new(
+                    to,
+                    std::io::Error::other("injected rename failure"),
+                ));
+            }
+            rename(from, to)
+        }
     }
 
     #[test]
-    fn convert_runs_each_job_and_reports_every_outcome() {
-        let (_tmp, root) = seed_source(b"AE-version");
-        let decoder = FakeDecoder::Writes(b"123456789".to_vec());
-        let jobs = [(&ITEM, Utf8Path::new("d.vcdiff"))];
+    fn commit_failure_on_second_rename_rolls_back_first_swap() {
+        static ONE_FP: BinaryFingerprint = BinaryFingerprint {
+            generation: Generation::OldGen,
+            rel_path: "one.bin",
+            build: "test",
+            expected: ExpectedFingerprint {
+                size: 9,
+                crc32: 0xCBF4_3926,
+                sha256: Some("15e2b0d3c33891ebb0f1ef609ec419420c20e320ce94c65fbc8c3312448eb225"),
+            },
+        };
+        static TWO_FP: BinaryFingerprint = BinaryFingerprint {
+            generation: Generation::OldGen,
+            rel_path: "two.bin",
+            build: "test",
+            expected: ExpectedFingerprint {
+                size: 9,
+                crc32: 0xCBF4_3926,
+                sha256: Some("15e2b0d3c33891ebb0f1ef609ec419420c20e320ce94c65fbc8c3312448eb225"),
+            },
+        };
+        static THREE_FP: BinaryFingerprint = BinaryFingerprint {
+            generation: Generation::OldGen,
+            rel_path: "three.bin",
+            build: "test",
+            expected: ExpectedFingerprint {
+                size: 9,
+                crc32: 0xCBF4_3926,
+                sha256: Some("15e2b0d3c33891ebb0f1ef609ec419420c20e320ce94c65fbc8c3312448eb225"),
+            },
+        };
+        let (_tmp, root) = temp();
+        std::fs::write(root.join("one.bin"), b"original1").unwrap();
+        std::fs::write(root.join("two.bin"), b"original2").unwrap();
+        std::fs::write(root.join("three.bin"), b"original3").unwrap();
+        let jobs = [
+            ConvertJob {
+                item: ConvertItem {
+                    rel_path: "one.bin",
+                    target: &ONE_FP,
+                },
+                delta: Utf8PathBuf::from("d.vcdiff"),
+            },
+            ConvertJob {
+                item: ConvertItem {
+                    rel_path: "two.bin",
+                    target: &TWO_FP,
+                },
+                delta: Utf8PathBuf::from("d.vcdiff"),
+            },
+            ConvertJob {
+                item: ConvertItem {
+                    rel_path: "three.bin",
+                    target: &THREE_FP,
+                },
+                delta: Utf8PathBuf::from("d.vcdiff"),
+            },
+        ];
+        let mut ready = Vec::new();
+        for job in &jobs {
+            match prepare(&root, job, &FakeDecoder::Writes(b"123456789".to_vec())).unwrap() {
+                Prepared::Ready {
+                    item,
+                    tmp,
+                    source,
+                    verified_by,
+                } => ready.push(PreparedReady {
+                    item,
+                    tmp,
+                    source,
+                    verified_by,
+                }),
+                _ => panic!("all three jobs should prepare"),
+            }
+        }
+        let mut renamer = FailSecondRename { calls: 0 };
+        let err = commit_batch_with_renamer(&root, &ready, &mut renamer).expect_err("commit fails");
+        assert!(matches!(err, ConvertError::CommitFailed { item, .. } if item == "two.bin"));
+        assert_eq!(std::fs::read(root.join("one.bin")).unwrap(), b"original1");
+        assert_eq!(std::fs::read(root.join("two.bin")).unwrap(), b"original2");
+        assert_eq!(std::fs::read(root.join("three.bin")).unwrap(), b"original3");
+        for name in ["one.bin", "two.bin", "three.bin"] {
+            assert!(!root.join(format!("{name}.overseer-tmp")).exists());
+            assert!(!root.join(format!("{name}.overseer-bak")).exists());
+        }
+    }
 
-        let outcomes = convert(&root, &jobs, &decoder).unwrap();
-        assert_eq!(outcomes, vec![("check.bin", Outcome::Converted)]);
+    #[test]
+    fn leftover_temp_is_removed_before_retry() {
+        let (_tmp, root) = seed_source(b"AE-version");
+        std::fs::write(root.join("check.bin.overseer-tmp"), b"stale").unwrap();
+        convert_item(
+            &root,
+            item(),
+            Utf8Path::new("d.vcdiff"),
+            &FakeDecoder::Writes(b"123456789".to_vec()),
+        )
+        .unwrap();
+        assert_eq!(std::fs::read(root.join("check.bin")).unwrap(), b"123456789");
     }
 }
