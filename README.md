@@ -26,7 +26,8 @@ interrupted run is rolled back on the next command instead of leaving `Data/` ha
 - `overseer-core`: UI-agnostic domain logic. Modules: `deploy` (the hardlink engine behind a
   `Deployer` trait), `install` (archive extraction and staging), `instance` (instances, profiles,
   mod lists), `plugins` (metadata, discovery, load order, the real `Plugins.txt`), `apply` (the
-  orchestrator that turns a profile into a live deployment), plus `game`, `launch`, and `settings`.
+  orchestrator that turns a profile into a live deployment), `patch` (BA2 header patching and
+  xdelta3-based edition conversion), plus `game`, `launch`, and `settings`.
 - `overseer-frontend`: shared support for the front ends (file logging, theming, path helpers).
 - `overseer-cli`: command-line front end (scriptable and one-shot).
 - `overseer-diagnostics`: read-only setup health checks, surfaced by `overseer doctor`.
