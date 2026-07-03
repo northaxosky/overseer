@@ -59,7 +59,7 @@ impl Generation {
         }
     }
 
-    /// A human label (`Old-Gen` / `Next-Gen` / `Anniversary`).
+    /// A label (`Old-Gen` / `Next-Gen` / `Anniversary`).
     pub fn label(self) -> &'static str {
         match self {
             Generation::OldGen => "Old-Gen",

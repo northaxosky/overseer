@@ -26,15 +26,12 @@ dirs.workspace = true
 crc32fast.workspace = true
 pelite.workspace = true
 tracing.workspace = true
+sha2.workspace = true
 
 [features]
-# Exposes `test_support` to integration tests and dependent crates' test builds.
 test-support = []
 
 [dev-dependencies]
-# Enables the `test-support` feature for this crate's own integration tests.
 overseer-core = { path = ".", features = ["test-support"] }
-# For the testbed e2e: run the diagnostics pipeline against a real install (dev-only, so the
-# core->diagnostics->core dev cycle never touches the normal build graph).
 overseer-diagnostics = { path = "../overseer-diagnostics" }
 dotenvy.workspace = true

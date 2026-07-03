@@ -27,7 +27,7 @@ pub enum BinaryEdition {
 }
 
 impl BinaryEdition {
-    /// A short human label for findings
+    /// A short label for findings
     pub fn label(self) -> &'static str {
         match self {
             Self::OldGen => "Old-Gen",

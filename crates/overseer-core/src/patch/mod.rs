@@ -6,6 +6,7 @@
 
 pub mod delta;
 pub mod fallout4;
+pub mod fingerprint;
 
 use crate::archive::{Ba2Error, Ba2Header, HEADER_LEN};
 use crate::error::IoError;

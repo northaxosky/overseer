@@ -3,5 +3,7 @@
 
 pub mod ba2;
 pub mod convert;
+pub mod fingerprint;
+pub mod vcdiff;
 
 pub use ba2::{Ba2Edition, PatchOutcome, plan, set_edition};
