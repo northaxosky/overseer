@@ -2,6 +2,7 @@
 
 use camino::{Utf8Path, Utf8PathBuf};
 use serde::{Deserialize, Deserializer, Serialize};
+use std::str::FromStr;
 use strum::{Display, EnumIter, EnumString};
 use thiserror::Error;
 
@@ -53,17 +54,6 @@ pub enum SortDir {
     Desc,
 }
 
-impl<'de> Deserialize<'de> for SortDir {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        Ok(String::deserialize(deserializer)?
-            .parse()
-            .unwrap_or_default())
-    }
-}
-
 /// Sort key for persisted saves list preferences
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Display, EnumIter, EnumString)]
 #[serde(rename_all = "snake_case")]
@@ -74,17 +64,6 @@ pub enum SavesSortKey {
     Name,
     Character,
     Level,
-}
-
-impl<'de> Deserialize<'de> for SavesSortKey {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        Ok(String::deserialize(deserializer)?
-            .parse()
-            .unwrap_or_default())
-    }
 }
 
 /// Sort key for persisted downloads list preferences
@@ -99,24 +78,22 @@ pub enum DownloadsSortKey {
     Installed,
 }
 
-impl<'de> Deserialize<'de> for DownloadsSortKey {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        Ok(String::deserialize(deserializer)?
-            .parse()
-            .unwrap_or_default())
-    }
-}
-
-/// Persisted saves list sort preference
+/// Persisted list sort preference.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
-pub struct SavesSort {
-    pub key: SavesSortKey,
+#[serde(bound(deserialize = "K: FromStr + Default, SortPref<K>: Default"))]
+pub struct SortPref<K> {
+    #[serde(deserialize_with = "lenient")]
+    pub key: K,
+    #[serde(deserialize_with = "lenient")]
     pub dir: SortDir,
 }
+
+/// Persisted saves list sort preference.
+pub type SavesSort = SortPref<SavesSortKey>;
+
+/// Persisted downloads list sort preference.
+pub type DownloadsSort = SortPref<DownloadsSortKey>;
 
 impl Default for SavesSort {
     fn default() -> Self {
@@ -127,14 +104,6 @@ impl Default for SavesSort {
     }
 }
 
-/// Persisted downloads list sort preference
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default)]
-pub struct DownloadsSort {
-    pub key: DownloadsSortKey,
-    pub dir: SortDir,
-}
-
 impl Default for DownloadsSort {
     fn default() -> Self {
         Self {
@@ -142,6 +111,16 @@ impl Default for DownloadsSort {
             dir: SortDir::Asc,
         }
     }
+}
+
+fn lenient<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+where
+    D: Deserializer<'de>,
+    T: FromStr + Default,
+{
+    Ok(String::deserialize(deserializer)?
+        .parse()
+        .unwrap_or_default())
 }
 
 impl Settings {
@@ -328,6 +307,47 @@ mod tests {
         );
         assert_eq!(loaded.saves_sort, SavesSort::default());
         assert_eq!(loaded.downloads_sort, DownloadsSort::default());
+    }
+
+    #[test]
+    fn sort_defaults_are_preserved() {
+        assert_eq!(
+            SavesSort::default(),
+            SavesSort {
+                key: SavesSortKey::Date,
+                dir: SortDir::Desc,
+            }
+        );
+        assert_eq!(
+            DownloadsSort::default(),
+            DownloadsSort {
+                key: DownloadsSortKey::Name,
+                dir: SortDir::Asc,
+            }
+        );
+    }
+
+    #[test]
+    fn partial_sort_tables_use_pane_defaults() {
+        let (_dir, path) = temp_config();
+        std::fs::write(
+            &path,
+            r#"
+[saves_sort]
+key = "name"
+
+[downloads_sort]
+dir = "desc"
+"#,
+        )
+        .expect("write");
+
+        let loaded = Settings::load_from(&path).expect("load");
+
+        assert_eq!(loaded.saves_sort.key, SavesSortKey::Name);
+        assert_eq!(loaded.saves_sort.dir, SortDir::Desc);
+        assert_eq!(loaded.downloads_sort.key, DownloadsSortKey::Name);
+        assert_eq!(loaded.downloads_sort.dir, SortDir::Desc);
     }
 
     #[test]
