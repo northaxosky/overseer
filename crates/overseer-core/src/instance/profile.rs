@@ -85,8 +85,7 @@ impl Profile {
         out
     }
 
-    /// Enabled *managed* mods as deploy sources, lowest priority first. Foreign (game-shipped DLC/CC)
-    /// and separator entries are never deployed — they have no `mods/` staging dir.
+    /// Enabled *managed* mods as deploy sources, lowest priority first (foreign/separator entries have no `mods/` dir).
     pub fn deploy_sources(&self, instance: &Instance) -> Vec<ModSource> {
         self.mods
             .iter()

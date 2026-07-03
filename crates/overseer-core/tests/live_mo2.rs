@@ -42,8 +42,7 @@ fn game_dir_from_ini(instance_root: &Utf8Path) -> Option<Utf8PathBuf> {
     Some(Utf8PathBuf::from(inner.replace("\\\\", "\\")))
 }
 
-/// A read-only `Instance` over the MO2 layout: `mods/`/`profiles/` shared, `plugins.txt` and inis
-/// under the profile dir, game dir from `ModOrganizer.ini`.
+/// A read-only `Instance` over the MO2 layout (shared `mods/`+`profiles/`, per-profile `plugins.txt`/inis, game dir from `ModOrganizer.ini`).
 fn mo2_instance(root: &Utf8Path) -> Instance {
     let game_dir = game_dir_from_ini(root).unwrap_or_else(|| root.join("__no_game__"));
     let mut instance = Instance::new(root, game_dir);

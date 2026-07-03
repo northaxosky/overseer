@@ -156,8 +156,7 @@ fn assert_pristine(before: &BTreeMap<String, u64>, after: &BTreeMap<String, u64>
     );
 }
 
-/// Reverse a committed deployment left by *either* destructive round-trip, so a crash in one can't
-/// leak files into the `Data/` the next run of *either* snapshots. Both share one game dir + lock.
+/// Reverse a committed deployment left by *either* destructive round-trip (they share one `Data/`+lock) so a crash can't leak into the next run's baseline.
 fn recover_leftover_deployments(game_dir: &Utf8Path) {
     for work in [SYNTHETIC_WORK, REAL_WORK] {
         let root = game_dir.join(work).join("instance");
@@ -171,8 +170,7 @@ fn recover_leftover_deployments(game_dir: &Utf8Path) {
     }
 }
 
-/// Scrub the synthetic namespace so the baseline is clean before deploy. Deployment reversal runs
-/// first via `recover_leftover_deployments`; this only clears orphans left if the instance dir was lost.
+/// Scrub the synthetic namespace before deploy (reversal already ran via `recover_leftover_deployments`; this only clears orphans if the instance dir was lost).
 fn preflight_clean(data: &Utf8Path, backup_root: &Utf8Path) {
     // (a) Orphan catch for the case the instance dir itself was lost: delete our files directly.
     //     Safe because these paths are ours alone and never collide with base-game files.
@@ -352,9 +350,7 @@ fn deploy_purge_roundtrip_leaves_testbed_pristine() {
 // Curated real-mod round-trip
 // ---------------------------------------------------------------------------
 
-/// Real MO2 mods copied from `OVERSEER_MO2_INSTANCE` to exercise every deploy path in one run: a
-/// genuine file conflict (two mods shipping `Interface/MCM.swf`), ESM + ESP plugins, `.ba2`
-/// archives, and loose textures. Listed highest-priority first, so the first entry wins the conflict.
+/// Curated real MO2 mods (from `OVERSEER_MO2_INSTANCE`) covering a real conflict (`Interface/MCM.swf`), ESM+ESP plugins, `.ba2` archives, and loose textures; highest-priority first so the first entry wins.
 const CURATED_MODS: &[&str] = &[
     "Mod Configuration Menu", // Interface/MCM.swf — conflict winner (highest priority)
     "Fallout 76 Style Main Menu", // Interface/MCM.swf — conflict loser

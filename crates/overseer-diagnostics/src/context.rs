@@ -418,8 +418,7 @@ fn scan_archives(plan: &DeployPlan) -> Vec<ArchiveInfo> {
         .collect()
 }
 
-/// Top-level `Data/Scripts/*.pex` base scripts whose winner isn't the F4SE package (the mod that
-/// provides the most base scripts). Robust to F4SE version changes — no CRCs to keep current
+/// Base `Data/Scripts/*.pex` whose winner isn't the F4SE package (the mod providing the most base scripts); provenance-based, so robust to F4SE version changes (no CRCs).
 fn scan_script_overrides(plan: &DeployPlan) -> Vec<ScriptOverrideScan> {
     let candidates: Vec<(&str, &str)> = plan
         .files()
@@ -440,8 +439,7 @@ fn scan_script_overrides(plan: &DeployPlan) -> Vec<ScriptOverrideScan> {
         .collect()
 }
 
-/// The mod that provides the most base scripts — the F4SE package. `None` on no candidates or a tie
-/// (no single mod dominates), so an ambiguous set never flags an arbitrary "override"
+/// The mod providing the most base scripts (the F4SE package); `None` on no candidates or a tie, so an ambiguous set never flags an arbitrary override.
 fn dominant_provider<'a>(candidates: &[(&str, &'a str)]) -> Option<&'a str> {
     let mut counts: BTreeMap<&'a str, usize> = BTreeMap::new();
     for &(_, winner) in candidates {
