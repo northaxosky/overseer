@@ -1,12 +1,13 @@
-//! Opt-in **destructive** end-to-end test that deploys a synthetic mod into a real
-//! Fallout 4 install and then purges it, proving the transaction leaves the game
-//! directory byte-for-byte as it found it.
+//! Opt-in **destructive** end-to-end tests that deploy mods into a real Fallout 4
+//! install and then purge, proving the transaction leaves the game directory
+//! byte-for-byte as it found it.
 //!
-//! This is `#[ignore]`d and gated on `OVERSEER_FO4_TESTBED`, so it never runs in the
-//! normal suite. Run it deliberately against a **disposable copy**:
+//! These are `#[ignore]`d and gated on `OVERSEER_FO4_TESTBED`, so they never run in the
+//! normal suite. Run them deliberately against a **disposable copy** (single-threaded, since
+//! both tests share the one `Data/`):
 //!
 //! ```text
-//! cargo test -p overseer-core --test testbed_e2e -- --ignored --nocapture
+//! cargo test -p overseer-core --test testbed_e2e -- --ignored --nocapture --test-threads=1
 //! ```
 //!
 //! ## Why it is safe to point at a real install
@@ -25,13 +26,23 @@
 //!    shared `Data/`.
 //! 5. **Pristine assertion.** A `(path, len)` snapshot of `Data/` before deploy is
 //!    compared after purge; any drift fails loudly.
+//!
+//! ## Two round-trips
+//!
+//! - `deploy_purge_roundtrip_leaves_testbed_pristine` deploys a **synthetic** mod in a private
+//!   namespace (the unique-paths guarantee above).
+//! - `deploy_purge_roundtrip_with_real_mods_leaves_testbed_pristine` copies a **curated set of
+//!   real MO2 mods** from `OVERSEER_MO2_INSTANCE` onto the testbed volume and deploys those —
+//!   real plugins, `.ba2` archives, loose textures, and a genuine two-mod file conflict. Its
+//!   safety rests on the marker gate, the lock, and the pristine snapshot rather than unique
+//!   paths, so keep the ignored set single-threaded to hold the two off the shared `Data/`.
 
 use camino::{Utf8Path, Utf8PathBuf};
 use overseer_core::apply::{self, Status};
-use overseer_core::deploy::NullSink;
+use overseer_core::deploy::{DeployPlan, NullSink, detect_conflicts};
 use overseer_core::detect;
 use overseer_core::game::GameKind;
-use overseer_core::instance::Instance;
+use overseer_core::instance::{Instance, Profile};
 use overseer_core::test_support;
 use std::collections::BTreeMap;
 use walkdir::WalkDir;
@@ -46,6 +57,11 @@ const E2E_MOD: &str = "OverseerE2E";
 const E2E_PLUGIN: &str = "OverseerE2E.esp";
 const E2E_TEX_SUBDIR: &str = "Overseer_E2E";
 const E2E_TEX_REL: &str = "Textures/Overseer_E2E/marker.dds";
+
+/// The synthetic round-trip's deterministic working dir, relative to the game dir.
+const SYNTHETIC_WORK: &str = ".overseer-e2e";
+/// The curated real-mod round-trip's deterministic working dir, relative to the game dir.
+const REAL_WORK: &str = ".overseer-e2e-real";
 
 /// The `OVERSEER_FO4_TESTBED` dir; unset skips, but set-and-unsafe panics so misconfiguration cannot pass.
 fn testbed_or_skip() -> Option<Utf8PathBuf> {
@@ -140,23 +156,30 @@ fn assert_pristine(before: &BTreeMap<String, u64>, after: &BTreeMap<String, u64>
     );
 }
 
-/// Reverse any previous deployment, then scrub our unique namespace so the baseline is clean before deploy.
-fn preflight_clean(instance_root: &Utf8Path, data: &Utf8Path, backup_root: &Utf8Path) {
-    // (a) If the deterministic instance survived with a live or crashed deployment, let the
-    //     engine reverse it properly: `status` runs crash-recovery; `purge` clears a committed one.
-    if Instance::config_path(instance_root).exists()
-        && let Ok(instance) = Instance::load(instance_root)
-        && matches!(apply::status(&instance), Ok(Some(_)))
-    {
-        apply::purge(&instance, &NullSink).expect("preflight purge of leftover deployment");
+/// Reverse a committed deployment left by *either* destructive round-trip, so a crash in one can't
+/// leak files into the `Data/` the next run of *either* snapshots. Both share one game dir + lock.
+fn recover_leftover_deployments(game_dir: &Utf8Path) {
+    for work in [SYNTHETIC_WORK, REAL_WORK] {
+        let root = game_dir.join(work).join("instance");
+        // `status` runs crash-recovery; `purge` clears a committed deployment via its journal.
+        if Instance::config_path(&root).exists()
+            && let Ok(prev) = Instance::load(&root)
+            && matches!(apply::status(&prev), Ok(Some(_)))
+        {
+            apply::purge(&prev, &NullSink).expect("preflight purge of a leftover deployment");
+        }
     }
+}
 
-    // (b) Orphan catch for the case the instance dir itself was lost: delete our files directly.
+/// Scrub the synthetic namespace so the baseline is clean before deploy. Deployment reversal runs
+/// first via `recover_leftover_deployments`; this only clears orphans left if the instance dir was lost.
+fn preflight_clean(data: &Utf8Path, backup_root: &Utf8Path) {
+    // (a) Orphan catch for the case the instance dir itself was lost: delete our files directly.
     //     Safe because these paths are ours alone and never collide with base-game files.
     let _ = std::fs::remove_file(data.join(E2E_PLUGIN));
     let _ = std::fs::remove_dir_all(data.join("Textures").join(E2E_TEX_SUBDIR));
 
-    // (c) The unique-path design never backs a base file aside, so the backup root must be empty.
+    // (b) The unique-path design never backs a base file aside, so the backup root must be empty.
     //     Anything else means a real file was clobbered — stop rather than guess.
     if backup_root.exists() {
         let has_entries = std::fs::read_dir(backup_root)
@@ -193,13 +216,14 @@ fn deploy_purge_roundtrip_leaves_testbed_pristine() {
 
     // Deterministic working area on the same volume as the game (so hardlinks work and a
     // crash-orphaned journal survives). Lives inside the disposable copy, outside `Data/`.
-    let work = game_dir.join(".overseer-e2e");
+    let work = game_dir.join(SYNTHETIC_WORK);
     let instance_root = work.join("instance");
     let local_dir = work.join("local");
     let ini_dir = work.join("ini");
     let backup_root = game_dir.join(".overseer-backup");
 
-    preflight_clean(&instance_root, &data, &backup_root);
+    recover_leftover_deployments(&game_dir);
+    preflight_clean(&data, &backup_root);
     // After cleanup, our namespace must be absent before we deploy.
     assert!(
         !data.join(E2E_PLUGIN).exists(),
@@ -309,6 +333,272 @@ fn deploy_purge_roundtrip_leaves_testbed_pristine() {
     assert!(
         !matches!(apply::status(&instance), Ok(Some(s)) if s.deployment.status == Status::RecoveryFailed),
         "purge left a RecoveryFailed journal"
+    );
+    assert!(
+        matches!(apply::status(&instance), Ok(None)),
+        "a deployment journal survived purge"
+    );
+
+    // The headline guarantee: Data/ is byte-identical (by path+len) to before we touched it.
+    let after = snapshot_data(&data);
+    assert_pristine(&before, &after);
+
+    // Clean pass leaves no trace behind.
+    drop(instance);
+    let _ = std::fs::remove_dir_all(&work);
+}
+
+// ---------------------------------------------------------------------------
+// Curated real-mod round-trip
+// ---------------------------------------------------------------------------
+
+/// Real MO2 mods copied from `OVERSEER_MO2_INSTANCE` to exercise every deploy path in one run: a
+/// genuine file conflict (two mods shipping `Interface/MCM.swf`), ESM + ESP plugins, `.ba2`
+/// archives, and loose textures. Listed highest-priority first, so the first entry wins the conflict.
+const CURATED_MODS: &[&str] = &[
+    "Mod Configuration Menu", // Interface/MCM.swf — conflict winner (highest priority)
+    "Fallout 76 Style Main Menu", // Interface/MCM.swf — conflict loser
+    "Extended Dialogue Interface", // XDI.esm + .ba2
+    "Dried Blood",            // DriedBlood.esm + .ba2
+    "Holotape Visual Improvement", // .esp + .ba2
+    "Beer Bottles Retextured", // .esp + loose Textures/
+];
+
+/// The MO2 instance whose `mods/` supplies the curated subset, from `OVERSEER_MO2_INSTANCE`; unset skips.
+fn mo2_source_or_skip() -> Option<Utf8PathBuf> {
+    let _ = dotenvy::dotenv();
+    let Ok(dir) = std::env::var("OVERSEER_MO2_INSTANCE") else {
+        eprintln!(
+            "skipping: set OVERSEER_MO2_INSTANCE to a real MO2 instance to source curated mods"
+        );
+        return None;
+    };
+    let dir = Utf8PathBuf::from(dir);
+    if !dir.join("mods").is_dir() {
+        eprintln!("skipping: no mods/ under OVERSEER_MO2_INSTANCE={dir}");
+        return None;
+    }
+    Some(dir)
+}
+
+/// Recursively copy a directory tree; stages a read-only MO2 mod onto the testbed volume so hardlink deploy works.
+fn copy_tree(src: &Utf8Path, dst: &Utf8Path) {
+    for entry in WalkDir::new(src) {
+        let entry = entry.expect("walk mod source");
+        let abs = Utf8Path::from_path(entry.path()).expect("utf8 mod path");
+        let rel = abs.strip_prefix(src).expect("under src");
+        let target = dst.join(rel);
+        if entry.file_type().is_dir() {
+            std::fs::create_dir_all(&target).expect("mkdir mod subdir");
+        } else {
+            if let Some(parent) = target.parent() {
+                std::fs::create_dir_all(parent).expect("mkdir mod parent");
+            }
+            std::fs::copy(abs, &target).expect("copy mod file");
+        }
+    }
+}
+
+/// Top-level plugin filenames (`.esp`/`.esm`/`.esl`) directly under a staged mod dir.
+fn mod_plugins(mod_dir: &Utf8Path) -> Vec<String> {
+    let Ok(read_dir) = std::fs::read_dir(mod_dir) else {
+        return Vec::new();
+    };
+    read_dir
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|name| {
+            let l = name.to_lowercase();
+            l.ends_with(".esp") || l.ends_with(".esm") || l.ends_with(".esl")
+        })
+        .collect()
+}
+
+#[test]
+#[ignore = "destructive; run against OVERSEER_FO4_TESTBED with OVERSEER_MO2_INSTANCE set"]
+fn deploy_purge_roundtrip_with_real_mods_leaves_testbed_pristine() {
+    let Some(game_dir) = testbed_or_skip() else {
+        return;
+    };
+    let Some(source) = mo2_source_or_skip() else {
+        return;
+    };
+    let data = game_dir.join("Data");
+
+    // The game dir's `Data/` must canonicalize inside the testbed — rejects a junction pointing
+    // `Data/` at a real install.
+    let game_canon = game_dir.canonicalize_utf8().expect("canonicalize game dir");
+    let data_canon = data.canonicalize_utf8().expect("canonicalize Data/");
+    assert!(
+        data_canon.starts_with(&game_canon),
+        "`{data_canon}` is not inside the testbed game dir `{game_canon}`"
+    );
+
+    let _lock = TestbedLock::acquire(&game_dir);
+
+    // Deterministic working area on the game's volume, in its own dir (distinct from the synthetic
+    // test) so a crash-orphaned journal survives for the next run to reverse.
+    let work = game_dir.join(REAL_WORK);
+    let instance_root = work.join("instance");
+    let local_dir = work.join("local");
+    let ini_dir = work.join("ini");
+    let backup_root = game_dir.join(".overseer-backup");
+
+    // Reverse any leftover deployment from a crashed prior run of *either* round-trip before we
+    // snapshot the baseline, so leaked files can't masquerade as pristine.
+    recover_leftover_deployments(&game_dir);
+    let backup_empty = !backup_root.exists()
+        || std::fs::read_dir(&backup_root).map_or(true, |mut d| d.next().is_none());
+    assert!(
+        backup_empty,
+        "`{backup_root}` is non-empty before deploy — inspect or re-copy the testbed"
+    );
+
+    // Fresh instance each run, local/INI redirected into the testbed (never the real profile dirs).
+    let _ = std::fs::remove_dir_all(&work);
+    let instance = {
+        let mut inst = Instance::new(&instance_root, &game_dir);
+        inst.config.local_dir = Some(local_dir.clone());
+        inst.config.ini_dir = Some(ini_dir.clone());
+        Instance::init(&instance_root, inst.config).expect("init real-mod e2e instance")
+    };
+    assert!(local_dir.starts_with(&game_dir) && ini_dir.starts_with(&game_dir));
+
+    // Sanity: the testbed really is a Fallout 4 install.
+    let install = detect::detect(GameKind::Fallout4, &game_dir);
+    assert_ne!(
+        detect::edition(&install, &game_dir),
+        detect::Edition::Undetermined
+    );
+
+    // Stage the curated subset onto the testbed volume — hardlink deploy needs the staging dir on
+    // the same volume as `Data/`. Skip any the user no longer has; require enough for a real run.
+    let mut staged: Vec<&str> = Vec::new();
+    for &name in CURATED_MODS {
+        let src = source.join("mods").join(name);
+        if !src.is_dir() {
+            eprintln!("note: curated mod `{name}` absent from the MO2 source; skipping it");
+            continue;
+        }
+        copy_tree(&src, &instance.mods_dir().join(name));
+        staged.push(name);
+    }
+    assert!(
+        staged.len() >= 4,
+        "only {} curated mods present; need >=4 for a meaningful run",
+        staged.len()
+    );
+
+    // Profile in curated order (highest priority first) so the first conflict provider wins.
+    let enabled: Vec<(&str, bool)> = staged.iter().map(|&n| (n, true)).collect();
+    test_support::save_profile(&instance, "real", &enabled);
+
+    let before = snapshot_data(&data);
+
+    // --- Deploy ---
+    apply::deploy_profile(&instance, "real", &NullSink).expect("deploy real mods");
+
+    // (1) Every planned file is deployed as a hard link of its mod source, not a copy — covers
+    //     plugins, archives, loose textures, and each conflict winner in one sweep.
+    let profile = Profile::load(&instance, "real").expect("reload profile");
+    let sources = profile.deploy_sources(&instance);
+    let plan = DeployPlan::from_rooted_mods(&game_dir, &sources).expect("build deploy plan");
+    for file in plan.files() {
+        let dest = game_dir.join(&file.relative);
+        assert!(
+            dest.exists(),
+            "planned file not deployed: {}",
+            file.relative
+        );
+        assert!(
+            same_file::is_same_file(&dest, &file.source).unwrap(),
+            "deployed `{}` (from `{}`) is not a hard link of its source",
+            file.relative,
+            file.winner
+        );
+    }
+
+    // (2) The real conflict resolves to the higher-priority mod. The curated set makes the two
+    //     MCM mods share `Interface/MCM.swf`; the one listed first must win.
+    let conflicts = detect_conflicts(&sources).expect("detect conflicts on real mods");
+    assert!(
+        !conflicts.is_empty(),
+        "curated set produced no file conflict"
+    );
+    if staged.contains(&"Mod Configuration Menu") && staged.contains(&"Fallout 76 Style Main Menu")
+    {
+        let mcm = conflicts
+            .iter()
+            .find(|c| c.relative.as_str().to_lowercase().ends_with("mcm.swf"))
+            .expect("the two MCM mods must conflict on MCM.swf");
+        assert_eq!(
+            mcm.providers.last().map(String::as_str),
+            Some("Mod Configuration Menu"),
+            "highest-priority mod should win the MCM.swf conflict; providers were {:?}",
+            mcm.providers
+        );
+    }
+
+    // (3) Every staged plugin lands in the real Plugins.txt as its own active entry. Parse line by
+    //     line (stripping the `*` active marker) so a name can't false-match as a substring.
+    let plugins_txt =
+        std::fs::read_to_string(local_dir.join("Plugins.txt")).expect("Plugins.txt written");
+    let active: std::collections::BTreeSet<String> = plugins_txt
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .map(|l| l.trim_start_matches('*').trim().to_lowercase())
+        .collect();
+    for &name in &staged {
+        for plugin in mod_plugins(&instance.mods_dir().join(name)) {
+            assert!(
+                active.contains(&plugin.to_lowercase()),
+                "Plugins.txt has no active entry `{plugin}` from `{name}`; active set: {active:?}"
+            );
+        }
+    }
+
+    // (4) Status reports a verified-live deployment.
+    let status = apply::status(&instance)
+        .expect("status")
+        .expect("a live deployment");
+    assert!(
+        status.verified.is_ok(),
+        "status reports missing files: {:?}",
+        status.verified.missing
+    );
+
+    // (5) The doctor pipeline runs end-to-end on the real deployed install without panicking and
+    //     stays clean on the F4SE binary checks (as in the synthetic round-trip).
+    let report =
+        overseer_diagnostics::diagnose(&instance, "real").expect("diagnose live real-mod install");
+    assert!(!report.findings.is_empty(), "doctor produced no findings");
+    assert!(
+        !report
+            .findings
+            .iter()
+            .any(|f| f.check == "f4se" && f.severity == overseer_diagnostics::Severity::Error),
+        "f4se flagged a runtime mismatch on the testbed: {:?}",
+        report
+            .findings
+            .iter()
+            .filter(|f| f.check == "f4se")
+            .collect::<Vec<_>>()
+    );
+
+    // --- Purge ---
+    apply::purge(&instance, &NullSink).expect("purge real mods");
+
+    for file in plan.files() {
+        assert!(
+            !game_dir.join(&file.relative).exists(),
+            "deployed file survived purge: {}",
+            file.relative
+        );
+    }
+    assert!(
+        !backup_root.exists(),
+        "a .overseer-backup remained after purge"
     );
     assert!(
         matches!(apply::status(&instance), Ok(None)),
