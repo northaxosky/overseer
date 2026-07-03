@@ -2,7 +2,6 @@
 
 use crate::error::{IoError, io_err};
 use crate::fs::size_opt;
-use crate::patch::delta::crc32_file;
 use camino::Utf8Path;
 use sha2::{Digest, Sha256};
 use std::fmt::Write as _;
@@ -70,6 +69,16 @@ impl ExpectedFingerprint {
     }
 }
 
+/// Lowercase hex encoding of a digest
+fn hex_digest(bytes: impl AsRef<[u8]>) -> String {
+    let bytes = bytes.as_ref();
+    let mut hex = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        let _ = write!(hex, "{byte:02x}");
+    }
+    hex
+}
+
 /// Stream `path` through SHA-256 and return the lowercase hex digest
 pub fn sha256_file(path: &Utf8Path) -> Result<String, IoError> {
     let mut file = std::fs::File::open(path).map_err(|e| io_err(path, e))?;
@@ -82,23 +91,30 @@ pub fn sha256_file(path: &Utf8Path) -> Result<String, IoError> {
         }
         hasher.update(&buf[..n]);
     }
-    let digest = hasher.finalize();
-    let mut hex = String::with_capacity(digest.len() * 2);
-    for byte in digest {
-        let _ = write!(hex, "{byte:02x}");
-    }
-    Ok(hex)
+    Ok(hex_digest(hasher.finalize()))
 }
 
-/// Measure `path`'s size, CRC32 and SHA-256; `None` if it does not exist
+/// Measure `path`'s size, CRC32 and SHA-256 in one read pass; `None` if it does not exist
 pub fn fingerprint_file(path: &Utf8Path) -> Result<Option<FileFingerprint>, IoError> {
     let Some(size) = size_opt(path)? else {
         return Ok(None);
     };
+    let mut file = std::fs::File::open(path).map_err(|e| io_err(path, e))?;
+    let mut crc = crc32fast::Hasher::new();
+    let mut sha = Sha256::new();
+    let mut buf = [0u8; 64 * 1024];
+    loop {
+        let n = file.read(&mut buf).map_err(|e| io_err(path, e))?;
+        if n == 0 {
+            break;
+        }
+        crc.update(&buf[..n]);
+        sha.update(&buf[..n]);
+    }
     Ok(Some(FileFingerprint {
         size,
-        crc32: crc32_file(path)?,
-        sha256: sha256_file(path)?,
+        crc32: crc.finalize(),
+        sha256: hex_digest(sha.finalize()),
     }))
 }
 

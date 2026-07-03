@@ -13,7 +13,7 @@ use overseer_core::patch::fallout4::convert::{self, ItemState, Outcome};
 use overseer_core::patch::fallout4::vcdiff;
 use overseer_core::patch::fallout4::{self, Ba2Edition, PatchOutcome};
 use overseer_core::patch::fingerprint::VerifiedBy;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::env;
 use std::process::Command;
 
@@ -116,7 +116,7 @@ fn convert_install(args: ConvertArgs<'_>) -> Result<()> {
     };
     print_convert_plan(view);
     if complete_noop {
-        bail!("all core binaries already match {}", args.target.label());
+        bail!("the selected files already match {}", args.target.label());
     }
     if args.dry_run || !args.yes {
         return Ok(());
@@ -190,22 +190,42 @@ fn resolve_deltas(
     Ok(mapped)
 }
 
+fn selected_groups<'a>(
+    plans: &'a [convert::ItemPlan],
+    deltas: &HashMap<String, Utf8PathBuf>,
+) -> HashSet<&'a str> {
+    plans
+        .iter()
+        .filter(|plan| deltas.contains_key(plan.item.rel_path))
+        .map(|plan| plan.item.group)
+        .collect()
+}
+
 fn build_jobs(
     target: Generation,
     plans: &[convert::ItemPlan],
     deltas: &HashMap<String, Utf8PathBuf>,
     allow_incomplete_repair: bool,
 ) -> Result<(Vec<convert::ConvertJob>, bool)> {
+    let selected = selected_groups(plans, deltas);
     let mut jobs = Vec::new();
+    let mut selected_files = 0usize;
     let mut already = 0usize;
     for plan in plans {
+        // A group is converted only if the user supplied a delta for one of its files; other groups
+        // (including core) are left untouched, so a mixed generation is allowed (BASS handles it).
+        if !selected.contains(plan.item.group) {
+            continue;
+        }
+        selected_files += 1;
         match plan.state {
             ItemState::AlreadyTarget => already += 1,
-            ItemState::Missing if !allow_incomplete_repair => bail!(
-                "{} is missing; refusing partial conversion",
+            ItemState::Missing if allow_incomplete_repair => {}
+            ItemState::Missing => bail!(
+                "group {}: {} is missing; refusing partial group",
+                plan.item.group,
                 plan.item.rel_path
             ),
-            ItemState::Missing => {}
             ItemState::NeedsConversion => match deltas.get(plan.item.rel_path) {
                 Some(delta) => jobs.push(convert::ConvertJob {
                     item: plan.item,
@@ -213,16 +233,22 @@ fn build_jobs(
                 }),
                 None if allow_incomplete_repair => {}
                 None => bail!(
-                    "missing delta for {}; refusing partial conversion",
+                    "group {}: missing delta for {}; refusing partial group",
+                    plan.item.group,
                     plan.item.rel_path
                 ),
             },
         }
     }
-    if jobs.is_empty() && already != plans.len() && !allow_incomplete_repair {
-        bail!("no files can be converted to {}", target.label());
+    if jobs.is_empty() {
+        if selected_files > 0 && already == selected_files {
+            return Ok((jobs, true));
+        }
+        if !allow_incomplete_repair {
+            bail!("no files can be converted to {}", target.label());
+        }
     }
-    Ok((jobs, already == plans.len()))
+    Ok((jobs, false))
 }
 
 fn validate_edition_for_auto_convert(edition: Edition, plans: &[convert::ItemPlan]) -> Result<()> {
@@ -232,9 +258,11 @@ fn validate_edition_for_auto_convert(edition: Edition, plans: &[convert::ItemPla
     ) {
         return Ok(());
     }
+    // Only the core binaries define the install edition; DLC has no source fingerprints, and the
+    // target-hash gate guarantees a correct conversion regardless of the detected edition.
     if plans
         .iter()
-        .filter(|plan| !matches!(plan.state, ItemState::Missing))
+        .filter(|plan| plan.item.group == "core" && !matches!(plan.state, ItemState::Missing))
         .all(|plan| plan.known_source.is_some())
     {
         return Ok(());
@@ -277,12 +305,17 @@ fn print_convert_plan(view: ConvertPlanView<'_>) {
     );
     println!("xdelta3: {} ({})", view.xdelta3.path, view.xdelta3.version);
     println!("Backups: <binary>.overseer-bak beside each converted file");
+    let selected = selected_groups(view.plans, view.deltas);
     for plan in view.plans {
-        print_plan_line(plan, view.deltas.get(plan.item.rel_path));
+        print_plan_line(
+            plan,
+            view.deltas.get(plan.item.rel_path),
+            selected.contains(plan.item.group),
+        );
     }
 }
 
-fn print_plan_line(plan: &convert::ItemPlan, delta: Option<&Utf8PathBuf>) {
+fn print_plan_line(plan: &convert::ItemPlan, delta: Option<&Utf8PathBuf>, selected: bool) {
     let source = plan
         .known_source
         .map(|fp| fp.label())
@@ -307,6 +340,13 @@ fn print_plan_line(plan: &convert::ItemPlan, delta: Option<&Utf8PathBuf>) {
         ItemState::Missing => (
             Role::Muted,
             format!("- {}: missing{}", plan.item.rel_path, gate),
+        ),
+        ItemState::NeedsConversion if !selected => (
+            Role::Muted,
+            format!(
+                "~ {}: {source}, leaving as-is (no delta supplied)",
+                plan.item.rel_path
+            ),
         ),
         ItemState::NeedsConversion => (
             Role::Added,
@@ -542,5 +582,80 @@ fn kind_label(kind: Ba2Kind) -> String {
         Ba2Kind::General => "GNRL".to_owned(),
         Ba2Kind::Texture => "DX10".to_owned(),
         Ba2Kind::Other(tag) => String::from_utf8_lossy(&tag).into_owned(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const COAST: &[&str] = &[
+        "Data/DLCCoast.esm",
+        "Data/DLCCoast.cdx",
+        "Data/DLCCoast - Geometry.csg",
+        "Data/DLCCoast - Main.ba2",
+        "Data/DLCCoast - Textures.ba2",
+    ];
+
+    fn plan_for(rel: &str, state: ItemState) -> convert::ItemPlan {
+        convert::ItemPlan {
+            item: convert::explicit_item(Generation::OldGen, rel).expect("known rel_path"),
+            state,
+            current: None,
+            known_source: None,
+        }
+    }
+
+    fn deltas(rels: &[&str]) -> HashMap<String, Utf8PathBuf> {
+        rels.iter()
+            .map(|r| ((*r).to_owned(), Utf8PathBuf::from("d.vcdiff")))
+            .collect()
+    }
+
+    #[test]
+    fn dlc_only_deltas_convert_dlc_and_leave_core_untouched() {
+        let mut plans = vec![plan_for("Fallout4.exe", ItemState::NeedsConversion)];
+        plans.extend(
+            COAST
+                .iter()
+                .map(|r| plan_for(r, ItemState::NeedsConversion)),
+        );
+        let (jobs, noop) = build_jobs(Generation::OldGen, &plans, &deltas(COAST), false).unwrap();
+        assert!(!noop);
+        assert_eq!(jobs.len(), COAST.len());
+        assert!(jobs.iter().all(|j| j.item.group == "DLCCoast"));
+    }
+
+    #[test]
+    fn a_partial_dlc_group_is_refused() {
+        let plans: Vec<_> = COAST
+            .iter()
+            .map(|r| plan_for(r, ItemState::NeedsConversion))
+            .collect();
+        let err = build_jobs(
+            Generation::OldGen,
+            &plans,
+            &deltas(&["Data/DLCCoast.esm"]),
+            false,
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("refusing partial group"));
+    }
+
+    #[test]
+    fn no_deltas_means_nothing_to_convert() {
+        let plans = vec![plan_for("Fallout4.exe", ItemState::NeedsConversion)];
+        assert!(build_jobs(Generation::OldGen, &plans, &HashMap::new(), false).is_err());
+    }
+
+    #[test]
+    fn a_fully_converted_selected_group_is_a_noop() {
+        let plans: Vec<_> = COAST
+            .iter()
+            .map(|r| plan_for(r, ItemState::AlreadyTarget))
+            .collect();
+        let (jobs, noop) = build_jobs(Generation::OldGen, &plans, &deltas(COAST), false).unwrap();
+        assert!(jobs.is_empty());
+        assert!(noop);
     }
 }

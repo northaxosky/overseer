@@ -1,6 +1,6 @@
 //! Minimal VCDIFF header parsing for delta auto-mapping
 
-use super::fingerprint::CORE_BINARIES;
+use super::catalog::GROUPS;
 use crate::error::{IoError, io_err};
 use crate::fs::read_dir_opt;
 use camino::{Utf8Path, Utf8PathBuf};
@@ -40,22 +40,37 @@ pub enum VcdiffError {
     Io(#[from] IoError),
 }
 
+/// Bytes of a delta scanned for its app-header; xdelta3 path headers are well under a KiB, so this bounds reads of multi-GB bodies
+const HEADER_SCAN_LEN: u64 = 64 * 1024;
+
 /// Read the VCDIFF app-header string from `path`, if it carries one
 pub fn app_header(path: &Utf8Path) -> Result<Option<String>, VcdiffError> {
-    let bytes = std::fs::read(path).map_err(|e| io_err(path, e))?;
+    let bytes = read_prefix(path, HEADER_SCAN_LEN).map_err(|e| io_err(path, e))?;
     parse_app_header(path, &bytes)
 }
 
-/// Map every delta in `dir` to the core binary its app-header names
+/// Read up to `max` leading bytes of `path`
+fn read_prefix(path: &Utf8Path, max: u64) -> std::io::Result<Vec<u8>> {
+    use std::io::Read;
+    let mut buf = Vec::new();
+    std::fs::File::open(path)?.take(max).read_to_end(&mut buf)?;
+    Ok(buf)
+}
+
+/// Map every delta under `dir` (recursively) to the catalog file its app-header names
 pub fn map_deltas(dir: &Utf8Path) -> Result<HashMap<String, Utf8PathBuf>, VcdiffError> {
     let mut mapped = HashMap::new();
-    let Some(entries) = read_dir_opt(dir)? else {
+    if read_dir_opt(dir)?.is_none() {
         return Ok(mapped);
-    };
-
-    for entry in entries {
-        let entry = entry.map_err(|e| io_err(dir, e))?;
-        let path = Utf8PathBuf::from_path_buf(entry.path()).map_err(|p| {
+    }
+    for entry in walkdir::WalkDir::new(dir).sort_by_file_name() {
+        let entry = entry.map_err(|e| {
+            let io = e
+                .into_io_error()
+                .unwrap_or_else(|| std::io::Error::other("directory walk failed"));
+            io_err(dir, io)
+        })?;
+        let path = Utf8PathBuf::from_path_buf(entry.into_path()).map_err(|p| {
             io_err(
                 dir,
                 std::io::Error::new(
@@ -67,7 +82,7 @@ pub fn map_deltas(dir: &Utf8Path) -> Result<HashMap<String, Utf8PathBuf>, Vcdiff
         if !is_delta_file(&path) {
             continue;
         }
-        let name = binary_from_header(&path)?;
+        let name = target_from_header(&path)?;
         if let Some(first) = mapped.insert(name.clone(), path.clone()) {
             return Err(VcdiffError::DuplicateBinary {
                 name,
@@ -76,18 +91,17 @@ pub fn map_deltas(dir: &Utf8Path) -> Result<HashMap<String, Utf8PathBuf>, Vcdiff
             });
         }
     }
-
     Ok(mapped)
 }
 
-/// The core-binary basename a single delta's app header names
-pub fn binary_from_header(path: &Utf8Path) -> Result<String, VcdiffError> {
+/// The catalog rel-path a single delta's app header names
+pub fn target_from_header(path: &Utf8Path) -> Result<String, VcdiffError> {
     let Some(header) = app_header(path)? else {
         return Err(VcdiffError::MissingAppHeaderName {
             path: path.to_owned(),
         });
     };
-    let matches = matching_core_basenames(&header);
+    let matches = matching_catalog_files(&header);
     match matches.as_slice() {
         [name] => Ok((*name).to_owned()),
         [] => Err(VcdiffError::MissingAppHeaderName {
@@ -151,14 +165,15 @@ fn read_varint(bytes: &[u8], idx: &mut usize) -> Option<usize> {
     None
 }
 
-fn matching_core_basenames(header: &str) -> Vec<&'static str> {
+fn matching_catalog_files(header: &str) -> Vec<&'static str> {
+    let tokens = header_tokens(header);
     let mut out = Vec::new();
-    for name in CORE_BINARIES {
-        if header_tokens(header)
-            .iter()
-            .any(|token| token.eq_ignore_ascii_case(name))
-        {
-            out.push(*name);
+    for group in GROUPS {
+        for &rel in group.files {
+            let base = rel.rsplit('/').next().unwrap_or(rel);
+            if tokens.iter().any(|token| token.eq_ignore_ascii_case(base)) {
+                out.push(rel);
+            }
         }
     }
     out
@@ -218,7 +233,19 @@ mod tests {
             header_delta(Some(br"C:\old\Fallout4.exe//C:\new\Fallout4.exe/")),
         )
         .unwrap();
-        assert_eq!(binary_from_header(&path).unwrap(), "Fallout4.exe");
+        assert_eq!(target_from_header(&path).unwrap(), "Fallout4.exe");
+    }
+
+    #[test]
+    fn maps_a_dlc_delta_to_its_data_rel_path() {
+        let (_tmp, root) = temp();
+        let path = root.join("d.vcdiff");
+        let header = br"C:\mods\Best DLC Data\DLCCoast - Textures.ba2//C:\Steam\Fallout 4\Data\DLCCoast - Textures.ba2/";
+        std::fs::write(&path, header_delta(Some(header))).unwrap();
+        assert_eq!(
+            target_from_header(&path).unwrap(),
+            "Data/DLCCoast - Textures.ba2"
+        );
     }
 
     #[test]
@@ -227,7 +254,7 @@ mod tests {
         let path = root.join("patch.vcdiff");
         std::fs::write(&path, header_delta(None)).unwrap();
         assert!(matches!(
-            binary_from_header(&path),
+            target_from_header(&path),
             Err(VcdiffError::MissingAppHeaderName { .. })
         ));
     }
@@ -249,11 +276,32 @@ mod tests {
     }
 
     #[test]
+    fn maps_deltas_recursively_across_subdirs() {
+        let (_tmp, root) = temp();
+        std::fs::create_dir_all(root.join("DLCCoast/Data")).unwrap();
+        std::fs::create_dir_all(root.join("core")).unwrap();
+        std::fs::write(
+            root.join("DLCCoast/Data/DLCCoast.esm.vcdiff"),
+            header_delta(Some(br"old\DLCCoast.esm//new\Data\DLCCoast.esm/")),
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("core/exe.vcdiff"),
+            header_delta(Some(br"old\Fallout4.exe//new\Fallout4.exe/")),
+        )
+        .unwrap();
+        let mapped = map_deltas(&root).unwrap();
+        assert!(mapped.contains_key("Data/DLCCoast.esm"));
+        assert!(mapped.contains_key("Fallout4.exe"));
+        assert_eq!(mapped.len(), 2);
+    }
+
+    #[test]
     fn real_downgrader_style_header_maps_launcher() {
         let (_tmp, root) = temp();
         let path = root.join("patch.xdelta");
         let header = br"C:\Users\KARV\Downloads\fo4patchy\fo4andsteamdll\old\Fallout4Launcher.exe//C:\Users\KARV\Downloads\fo4patchy\fo4andsteamdll\NEW\Fallout4Launcher.exe/";
         std::fs::write(&path, header_delta(Some(header))).unwrap();
-        assert_eq!(binary_from_header(&path).unwrap(), "Fallout4Launcher.exe");
+        assert_eq!(target_from_header(&path).unwrap(), "Fallout4Launcher.exe");
     }
 }

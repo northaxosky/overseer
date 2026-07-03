@@ -2,7 +2,8 @@
 
 use super::catalog::{self, GROUPS};
 use super::fingerprint::{
-    BinaryFingerprint, CORE_BINARIES, known_source, target_fingerprint, target_table_complete,
+    BinaryFingerprint, CORE_BINARIES, any_known_size, known_source, target_fingerprint,
+    target_table_complete,
 };
 use crate::detect::Generation;
 use crate::error::{IoError, io_err};
@@ -107,17 +108,26 @@ pub fn items(game_dir: &Utf8Path, target: Generation) -> Result<Vec<ConvertItem>
         if !group.is_convertible(target) || !group.is_owned(game_dir)? {
             continue;
         }
-        for &rel in group.files {
-            if let Some(fp) = target_fingerprint(target, rel) {
-                items.push(ConvertItem {
-                    rel_path: fp.rel_path,
-                    target: fp,
-                    group: group.name,
-                });
-            }
-        }
+        push_group_items(group, target, &mut items);
     }
     Ok(items)
+}
+
+/// Append every fingerprinted convert item in `group` for `target`
+fn push_group_items(
+    group: &'static catalog::ConvertGroup,
+    target: Generation,
+    out: &mut Vec<ConvertItem>,
+) {
+    for &rel in group.files {
+        if let Some(fp) = target_fingerprint(target, rel) {
+            out.push(ConvertItem {
+                rel_path: fp.rel_path,
+                target: fp,
+                group: group.name,
+            });
+        }
+    }
 }
 
 pub fn target_is_complete(target: Generation) -> bool {
@@ -150,8 +160,31 @@ pub fn plan(game_dir: &Utf8Path, target: Generation) -> Result<Vec<ItemPlan>, Co
     }
     items
         .into_iter()
-        .map(|item| Ok(classify(game_dir, item)?))
+        .map(|item| Ok(classify_preview(game_dir, item)?))
         .collect()
+}
+
+/// Classify for a preview, skipping the hash when the file's size rules out every known
+/// fingerprint; such a file can only be `NeedsConversion` and the real convert re-hashes it
+fn classify_preview(game_dir: &Utf8Path, item: ConvertItem) -> Result<ItemPlan, IoError> {
+    let path = game_dir.join(item.rel_path);
+    let Some(size) = size_opt(&path)? else {
+        return Ok(ItemPlan {
+            item,
+            state: ItemState::Missing,
+            current: None,
+            known_source: None,
+        });
+    };
+    if size != item.target.expected.size && !any_known_size(item.rel_path, size) {
+        return Ok(ItemPlan {
+            item,
+            state: ItemState::NeedsConversion,
+            current: None,
+            known_source: None,
+        });
+    }
+    classify(game_dir, item)
 }
 
 pub fn explicit_item(target: Generation, rel_path: &str) -> Option<ConvertItem> {
@@ -164,9 +197,16 @@ pub fn explicit_item(target: Generation, rel_path: &str) -> Option<ConvertItem> 
     })
 }
 
-/// Restore any core file left in a crashed mid-swap state; run before planning a real conversion
+/// Restore any file left in a crashed mid-swap state; run before planning a real conversion
 pub fn recover_install(game_dir: &Utf8Path, target: Generation) -> Result<(), ConvertError> {
-    for item in items(game_dir, target)? {
+    let mut items = Vec::new();
+    for group in GROUPS {
+        // No ownership filter: a crashed swap can leave a DLC sentinel in its .overseer-bak slot, which makes the group look absent.
+        if group.is_convertible(target) {
+            push_group_items(group, target, &mut items);
+        }
+    }
+    for item in items {
         recover_leftover_backup(game_dir, item)?;
     }
     Ok(())
@@ -571,6 +611,34 @@ mod tests {
     }
 
     #[test]
+    fn plan_includes_owned_dlc_alongside_core() {
+        let (_tmp, root) = temp();
+        std::fs::create_dir_all(root.join("Data")).unwrap();
+        std::fs::write(root.join("Data/DLCCoast.esm"), b"ae-esm").unwrap();
+        let plans = plan(&root, Generation::OldGen).unwrap();
+        let has = |g: &str| plans.iter().any(|p| p.item.group == g);
+        assert!(has("core"), "core is always planned");
+        assert!(has("DLCCoast"), "owned DLC is planned");
+        assert!(!has("DLCNukaWorld"), "unowned DLC is skipped");
+    }
+
+    #[test]
+    fn plan_defers_hashing_when_size_rules_out_all_fingerprints() {
+        // A wrong-sized DLC master can only need conversion, so the preview must not fingerprint it.
+        let (_tmp, root) = temp();
+        std::fs::create_dir_all(root.join("Data")).unwrap();
+        std::fs::write(root.join("Data/DLCCoast.esm"), b"not the real size").unwrap();
+        let plans = plan(&root, Generation::OldGen).unwrap();
+        let esm = plans
+            .iter()
+            .find(|p| p.item.rel_path == "Data/DLCCoast.esm")
+            .unwrap();
+        assert_eq!(esm.state, ItemState::NeedsConversion);
+        assert!(esm.current.is_none(), "size-gated preview should not hash");
+        assert!(esm.known_source.is_none());
+    }
+
+    #[test]
     fn converts_verifies_and_backs_up() {
         let (_tmp, root) = seed_source(b"AE-version");
         let outcome = convert_item(
@@ -882,5 +950,21 @@ mod tests {
             b"og-exe-bytes"
         );
         assert!(!root.join("Fallout4.exe.overseer-bak").exists());
+    }
+
+    #[test]
+    fn recover_install_restores_a_crashed_dlc_sentinel_before_planning() {
+        // A crash mid-swap can leave a DLC's sentinel .esm in its backup slot; the group then looks
+        // unowned, so recovery must not be gated on current ownership.
+        let (_tmp, root) = temp();
+        std::fs::create_dir_all(root.join("Data")).unwrap();
+        std::fs::write(root.join("Data/DLCCoast.esm.overseer-bak"), b"og-esm-bytes").unwrap();
+        assert!(!root.join("Data/DLCCoast.esm").exists());
+        recover_install(&root, Generation::OldGen).unwrap();
+        assert_eq!(
+            std::fs::read(root.join("Data/DLCCoast.esm")).unwrap(),
+            b"og-esm-bytes"
+        );
+        assert!(!root.join("Data/DLCCoast.esm.overseer-bak").exists());
     }
 }

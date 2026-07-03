@@ -119,11 +119,16 @@ mod tests {
     }
 
     #[test]
-    fn dlc_groups_are_dormant_until_fingerprinted() {
+    fn dlc_groups_are_convertible_to_old_gen_only() {
         for name in ["DLCCoast", "DLCNukaWorld", "DLCworkshop02", "DLCworkshop03"] {
+            assert!(group(name).is_convertible(Generation::OldGen), "{name} OG");
             assert!(
-                !group(name).is_convertible(Generation::OldGen),
-                "{name} should have no target fingerprints yet"
+                !group(name).is_convertible(Generation::Anniversary),
+                "{name} AE"
+            );
+            assert!(
+                !group(name).is_convertible(Generation::NextGen),
+                "{name} NG"
             );
         }
     }
