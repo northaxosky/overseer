@@ -4,8 +4,8 @@ use super::Check;
 use crate::context::{ArchiveScan, GameContext};
 use crate::finding::{Finding, Severity};
 
-/// Version that we accept: 1 = FO4 OG, 7/8 = FO4 NG/AE, 2/3 = Starfield
-const SUPPORTED_VERSIONS: &[u32] = &[1, 2, 3, 7, 8];
+/// BA2 header versions Fallout 4 can read: 1 = OG, 7/8 = NG/AE. Starfield's v2/v3 are not FO4-readable.
+const SUPPORTED_VERSIONS: &[u32] = &[1, 7, 8];
 const MAX_ARCHIVES_GNRL: usize = 256;
 const MAX_ARCHIVES_DX10: usize = 255;
 
@@ -265,6 +265,19 @@ mod tests {
             info("v8.ba2", header(8, Ba2Kind::General)),
         ]);
         assert!(findings.iter().all(|f| f.severity != Severity::Warning));
+    }
+
+    #[test]
+    fn starfield_ba2_versions_are_unsupported_for_fallout_4() {
+        // v2/v3 are Starfield BA2 versions; Fallout 4 cannot read them, so they must be flagged.
+        for version in [2, 3] {
+            let findings = run(vec![info("sf.ba2", header(version, Ba2Kind::General))]);
+            assert!(
+                findings.iter().any(|f| f.severity == Severity::Warning
+                    && f.title.contains("unsupported BA2 version")),
+                "version {version} should be unsupported for FO4"
+            );
+        }
     }
 
     #[test]
