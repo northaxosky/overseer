@@ -88,8 +88,7 @@ pub static FINGERPRINTS: &[BinaryFingerprint] = &[
         expected: ExpectedFingerprint {
             size: 4_522_496,
             crc32: 0x0244_5570,
-            // SHA-256 pending -- obtain OG Fallout4Launcher.exe; CRC32-gated until then.
-            sha256: None,
+            sha256: Some("5e457259dca72c8d1217e2f08a981b630ffd5fe0d30bf28269c8b7898491c6ae"),
         },
     },
     BinaryFingerprint {
@@ -99,8 +98,7 @@ pub static FINGERPRINTS: &[BinaryFingerprint] = &[
         expected: ExpectedFingerprint {
             size: 206_760,
             crc32: 0xBBD9_12FC,
-            // SHA-256 pending -- obtain OG steam_api64.dll; CRC32-gated until then.
-            sha256: None,
+            sha256: Some("81321a5cb72ae3f81243fd0b0d8928a063ca09129ab0878573bd36a28422ec4c"),
         },
     },
     BinaryFingerprint {
@@ -157,11 +155,13 @@ mod tests {
     }
 
     #[test]
-    fn sha_backed_binary_reports_sha256_and_og_launcher_reports_crc32_gate() {
-        let exe = target_fingerprint(Generation::OldGen, "Fallout4.exe").unwrap();
-        let launcher = target_fingerprint(Generation::OldGen, "Fallout4Launcher.exe").unwrap();
-        assert_eq!(exe.verified_by(), VerifiedBy::Sha256);
-        assert_eq!(launcher.verified_by(), VerifiedBy::Crc32);
+    fn every_known_binary_is_sha256_gated() {
+        assert!(
+            FINGERPRINTS
+                .iter()
+                .all(|fp| fp.verified_by() == VerifiedBy::Sha256),
+            "all fingerprints should be SHA-256-gated once the OG binaries are recorded"
+        );
     }
 
     #[test]
