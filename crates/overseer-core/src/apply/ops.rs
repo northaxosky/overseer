@@ -33,7 +33,7 @@ pub fn deploy_profile(
         });
     }
 
-    let mut profile = Profile::load(instance, profile_name)?;
+    let mut profile = Profile::load_existing(instance, profile_name)?;
     profile.reconcile(instance)?;
     let mut sources = profile.deploy_sources(instance);
 
@@ -447,6 +447,18 @@ mod tests {
         let err =
             deploy_profile(&instance, "Default", &NullSink).expect_err("second deploy must fail");
         assert!(matches!(err, ApplyError::AlreadyDeployed { .. }));
+    }
+
+    #[test]
+    fn deploy_missing_profile_is_refused() {
+        let (_tmp, instance) = temp_instance();
+        install_mod(&instance, "CoolMod", &[("Textures/a.dds", "pixels")]);
+
+        let err = deploy_profile(&instance, "Typo", &NullSink).expect_err("missing profile");
+
+        assert!(
+            matches!(err, ApplyError::Instance(crate::instance::InstanceError::ProfileNotFound(name)) if name == "Typo")
+        );
     }
 
     #[test]

@@ -43,6 +43,14 @@ impl Profile {
         })
     }
 
+    /// Read an existing profile directory; a missing `modlist.txt` still means an empty profile.
+    pub fn load_existing(instance: &Instance, name: &str) -> Result<Self, InstanceError> {
+        if !instance.profile_dir(name).is_dir() {
+            return Err(InstanceError::ProfileNotFound(name.to_owned()));
+        }
+        Self::load(instance, name)
+    }
+
     /// Write the profile's `modlist.txt` + `settings.ini`, creating the dir if needed
     pub fn save(&self, instance: &Instance) -> Result<(), InstanceError> {
         self.save_modlist(instance)?;
@@ -477,10 +485,18 @@ mod tests {
     // --- load / save ---
 
     #[test]
-    fn load_missing_modlist_yields_empty_profile() {
+    fn load_existing_missing_profile_dir_errors() {
         let (_tmp, instance) = temp_instance();
-        let profile = Profile::load(&instance, "DoesNotExist").expect("load");
-        assert_eq!(profile.name, "DoesNotExist");
+        let err = Profile::load_existing(&instance, "DoesNotExist").expect_err("missing profile");
+        assert!(matches!(err, InstanceError::ProfileNotFound(name) if name == "DoesNotExist"));
+    }
+
+    #[test]
+    fn load_existing_missing_modlist_yields_empty_profile() {
+        let (_tmp, instance) = temp_instance();
+        std::fs::create_dir_all(instance.profile_dir("Empty")).expect("mkdir");
+        let profile = Profile::load_existing(&instance, "Empty").expect("load");
+        assert_eq!(profile.name, "Empty");
         assert!(profile.mods.is_empty());
     }
 
