@@ -61,14 +61,6 @@ pub fn target_table_complete(generation: Generation) -> bool {
         .all(|name| target_fingerprint(generation, name).is_some())
 }
 
-/// The known target fingerprints for `generation`'s core binaries
-pub fn fingerprints_for(generation: Generation) -> Vec<&'static BinaryFingerprint> {
-    CORE_BINARIES
-        .iter()
-        .filter_map(|name| target_fingerprint(generation, name))
-        .collect()
-}
-
 /// The verified identity table for every known Fallout 4 core binary
 pub static FINGERPRINTS: &[BinaryFingerprint] = &[
     BinaryFingerprint {

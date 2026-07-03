@@ -2,6 +2,7 @@
 //! OG↔NG conversion. Each submodule layers a Fallout 4 policy over `patch`'s generic mechanisms.
 
 pub mod ba2;
+pub mod catalog;
 pub mod convert;
 pub mod fingerprint;
 pub mod vcdiff;

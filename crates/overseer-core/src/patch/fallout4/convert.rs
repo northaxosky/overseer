@@ -1,8 +1,8 @@
 //! Fallout 4 whole-install edition conversion through verified binary deltas.
 
+use super::catalog::{self, GROUPS};
 use super::fingerprint::{
-    BinaryFingerprint, CORE_BINARIES, fingerprints_for, known_source, target_fingerprint,
-    target_table_complete,
+    BinaryFingerprint, CORE_BINARIES, known_source, target_fingerprint, target_table_complete,
 };
 use crate::detect::Generation;
 use crate::error::{IoError, io_err};
@@ -18,6 +18,7 @@ use tracing::warn;
 pub struct ConvertItem {
     pub rel_path: &'static str,
     pub target: &'static BinaryFingerprint,
+    pub group: &'static str,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -100,14 +101,23 @@ enum Prepared {
     },
 }
 
-pub fn items(target: Generation) -> Vec<ConvertItem> {
-    fingerprints_for(target)
-        .into_iter()
-        .map(|target| ConvertItem {
-            rel_path: target.rel_path,
-            target,
-        })
-        .collect()
+pub fn items(game_dir: &Utf8Path, target: Generation) -> Result<Vec<ConvertItem>, IoError> {
+    let mut items = Vec::new();
+    for group in GROUPS {
+        if !group.is_convertible(target) || !group.is_owned(game_dir)? {
+            continue;
+        }
+        for &rel in group.files {
+            if let Some(fp) = target_fingerprint(target, rel) {
+                items.push(ConvertItem {
+                    rel_path: fp.rel_path,
+                    target: fp,
+                    group: group.name,
+                });
+            }
+        }
+    }
+    Ok(items)
 }
 
 pub fn target_is_complete(target: Generation) -> bool {
@@ -134,25 +144,29 @@ pub fn classify(game_dir: &Utf8Path, item: ConvertItem) -> Result<ItemPlan, IoEr
 }
 
 pub fn plan(game_dir: &Utf8Path, target: Generation) -> Result<Vec<ItemPlan>, ConvertError> {
-    if !target_table_complete(target) {
+    let items = items(game_dir, target)?;
+    if items.is_empty() {
         return Err(ConvertError::IncompleteTarget { target });
     }
-    items(target)
+    items
         .into_iter()
         .map(|item| Ok(classify(game_dir, item)?))
         .collect()
 }
 
 pub fn explicit_item(target: Generation, rel_path: &str) -> Option<ConvertItem> {
-    target_fingerprint(target, rel_path).map(|target| ConvertItem {
-        rel_path: target.rel_path,
-        target,
+    let fp = target_fingerprint(target, rel_path)?;
+    let group = catalog::group_of(rel_path).map_or("core", |g| g.name);
+    Some(ConvertItem {
+        rel_path: fp.rel_path,
+        target: fp,
+        group,
     })
 }
 
 /// Restore any core file left in a crashed mid-swap state; run before planning a real conversion
 pub fn recover_install(game_dir: &Utf8Path, target: Generation) -> Result<(), ConvertError> {
-    for item in items(target) {
+    for item in items(game_dir, target)? {
         recover_leftover_backup(game_dir, item)?;
     }
     Ok(())
@@ -486,6 +500,7 @@ mod tests {
         ConvertItem {
             rel_path: "check.bin",
             target: &TEST_FP,
+            group: "test",
         }
     }
 
@@ -692,6 +707,7 @@ mod tests {
                 item: ConvertItem {
                     rel_path: "good.bin",
                     target: &GOOD_FP,
+                    group: "test",
                 },
                 delta: Utf8PathBuf::from("d.vcdiff"),
             },
@@ -699,6 +715,7 @@ mod tests {
                 item: ConvertItem {
                     rel_path: "bad.bin",
                     target: &BAD_FP,
+                    group: "test",
                 },
                 delta: Utf8PathBuf::from("d.vcdiff"),
             },
@@ -766,6 +783,7 @@ mod tests {
                 item: ConvertItem {
                     rel_path: "one.bin",
                     target: &ONE_FP,
+                    group: "test",
                 },
                 delta: Utf8PathBuf::from("d.vcdiff"),
             },
@@ -773,6 +791,7 @@ mod tests {
                 item: ConvertItem {
                     rel_path: "two.bin",
                     target: &TWO_FP,
+                    group: "test",
                 },
                 delta: Utf8PathBuf::from("d.vcdiff"),
             },
@@ -780,6 +799,7 @@ mod tests {
                 item: ConvertItem {
                     rel_path: "three.bin",
                     target: &THREE_FP,
+                    group: "test",
                 },
                 delta: Utf8PathBuf::from("d.vcdiff"),
             },
