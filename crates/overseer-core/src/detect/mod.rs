@@ -62,8 +62,8 @@ pub fn detect(game: GameKind, game_dir: &Utf8Path) -> GameInstall {
 pub fn edition(install: &GameInstall, game_dir: &Utf8Path) -> Edition {
     match install.game {
         GameKind::Fallout4 => fallout4::classify_edition(install.version, game_dir),
-        GameKind::SkyrimSE => todo!("Skyrim SE edition detection"),
-        GameKind::Starfield => todo!("Starfield edition detection"),
+        // Edition detection isn't implemented for these yet; degrade rather than panic in a library.
+        GameKind::SkyrimSE | GameKind::Starfield => Edition::Undetermined,
     }
 }
 

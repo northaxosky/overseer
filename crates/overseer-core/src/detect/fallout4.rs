@@ -75,13 +75,9 @@ impl std::fmt::Display for Generation {
     }
 }
 
+/// The runtime generation of `v`, derived from its [`Edition`] so it can't drift from classification.
 pub fn runtime_family(v: ExeVersion) -> Option<Generation> {
-    match (v.major, v.minor, v.patch) {
-        (1, 10, 163) => Some(Generation::OldGen),
-        (1, 10, 980 | 984) => Some(Generation::NextGen),
-        (1, 11, _) => Some(Generation::Anniversary),
-        _ => None,
-    }
+    edition_by_version(v).generation()
 }
 
 /// The runtime family an `f4se_loader.exe` build targets (OG 0.6.x, NG 0.7.2, AE 0.7.7+)
@@ -134,20 +130,25 @@ pub fn classify_edition(version: Option<ExeVersion>, game_dir: &Utf8Path) -> Edi
     edition_from(version, startup_signature(game_dir))
 }
 
-/// Map version + the down grade signal to an [`Edition`]
-fn edition_from(version: Option<ExeVersion>, startup: StartupBa2Signature) -> Edition {
-    let Some(v) = version else {
-        return Edition::Undetermined;
-    };
+/// The single version→[`Edition`] table; `edition_from` layers the down-grade tripwire on top.
+fn edition_by_version(v: ExeVersion) -> Edition {
     match (v.major, v.minor, v.patch) {
-        (1, 10, 163) => match startup {
-            StartupBa2Signature::NextGen => Edition::Downgraded,
-            _ => Edition::OldGen,
-        },
+        (1, 10, 163) => Edition::OldGen,
         (1, 10, 984) => Edition::NextGen,
         triple if KNOWN_OBSOLETE.contains(&triple) => Edition::Obsolete,
         (1, 11, _) => Edition::Anniversary,
         _ => Edition::Unknown,
+    }
+}
+
+/// Map version + the down-grade signal to an [`Edition`]: an OG exe with the NG `Startup.ba2` is `Downgraded`.
+fn edition_from(version: Option<ExeVersion>, startup: StartupBa2Signature) -> Edition {
+    let Some(v) = version else {
+        return Edition::Undetermined;
+    };
+    match edition_by_version(v) {
+        Edition::OldGen if startup == StartupBa2Signature::NextGen => Edition::Downgraded,
+        other => other,
     }
 }
 
@@ -193,10 +194,8 @@ mod tests {
             runtime_family(v(1, 10, 163).unwrap()),
             Some(Generation::OldGen)
         );
-        assert_eq!(
-            runtime_family(v(1, 10, 980).unwrap()),
-            Some(Generation::NextGen)
-        );
+        // 1.10.980 is the obsolete initial NG build (superseded by 984), so it has no supported generation.
+        assert_eq!(runtime_family(v(1, 10, 980).unwrap()), None);
         assert_eq!(
             runtime_family(v(1, 10, 984).unwrap()),
             Some(Generation::NextGen)
@@ -210,6 +209,17 @@ mod tests {
             Some(Generation::Anniversary)
         );
         assert_eq!(runtime_family(v(1, 10, 120).unwrap()), None);
+    }
+
+    #[test]
+    fn runtime_family_agrees_with_edition_on_obsolete_builds() {
+        // Regression: runtime_family and edition once disagreed on 1.10.980 (NextGen vs Obsolete).
+        // They now share one table, so an obsolete build is None here and Obsolete there.
+        assert_eq!(runtime_family(v(1, 10, 980).unwrap()), None);
+        assert_eq!(
+            edition_from(v(1, 10, 980), StartupBa2Signature::Other),
+            Edition::Obsolete
+        );
     }
 
     #[test]
