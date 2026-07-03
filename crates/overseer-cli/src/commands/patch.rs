@@ -1,10 +1,13 @@
 //! `overseer patch ...`: rewrite archive version headers in place
 
-use crate::cli::{PatchCommand, PatchTo};
+use crate::cli::{GenerationArg, PatchCommand};
 use crate::ui::{Role, heading, styled, success};
 use anyhow::{Context, Result, bail};
 use camino::{Utf8Path, Utf8PathBuf};
 use overseer_core::archive::{Ba2Header, Ba2Kind};
+use overseer_core::detect::Generation;
+use overseer_core::patch::delta::Xdelta3CliDecoder;
+use overseer_core::patch::fallout4::convert::{self, ItemState, Outcome};
 use overseer_core::patch::fallout4::{self, Ba2Edition, PatchOutcome};
 
 pub fn run(command: PatchCommand) -> Result<()> {
@@ -15,11 +18,121 @@ pub fn run(command: PatchCommand) -> Result<()> {
             dry_run,
             yes,
         } => ba2(&path, to, dry_run, yes),
+        PatchCommand::Convert {
+            to,
+            game_dir,
+            exe_delta,
+            launcher_delta,
+            steamapi_delta,
+            xdelta3,
+            dry_run,
+            yes,
+        } => {
+            let target = to.into_core();
+            if target != Generation::OldGen {
+                bail!("`patch convert` only supports `--to og` (downgrade) for now");
+            }
+            convert_install(
+                &game_dir,
+                &exe_delta,
+                &launcher_delta,
+                &steamapi_delta,
+                xdelta3.as_deref(),
+                dry_run,
+                yes,
+            )
+        }
     }
 }
 
+/// Downgrade a Fallout 4 install to Old-Gen by applying user-supplied xdelta3 deltas
+fn convert_install(
+    game_dir: &Utf8Path,
+    exe_delta: &Utf8Path,
+    launcher_delta: &Utf8Path,
+    steamapi_delta: &Utf8Path,
+    xdelta3: Option<&Utf8Path>,
+    dry_run: bool,
+    yes: bool,
+) -> Result<()> {
+    if !game_dir.is_dir() {
+        bail!("no such game directory: {game_dir}");
+    }
+    for (label, delta) in [
+        ("Fallout4.exe", exe_delta),
+        ("Fallout4Launcher.exe", launcher_delta),
+        ("steam_api64.dll", steamapi_delta),
+    ] {
+        if !delta.is_file() {
+            bail!("delta for {label} not found: {delta}");
+        }
+    }
+
+    let writing = yes && !dry_run;
+    if dry_run {
+        heading("Dry run — nothing will be written");
+    } else if !yes {
+        heading("Preview — re-run with --yes to apply");
+    } else {
+        heading(format!("Converting {game_dir} to Old-Gen"));
+    }
+
+    if !writing {
+        for (item, state) in convert::plan(game_dir, Generation::OldGen)? {
+            print_plan(item.rel_path, state);
+        }
+        return Ok(());
+    }
+
+    let exe = xdelta3
+        .map(Utf8Path::to_owned)
+        .unwrap_or_else(|| Utf8PathBuf::from("xdelta3"));
+    let decoder = Xdelta3CliDecoder::new(exe);
+    let outcomes = convert::convert_to_old_gen(
+        game_dir,
+        exe_delta,
+        launcher_delta,
+        steamapi_delta,
+        &decoder,
+    )?;
+
+    let mut converted = 0;
+    for (name, outcome) in &outcomes {
+        match outcome {
+            Outcome::Converted => {
+                converted += 1;
+                println!(
+                    "{}",
+                    styled(Role::Added, format!("+ {name}: converted to Old-Gen"))
+                );
+            }
+            Outcome::AlreadyTarget => {
+                println!(
+                    "{}",
+                    styled(Role::Muted, format!("= {name}: already Old-Gen"))
+                );
+            }
+            Outcome::Missing => {
+                println!("{}", styled(Role::Muted, format!("- {name}: missing")));
+            }
+        }
+    }
+    success(format!("{converted} file(s) converted"));
+    Ok(())
+}
+
+/// Print one dry-run/preview line for an item's classified state
+fn print_plan(name: &str, state: ItemState) {
+    let (role, msg) = match state {
+        ItemState::NeedsConversion => (Role::Added, format!("+ {name}: will convert to Old-Gen")),
+        ItemState::AlreadyTarget => (Role::Muted, format!("= {name}: already Old-Gen")),
+        ItemState::Missing => (Role::Muted, format!("- {name}: missing")),
+    };
+    println!("{}", styled(role, msg));
+}
+
 /// Patch a single `.ba2`, or every top-level `.ba2` in a directory, toward `to`
-fn ba2(path: &Utf8Path, to: PatchTo, dry_run: bool, yes: bool) -> Result<()> {
+fn ba2(path: &Utf8Path, to: GenerationArg, dry_run: bool, yes: bool) -> Result<()> {
     if !path.exists() {
         bail!("no such file or directory: {path}")
     }
@@ -43,8 +156,10 @@ fn ba2(path: &Utf8Path, to: PatchTo, dry_run: bool, yes: bool) -> Result<()> {
         heading(format!("Preview of {path} — re-run with --yes to apply"));
     }
 
-    let target = target_edition(to);
-    let label = target_label(to);
+    let generation = to.into_core();
+    let target = Ba2Edition::from_generation(generation)
+        .with_context(|| format!("BA2 archives have no {} edition", generation.label()))?;
+    let label = generation.tag();
     let mut tally = Tally::default();
 
     for file in &candidates {
@@ -178,19 +293,5 @@ fn kind_label(kind: Ba2Kind) -> String {
         Ba2Kind::General => "GNRL".to_owned(),
         Ba2Kind::Texture => "DX10".to_owned(),
         Ba2Kind::Other(tag) => String::from_utf8_lossy(&tag).into_owned(),
-    }
-}
-
-fn target_edition(to: PatchTo) -> Ba2Edition {
-    match to {
-        PatchTo::Og => Ba2Edition::OldGen,
-        PatchTo::Ng => Ba2Edition::NextGen,
-    }
-}
-
-fn target_label(to: PatchTo) -> &'static str {
-    match to {
-        PatchTo::Og => "og",
-        PatchTo::Ng => "ng",
     }
 }

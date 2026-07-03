@@ -2,6 +2,7 @@
 //! an archive between them via the generic [`crate::patch::set_version`].
 
 use crate::archive::{Ba2Error, Ba2Header, Ba2Kind};
+use crate::detect::Generation;
 use crate::patch::{VersionChange, set_version};
 use camino::Utf8Path;
 
@@ -21,6 +22,15 @@ impl Ba2Edition {
             1 => Some(Self::OldGen),
             7 | 8 => Some(Self::NextGen),
             _ => None,
+        }
+    }
+
+    /// The BA2 edition for a [`Generation`]; Anniversary uses Next-Gen archives, so `Ae` maps to `None`.
+    pub fn from_generation(generation: Generation) -> Option<Self> {
+        match generation {
+            Generation::OldGen => Some(Self::OldGen),
+            Generation::NextGen => Some(Self::NextGen),
+            Generation::Anniversary => None,
         }
     }
 

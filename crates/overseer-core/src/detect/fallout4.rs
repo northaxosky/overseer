@@ -29,29 +29,67 @@ pub enum Edition {
     Undetermined,
 }
 
-/// The runtime an exe/loader targets, for F4SE & plugin compatibility
+impl Edition {
+    /// The [`Generation`] this edition belongs to, or `None` for obsolete/unknown/undetermined builds.
+    pub fn generation(self) -> Option<Generation> {
+        match self {
+            Edition::OldGen | Edition::Downgraded => Some(Generation::OldGen),
+            Edition::NextGen => Some(Generation::NextGen),
+            Edition::Anniversary => Some(Generation::Anniversary),
+            Edition::Obsolete | Edition::Unknown | Edition::Undetermined => None,
+        }
+    }
+}
+
+/// A Fallout 4 "generation" — the canonical OG / NG / AE vocabulary shared across detection, patching, and diagnostics.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RuntimeFamily {
+pub enum Generation {
     OldGen,
     NextGen,
     Anniversary,
 }
 
-pub fn runtime_family(v: ExeVersion) -> Option<RuntimeFamily> {
+impl Generation {
+    /// A short lower-case tag (`og` / `ng` / `ae`), for CLI args and terse output.
+    pub fn tag(self) -> &'static str {
+        match self {
+            Generation::OldGen => "og",
+            Generation::NextGen => "ng",
+            Generation::Anniversary => "ae",
+        }
+    }
+
+    /// A human label (`Old-Gen` / `Next-Gen` / `Anniversary`).
+    pub fn label(self) -> &'static str {
+        match self {
+            Generation::OldGen => "Old-Gen",
+            Generation::NextGen => "Next-Gen",
+            Generation::Anniversary => "Anniversary",
+        }
+    }
+}
+
+impl std::fmt::Display for Generation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.label())
+    }
+}
+
+pub fn runtime_family(v: ExeVersion) -> Option<Generation> {
     match (v.major, v.minor, v.patch) {
-        (1, 10, 163) => Some(RuntimeFamily::OldGen),
-        (1, 10, 980 | 984) => Some(RuntimeFamily::NextGen),
-        (1, 11, _) => Some(RuntimeFamily::Anniversary),
+        (1, 10, 163) => Some(Generation::OldGen),
+        (1, 10, 980 | 984) => Some(Generation::NextGen),
+        (1, 11, _) => Some(Generation::Anniversary),
         _ => None,
     }
 }
 
 /// The runtime family an `f4se_loader.exe` build targets (OG 0.6.x, NG 0.7.2, AE 0.7.7+)
-pub fn loader_family(v: ExeVersion) -> Option<RuntimeFamily> {
+pub fn loader_family(v: ExeVersion) -> Option<Generation> {
     match (v.major, v.minor, v.patch) {
-        (0, 6, _) => Some(RuntimeFamily::OldGen),
-        (0, 7, 0..=6) => Some(RuntimeFamily::NextGen),
-        (0, 7, _) => Some(RuntimeFamily::Anniversary),
+        (0, 6, _) => Some(Generation::OldGen),
+        (0, 7, 0..=6) => Some(Generation::NextGen),
+        (0, 7, _) => Some(Generation::Anniversary),
         _ => None,
     }
 }
@@ -153,23 +191,23 @@ mod tests {
     fn runtime_family_maps_each_generation() {
         assert_eq!(
             runtime_family(v(1, 10, 163).unwrap()),
-            Some(RuntimeFamily::OldGen)
+            Some(Generation::OldGen)
         );
         assert_eq!(
             runtime_family(v(1, 10, 980).unwrap()),
-            Some(RuntimeFamily::NextGen)
+            Some(Generation::NextGen)
         );
         assert_eq!(
             runtime_family(v(1, 10, 984).unwrap()),
-            Some(RuntimeFamily::NextGen)
+            Some(Generation::NextGen)
         );
         assert_eq!(
             runtime_family(v(1, 11, 191).unwrap()),
-            Some(RuntimeFamily::Anniversary)
+            Some(Generation::Anniversary)
         );
         assert_eq!(
             runtime_family(v(1, 11, 221).unwrap()),
-            Some(RuntimeFamily::Anniversary)
+            Some(Generation::Anniversary)
         );
         assert_eq!(runtime_family(v(1, 10, 120).unwrap()), None);
     }
@@ -178,15 +216,15 @@ mod tests {
     fn loader_family_maps_f4se_build_lines() {
         assert_eq!(
             loader_family(v(0, 6, 23).unwrap()),
-            Some(RuntimeFamily::OldGen)
+            Some(Generation::OldGen)
         );
         assert_eq!(
             loader_family(v(0, 7, 2).unwrap()),
-            Some(RuntimeFamily::NextGen)
+            Some(Generation::NextGen)
         );
         assert_eq!(
             loader_family(v(0, 7, 7).unwrap()),
-            Some(RuntimeFamily::Anniversary)
+            Some(Generation::Anniversary)
         );
         assert_eq!(loader_family(v(9, 9, 9).unwrap()), None);
     }

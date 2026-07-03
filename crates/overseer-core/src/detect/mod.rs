@@ -3,7 +3,7 @@
 mod fallout4;
 
 pub use fallout4::{
-    Edition, RuntimeFamily, address_library_name, loader_family, packed_runtime, runtime_family,
+    Edition, Generation, address_library_name, loader_family, packed_runtime, runtime_family,
 };
 
 use crate::game::GameKind;

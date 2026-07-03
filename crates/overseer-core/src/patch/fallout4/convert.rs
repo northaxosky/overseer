@@ -1,17 +1,11 @@
 //! Fallout 4 whole install edition conversion: applying binary deltas to swap game binaries between gens
 
+use crate::detect::Generation;
 use crate::error::IoError;
 use crate::fs::{copy, fsync, remove_file_opt, rename, size_opt};
 use crate::patch::delta::{DeltaDecoder, DeltaError, crc32_file};
-use camino::Utf8Path;
+use camino::{Utf8Path, Utf8PathBuf};
 use thiserror::Error;
-
-/// Which edition to convert an install toward
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Direction {
-    /// Downgrade to Old-Gen (1.10.163); the build most F4SE mods target
-    ToOldGen,
-}
 
 /// A convertible game file, identified by its known-clean *target* fingerprint
 #[derive(Debug, Clone, Copy)]
@@ -54,10 +48,11 @@ pub enum ItemState {
     Missing,
 }
 
-/// The manifest of files to convert for `direction`
-pub fn items(direction: Direction) -> &'static [ConvertItem] {
-    match direction {
-        Direction::ToOldGen => OLD_GEN_ITEMS,
+/// The manifest of files to convert an install *to* `target` (only Old-Gen today; upgrades yield nothing).
+pub fn items(target: Generation) -> &'static [ConvertItem] {
+    match target {
+        Generation::OldGen => OLD_GEN_ITEMS,
+        Generation::NextGen | Generation::Anniversary => &[],
     }
 }
 
@@ -85,12 +80,12 @@ pub fn classify(game_dir: &Utf8Path, item: &ConvertItem) -> Result<ItemState, Io
     Ok(identify(Some((size, crc32_file(&path)?)), item))
 }
 
-/// Classify every item in `direction`'s manifest against `game_dir`
+/// Classify every item in `target`'s manifest against `game_dir`
 pub fn plan(
     game_dir: &Utf8Path,
-    direction: Direction,
+    target: Generation,
 ) -> Result<Vec<(&'static ConvertItem, ItemState)>, IoError> {
-    items(direction)
+    items(target)
         .iter()
         .map(|item| Ok((item, classify(game_dir, item)?)))
         .collect()
@@ -128,24 +123,33 @@ pub enum Outcome {
     Missing,
 }
 
-/// Convert one `item` in `game_dir` by applying `delta`, idempotently and crash-safely
-pub fn convert_item(
+/// Initial result for one item: a verified temp to swap, or a no op
+enum Prepared {
+    /// A verified temp file that must replace the item's live file
+    Ready { tmp: Utf8PathBuf },
+    /// Already the target edition; nothing to do
+    AlreadyTarget,
+    /// Absent from the game directory; nothing to convert
+    Missing,
+}
+
+/// Reconstruct `item` to a temp and verify it against the target, without touching the live file
+fn prepare(
     game_dir: &Utf8Path,
     item: &ConvertItem,
     delta: &Utf8Path,
     decoder: &dyn DeltaDecoder,
-) -> Result<Outcome, ConvertError> {
+) -> Result<Prepared, ConvertError> {
     match classify(game_dir, item)? {
-        ItemState::AlreadyTarget => return Ok(Outcome::AlreadyTarget),
-        ItemState::Missing => return Ok(Outcome::Missing),
+        ItemState::AlreadyTarget => return Ok(Prepared::AlreadyTarget),
+        ItemState::Missing => return Ok(Prepared::Missing),
         ItemState::NeedsConversion => {}
     }
 
     let real = game_dir.join(item.rel_path);
     let tmp = game_dir.join(format!("{}.overseer-tmp", item.rel_path));
-    let bak = game_dir.join(format!("{}.overseer-bak", item.rel_path));
 
-    // Reconstruct into a temp; the real file is still the decoder's untouched source
+    // Reconsutrct into a temp; the real file is still the untouched source
     if let Err(source) = decoder.apply(&real, delta, &tmp) {
         let _ = remove_file_opt(&tmp);
         return Err(ConvertError::Delta {
@@ -154,8 +158,7 @@ pub fn convert_item(
         });
     }
 
-    // Verify the candidate is the exact clean target — size AND CRC, mirroring how the manifest
-    // identifies a target — before the real file is ever at risk. Size guards a CRC32 collision.
+    // Verify the candidate is the exact clean target: size and CRC
     let size = size_opt(&tmp).inspect_err(|_| {
         let _ = remove_file_opt(&tmp);
     })?;
@@ -171,25 +174,83 @@ pub fn convert_item(
         });
     }
 
-    // Flush the reconstructed bytes to stable storage before the rename makes them the live file,
-    // so a power loss can't leave a renamed-but-unflushed (corrupt) game binary.
+    // Flush the reconstructed bytes
     fsync(&tmp)?;
-
-    // Back up real by copying, then swap out atomically
-    copy(&real, &bak)?;
-    rename(&tmp, &real)?;
-    Ok(Outcome::Converted)
+    Ok(Prepared::Ready { tmp })
 }
 
-/// Apply each resolved `(item, delta)` job in order, returning every item's outcome
+/// Swap a verified temp into place: back up the original by copying, then atomically replace it
+fn commit(game_dir: &Utf8Path, item: &ConvertItem, tmp: &Utf8Path) -> Result<(), ConvertError> {
+    let real = game_dir.join(item.rel_path);
+    let bak = game_dir.join(format!("{}.overseer-bak", item.rel_path));
+    copy(&real, &bak)?;
+    rename(tmp, &real)?;
+    Ok(())
+}
+
+/// Convert one `item` in `game_dir` by applying `delta`
+pub fn convert_item(
+    game_dir: &Utf8Path,
+    item: &ConvertItem,
+    delta: &Utf8Path,
+    decoder: &dyn DeltaDecoder,
+) -> Result<Outcome, ConvertError> {
+    match prepare(game_dir, item, delta, decoder)? {
+        Prepared::Ready { tmp } => {
+            commit(game_dir, item, &tmp)?;
+            Ok(Outcome::Converted)
+        }
+        Prepared::AlreadyTarget => Ok(Outcome::AlreadyTarget),
+        Prepared::Missing => Ok(Outcome::Missing),
+    }
+}
+
+/// Apply each resolved `(item, delta)` job as a batch
 pub fn convert(
     game_dir: &Utf8Path,
     jobs: &[(&ConvertItem, &Utf8Path)],
     decoder: &dyn DeltaDecoder,
 ) -> Result<Vec<(&'static str, Outcome)>, ConvertError> {
-    jobs.iter()
-        .map(|(item, delta)| Ok((item.rel_path, convert_item(game_dir, item, delta, decoder)?)))
-        .collect()
+    let mut ready: Vec<(&ConvertItem, Utf8PathBuf)> = Vec::new();
+    let mut outcomes: Vec<(&'static str, Outcome)> = Vec::new();
+    for (item, delta) in jobs {
+        match prepare(game_dir, item, delta, decoder) {
+            Ok(Prepared::Ready { tmp }) => {
+                ready.push((item, tmp));
+                outcomes.push((item.rel_path, Outcome::Converted));
+            }
+            Ok(Prepared::AlreadyTarget) => outcomes.push((item.rel_path, Outcome::AlreadyTarget)),
+            Ok(Prepared::Missing) => outcomes.push((item.rel_path, Outcome::Missing)),
+            Err(e) => {
+                for (_, tmp) in &ready {
+                    let _ = remove_file_opt(tmp);
+                }
+                return Err(e);
+            }
+        }
+    }
+
+    // Every required temp is verified; swap them in
+    for (item, tmp) in &ready {
+        commit(game_dir, item, tmp)?;
+    }
+    Ok(outcomes)
+}
+
+/// Downgrade the three core binaries to Old-Gen, pairing each with its delta; convenience over [`convert`]
+pub fn convert_to_old_gen(
+    game_dir: &Utf8Path,
+    fallout4_exe: &Utf8Path,
+    launcher: &Utf8Path,
+    steam_api64: &Utf8Path,
+    decoder: &dyn DeltaDecoder,
+) -> Result<Vec<(&'static str, Outcome)>, ConvertError> {
+    let jobs = [
+        (&OLD_GEN_ITEMS[0], fallout4_exe),
+        (&OLD_GEN_ITEMS[1], launcher),
+        (&OLD_GEN_ITEMS[2], steam_api64),
+    ];
+    convert(game_dir, &jobs, decoder)
 }
 
 #[cfg(test)]
@@ -253,7 +314,7 @@ mod tests {
     #[test]
     fn plan_over_a_bare_dir_is_all_missing() {
         let (_tmp, root) = temp();
-        let states: Vec<_> = plan(&root, Direction::ToOldGen)
+        let states: Vec<_> = plan(&root, Generation::OldGen)
             .unwrap()
             .into_iter()
             .map(|(_, state)| state)
@@ -425,6 +486,69 @@ mod tests {
         );
         assert!(!root.join("check.bin.overseer-tmp").exists());
         assert!(!root.join("check.bin.overseer-bak").exists());
+    }
+
+    // A decoder that writes the target bytes for a "good" dest and garbage for anything else,
+    // so a batch can mix a verifiable job with a failing one.
+    struct PerDestDecoder;
+    impl DeltaDecoder for PerDestDecoder {
+        fn apply(
+            &self,
+            _source: &Utf8Path,
+            _delta: &Utf8Path,
+            dest: &Utf8Path,
+        ) -> Result<(), DeltaError> {
+            let bytes: &[u8] = if dest.as_str().contains("good") {
+                b"123456789"
+            } else {
+                b"XXXXXXXXX"
+            };
+            std::fs::write(dest, bytes).unwrap();
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn a_bad_delta_in_the_batch_converts_nothing() {
+        let (_tmp, root) = temp();
+        std::fs::write(root.join("good.bin"), b"OLD-good").unwrap();
+        std::fs::write(root.join("bad.bin"), b"OLD-bad").unwrap();
+        let good = ConvertItem {
+            rel_path: "good.bin",
+            target_size: 9,
+            target_crc: 0xCBF4_3926,
+        };
+        let bad = ConvertItem {
+            rel_path: "bad.bin",
+            target_size: 9,
+            target_crc: 0xCBF4_3926,
+        };
+        let d = Utf8Path::new("d.vcdiff");
+        let jobs = [(&good, d), (&bad, d)];
+
+        let err =
+            convert(&root, &jobs, &PerDestDecoder).expect_err("the batch fails on the bad delta");
+        assert!(matches!(err, ConvertError::TargetMismatch { .. }));
+        // Two-phase: because one delta failed verification, no live file was swapped.
+        assert_eq!(
+            std::fs::read(root.join("good.bin")).unwrap(),
+            b"OLD-good",
+            "the good file is untouched"
+        );
+        assert_eq!(
+            std::fs::read(root.join("bad.bin")).unwrap(),
+            b"OLD-bad",
+            "the bad file is untouched"
+        );
+        assert!(
+            !root.join("good.bin.overseer-bak").exists(),
+            "no backup is made when the batch is rejected"
+        );
+        assert!(
+            !root.join("good.bin.overseer-tmp").exists(),
+            "staged temps are cleaned up"
+        );
+        assert!(!root.join("bad.bin.overseer-tmp").exists());
     }
 
     #[test]

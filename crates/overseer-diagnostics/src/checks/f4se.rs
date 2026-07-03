@@ -4,7 +4,7 @@
 use super::Check;
 use crate::context::{AddressLibraryStatus, GameContext};
 use crate::finding::{Finding, Severity};
-use overseer_core::detect::RuntimeFamily;
+use overseer_core::detect::Generation;
 
 /// Reports F4SE setup problems: a loader for the wrong runtime, or a missing Address Library
 pub struct F4se;
@@ -43,7 +43,7 @@ impl Check for F4se {
                 let advertises = if p.plugin.supports_ngae {
                     p.plugin.supports(packed) // exact-runtime match in compatibleVersions
                 } else {
-                    game == RuntimeFamily::OldGen // OG-only plugins (Query, no Version)
+                    game == Generation::OldGen // OG-only plugins (Query, no Version)
                 };
                 if !advertises {
                     findings.push(Finding::new(
@@ -70,12 +70,12 @@ impl Check for F4se {
 mod tests {
     use super::*;
     use crate::context::F4sePluginScan;
-    use overseer_core::detect::RuntimeFamily;
+    use overseer_core::detect::Generation;
     use overseer_core::f4se::F4sePlugin;
 
     fn run(
-        game: Option<RuntimeFamily>,
-        loader: Option<RuntimeFamily>,
+        game: Option<Generation>,
+        loader: Option<Generation>,
         address: AddressLibraryStatus,
     ) -> Vec<Finding> {
         F4se.run(&GameContext {
@@ -89,8 +89,8 @@ mod tests {
     #[test]
     fn a_matching_loader_is_silent() {
         let findings = run(
-            Some(RuntimeFamily::OldGen),
-            Some(RuntimeFamily::OldGen),
+            Some(Generation::OldGen),
+            Some(Generation::OldGen),
             AddressLibraryStatus::NotApplicable,
         );
         assert!(findings.is_empty());
@@ -99,8 +99,8 @@ mod tests {
     #[test]
     fn a_mismatched_loader_errors() {
         let findings = run(
-            Some(RuntimeFamily::OldGen),
-            Some(RuntimeFamily::NextGen),
+            Some(Generation::OldGen),
+            Some(Generation::NextGen),
             AddressLibraryStatus::NotApplicable,
         );
         assert_eq!(findings.len(), 1);
@@ -114,14 +114,14 @@ mod tests {
         assert!(
             run(
                 None,
-                Some(RuntimeFamily::NextGen),
+                Some(Generation::NextGen),
                 AddressLibraryStatus::NotApplicable
             )
             .is_empty()
         );
         assert!(
             run(
-                Some(RuntimeFamily::NextGen),
+                Some(Generation::NextGen),
                 None,
                 AddressLibraryStatus::NotApplicable
             )
@@ -132,8 +132,8 @@ mod tests {
     #[test]
     fn a_missing_address_library_warns() {
         let findings = run(
-            Some(RuntimeFamily::OldGen),
-            Some(RuntimeFamily::OldGen),
+            Some(Generation::OldGen),
+            Some(Generation::OldGen),
             AddressLibraryStatus::Missing {
                 expected: "version-1-10-163-0.bin".to_owned(),
             },
@@ -147,8 +147,8 @@ mod tests {
     fn a_present_address_library_is_silent() {
         assert!(
             run(
-                Some(RuntimeFamily::OldGen),
-                Some(RuntimeFamily::OldGen),
+                Some(Generation::OldGen),
+                Some(Generation::OldGen),
                 AddressLibraryStatus::Present
             )
             .is_empty()
@@ -157,7 +157,7 @@ mod tests {
 
     fn plugin_ctx(scans: Vec<F4sePluginScan>, packed: Option<u32>) -> GameContext {
         GameContext {
-            runtime_family: Some(RuntimeFamily::Anniversary),
+            runtime_family: Some(Generation::Anniversary),
             runtime_packed: packed,
             f4se_plugins: scans,
             ..GameContext::default()

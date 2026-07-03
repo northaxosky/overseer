@@ -4,7 +4,7 @@ use super::Check;
 use crate::binaries::{BinaryEdition, BinaryScan};
 use crate::context::GameContext;
 use crate::finding::{Finding, Severity};
-use overseer_core::detect::Edition;
+use overseer_core::detect::{Edition, Generation};
 
 /// Flags launcher/Steam-API binaries left over from a partial or failed up/downgrade
 pub struct Binaries;
@@ -36,7 +36,7 @@ impl Check for Binaries {
         }
 
         // A real exe we can't pin to a generation
-        let Some(expected) = Expected::for_edition(edition) else {
+        let Some(expected) = edition.generation() else {
             return vec![Finding::new(
                 Severity::Warning,
                 "Game edition could not be determined; skipping binary consistency checks",
@@ -64,7 +64,7 @@ impl Check for Binaries {
 }
 
 /// compare on binary against the expected generation, returning a warning if it doesn't fit
-fn inspect(binary: &BinaryScan, expected: Expected) -> Option<Finding> {
+fn inspect(binary: &BinaryScan, expected: Generation) -> Option<Finding> {
     if !binary.present {
         return Some(Finding::new(
             Severity::Warning,
@@ -75,7 +75,7 @@ fn inspect(binary: &BinaryScan, expected: Expected) -> Option<Finding> {
     }
 
     match binary.edition {
-        Some(e) if expected.matches(e) => None,
+        Some(e) if generation_matches(expected, e) => None,
         Some(e) => Some(Finding::new(
             Severity::Warning,
             format!(
@@ -103,40 +103,13 @@ fn inspect(binary: &BinaryScan, expected: Expected) -> Option<Finding> {
     }
 }
 
-/// The generation the installed game is expected to be
-#[derive(Clone, Copy)]
-enum Expected {
-    Og,
-    Ng,
-    Ae,
-}
-
-impl Expected {
-    /// Map a detected game edition to the generation its binaries should match
-    fn for_edition(edition: Edition) -> Option<Self> {
-        match edition {
-            Edition::OldGen | Edition::Downgraded => Some(Self::Og),
-            Edition::NextGen => Some(Self::Ng),
-            Edition::Anniversary => Some(Self::Ae),
-            Edition::Obsolete | Edition::Unknown | Edition::Undetermined => None,
-        }
-    }
-
-    /// Wherther a binary's generation fits this expection (`NgAE` satisfies both NG & AE)
-    fn matches(self, edition: BinaryEdition) -> bool {
-        match self {
-            Self::Og => edition == BinaryEdition::OldGen,
-            Self::Ng => matches!(edition, BinaryEdition::NextGen | BinaryEdition::NgAe),
-            Self::Ae => matches!(edition, BinaryEdition::Anniversary | BinaryEdition::NgAe),
-        }
-    }
-
-    /// A short label for findings
-    fn label(self) -> &'static str {
-        match self {
-            Self::Og => "Old-Gen",
-            Self::Ng => "Next-Gen",
-            Self::Ae => "Anniversary",
+/// Whether a binary's generation fits the expected one (`NgAe` satisfies both NG & AE)
+fn generation_matches(expected: Generation, edition: BinaryEdition) -> bool {
+    match expected {
+        Generation::OldGen => edition == BinaryEdition::OldGen,
+        Generation::NextGen => matches!(edition, BinaryEdition::NextGen | BinaryEdition::NgAe),
+        Generation::Anniversary => {
+            matches!(edition, BinaryEdition::Anniversary | BinaryEdition::NgAe)
         }
     }
 }

@@ -2,6 +2,7 @@
 
 use camino::Utf8PathBuf;
 use clap::{Args, Parser, Subcommand};
+use overseer_core::detect::Generation;
 use overseer_core::game::GameKind;
 
 #[derive(Parser)]
@@ -316,8 +317,8 @@ pub enum PatchCommand {
         /// A `.ba2` file, or a directory of them
         path: Utf8PathBuf,
         /// Target edition: `og` (v1) or `ng` (v8)
-        #[arg(long, value_name = "og|ng")]
-        to: PatchTo,
+        #[arg(long, value_name = "og|ng", hide_possible_values = true)]
+        to: GenerationArg,
         /// Show what would change without writing
         #[arg(long)]
         dry_run: bool,
@@ -325,13 +326,50 @@ pub enum PatchCommand {
         #[arg(long)]
         yes: bool,
     },
+    /// Downgrade a Fallout 4 install to Old-Gen by applying xdelta3 binary deltas
+    Convert {
+        /// Target edition
+        #[arg(long, value_name = "og", hide_possible_values = true)]
+        to: GenerationArg,
+        /// Fallout 4 install directory
+        #[arg(long)]
+        game_dir: Utf8PathBuf,
+        /// xdelta3 delta for `Fallout4.exe`
+        #[arg(long, value_name = "PATH")]
+        exe_delta: Utf8PathBuf,
+        /// xdelta3 delta for `Fallout4Launcher.exe`
+        #[arg(long, value_name = "PATH")]
+        launcher_delta: Utf8PathBuf,
+        /// xdelta3 delta for `steam_api64.dll`
+        #[arg(long, value_name = "PATH")]
+        steamapi_delta: Utf8PathBuf,
+        /// Path to the `xdelta3` executable (default: `xdelta3` on PATH)
+        #[arg(long, value_name = "PATH")]
+        xdelta3: Option<Utf8PathBuf>,
+        /// Show the plan without writing
+        #[arg(long)]
+        dry_run: bool,
+        /// apply the conversion (required since it mutates the real install)
+        #[arg(long)]
+        yes: bool,
+    },
 }
 
-/// The Fallout 4 archive edition to patch towards
+/// A Fallout 4 generation as a CLI argument (`og` / `ng` / `ae`), mapping to core's [`Generation`].
 #[derive(Clone, Copy, clap::ValueEnum)]
-pub enum PatchTo {
-    /// Old-gen: version 1 (loads in every Fallout 4 build)
+pub enum GenerationArg {
     Og,
-    /// Next-gen: version 8 (needs the NG/AE exe or backport)
     Ng,
+    Ae,
+}
+
+impl GenerationArg {
+    /// The core [`Generation`] this argument denotes.
+    pub fn into_core(self) -> Generation {
+        match self {
+            GenerationArg::Og => Generation::OldGen,
+            GenerationArg::Ng => Generation::NextGen,
+            GenerationArg::Ae => Generation::Anniversary,
+        }
+    }
 }

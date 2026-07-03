@@ -6,7 +6,7 @@ use camino::{Utf8Path, Utf8PathBuf};
 use overseer_core::archive::{Ba2Error, Ba2Header, Ba2Kind};
 use overseer_core::deploy::{DATA_DIR, DeployPlan, F4SE_PLUGINS_DIR, strip_data_prefix};
 use overseer_core::detect::{
-    self, Edition, RuntimeFamily, address_library_name, file_version, loader_family,
+    self, Edition, Generation, address_library_name, file_version, loader_family,
 };
 use overseer_core::f4se::{F4seDll, F4sePlugin, parse_f4se_dll};
 use overseer_core::game::GameKind;
@@ -67,9 +67,9 @@ pub struct GameContext {
     /// BA2 archives in the profile's deploy set, with their headers
     pub archives: Vec<ArchiveInfo>,
     /// Runtime family the game exe targets (OG/NG/AE), if recognised
-    pub runtime_family: Option<RuntimeFamily>,
+    pub runtime_family: Option<Generation>,
     /// Runtime family the installed F4SE loader targets, if present and recognised
-    pub loader_family: Option<RuntimeFamily>,
+    pub loader_family: Option<Generation>,
     /// Whether the Address Library version file is present (only when F4SE plugins are deployed)
     pub address_library: AddressLibraryStatus,
     /// Deployed F4SE plugin DLLs and what runtime each advertises
