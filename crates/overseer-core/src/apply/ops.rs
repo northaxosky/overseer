@@ -10,7 +10,8 @@ use crate::deploy::{
 };
 use crate::fs;
 use crate::instance::{Instance, Profile};
-use crate::plugins::{self, PluginLoadOrder, PluginsRestore};
+use crate::plugins::{self, PluginLoadOrder};
+use crate::restore::Restore;
 use crate::saves;
 use camino::{Utf8Path, Utf8PathBuf};
 use std::collections::BTreeSet;
@@ -295,7 +296,7 @@ fn reverse_and_finalize(
         deployment.plugins_txt_intended.as_deref(),
     );
 
-    if let Ok(PluginsRestore::Conflict) = &plugins_restore {
+    if let Ok(Restore::Conflict) = &plugins_restore {
         tracing::warn!(
             "Plugins.txt changed since deployment; kept the current file instead of restoring the pre-deployment version"
         );
@@ -311,9 +312,9 @@ fn reverse_and_finalize(
                 redirect.original.as_deref(),
             )
         }
-        None => Ok(saves::SaveRestore::Restored),
+        None => Ok(Restore::Restored),
     };
-    if let Ok(saves::SaveRestore::Conflict) = &save_restore {
+    if let Ok(Restore::Conflict) = &save_restore {
         tracing::warn!(
             "SLocalSavePath changed since deployment; kept the current value instead of restoring"
         );

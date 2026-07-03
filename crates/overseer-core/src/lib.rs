@@ -17,6 +17,7 @@ pub mod instance;
 pub mod launch;
 pub mod patch;
 pub mod plugins;
+pub mod restore;
 pub mod saves;
 pub mod settings;
 

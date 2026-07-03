@@ -2,6 +2,7 @@
 
 use super::error::PluginError;
 use super::loadorder::PluginEntry;
+use crate::restore::{MissingCurrent, Restore, restore_if_ours};
 use camino::{Utf8Path, Utf8PathBuf};
 use loadorder::{GameId, GameSettings};
 
@@ -64,33 +65,18 @@ pub(crate) fn restore_plugins_txt(
     Ok(())
 }
 
-/// Whether a content aware restore put the original back, or left a diverged file alone
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PluginsRestore {
-    /// The original was restored (or there was nothing to undo)
-    Restored,
-    /// The live file no longer matched what we wrote, so it was left untouched
-    Conflict,
-}
-
 /// Restore the user's original `Plugins.txt`, only when the live file is still the one this deployment wrote
 pub fn restore_plugins_txt_if_ours(
     local_dir: &Utf8Path,
     original: Option<&[u8]>,
     intended: Option<&[u8]>,
-) -> Result<PluginsRestore, PluginError> {
-    let Some(intended) = intended else {
-        restore_plugins_txt(local_dir, original)?;
-        return Ok(PluginsRestore::Restored);
-    };
-
-    let current = read_plugins_txt(local_dir)?;
-    if current.as_deref() == Some(intended) {
-        restore_plugins_txt(local_dir, original)?;
-        Ok(PluginsRestore::Restored)
-    } else {
-        Ok(PluginsRestore::Conflict)
-    }
+) -> Result<Restore, PluginError> {
+    restore_if_ours(
+        intended.map(<[u8]>::to_vec),
+        || Ok(read_plugins_txt(local_dir)?.map(|bytes| (bytes, ()))),
+        |_| restore_plugins_txt(local_dir, original),
+        MissingCurrent::Conflict,
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -217,7 +203,7 @@ mod tests {
         let outcome =
             restore_plugins_txt_if_ours(&local, Some(b"*Original.esp\n"), Some(b"*Cool.esp\n"))
                 .expect("restore");
-        assert_eq!(outcome, PluginsRestore::Restored);
+        assert_eq!(outcome, Restore::Restored);
         assert_eq!(
             std::fs::read(local.join("Plugins.txt")).expect("read"),
             b"*Original.esp\n"
@@ -232,7 +218,7 @@ mod tests {
         let outcome =
             restore_plugins_txt_if_ours(&local, Some(b"*Original.esp\n"), Some(b"*Cool.esp\n"))
                 .expect("restore");
-        assert_eq!(outcome, PluginsRestore::Conflict);
+        assert_eq!(outcome, Restore::Conflict);
         // Left untouched, not rolled back to the original.
         assert_eq!(
             std::fs::read(local.join("Plugins.txt")).expect("read"),
@@ -247,7 +233,7 @@ mod tests {
         // intended == None: we never reached the write phase, so fully undo to the original.
         let outcome =
             restore_plugins_txt_if_ours(&local, Some(b"*Original.esp\n"), None).expect("restore");
-        assert_eq!(outcome, PluginsRestore::Restored);
+        assert_eq!(outcome, Restore::Restored);
         assert_eq!(
             std::fs::read(local.join("Plugins.txt")).expect("read"),
             b"*Original.esp\n"

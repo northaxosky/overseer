@@ -3,19 +3,11 @@
 use crate::error::IoError;
 use crate::fs;
 use crate::ini::{self, Ini};
+use crate::restore::{MissingCurrent, Restore, restore_if_ours};
 use camino::Utf8Path;
 
 const SECTION: &str = "General";
 const KEY: &str = "SLocalSavePath";
-
-/// Whether a save-redirect restore puts the setting back
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SaveRestore {
-    /// The original value was restored (or the key removed, or nothing to undo)
-    Restored,
-    /// The live value no longer matched what we wrote, so it was left alone
-    Conflict,
-}
 
 /// The `SLocalSavePath` value for a profile: `Saves\<profile>\`
 pub fn save_redirect_value(profile: &str) -> String {
@@ -43,22 +35,27 @@ pub fn restore_save_redirect(
     custom_ini: &Utf8Path,
     profile: &str,
     original: Option<&str>,
-) -> Result<SaveRestore, IoError> {
-    let Some(text) = fs::read_to_string_opt(custom_ini)? else {
-        return Ok(SaveRestore::Restored);
-    };
-
-    let current = Ini::parse(&text).get(SECTION, KEY).map(str::to_owned);
-    if current.as_deref() != Some(save_redirect_value(profile).as_str()) {
-        return Ok(SaveRestore::Conflict);
-    }
-
-    let updated = match original {
-        Some(value) => ini::set_key(&text, SECTION, KEY, value),
-        None => ini::unset_key(&text, SECTION, KEY),
-    };
-    fs::write_atomic(custom_ini, updated.as_bytes())?;
-    Ok(SaveRestore::Restored)
+) -> Result<Restore, IoError> {
+    restore_if_ours(
+        Some(Some(save_redirect_value(profile))),
+        || {
+            Ok(fs::read_to_string_opt(custom_ini)?.map(|text| {
+                let current = Ini::parse(&text).get(SECTION, KEY).map(str::to_owned);
+                (current, text)
+            }))
+        },
+        |text| {
+            let Some(text) = text else {
+                return Ok(());
+            };
+            let updated = match original {
+                Some(value) => ini::set_key(&text, SECTION, KEY, value),
+                None => ini::unset_key(&text, SECTION, KEY),
+            };
+            fs::write_atomic(custom_ini, updated.as_bytes())
+        },
+        MissingCurrent::Restored,
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -134,7 +131,7 @@ mod tests {
 
         let outcome =
             restore_save_redirect(&custom_ini, "Hardcore", original.as_deref()).expect("restore");
-        assert_eq!(outcome, SaveRestore::Restored);
+        assert_eq!(outcome, Restore::Restored);
 
         let ini = Ini::parse(&std::fs::read_to_string(&custom_ini).unwrap());
         assert_eq!(
@@ -158,7 +155,7 @@ mod tests {
         let outcome =
             restore_save_redirect(&custom_ini, "Hardcore", original.as_deref()).expect("restore");
 
-        assert_eq!(outcome, SaveRestore::Restored);
+        assert_eq!(outcome, Restore::Restored);
         assert_eq!(
             Ini::parse(&std::fs::read_to_string(&custom_ini).unwrap())
                 .get("General", "SLocalSavePath"),
@@ -181,11 +178,7 @@ mod tests {
 
         let outcome =
             restore_save_redirect(&custom_ini, "Hardcore", original.as_deref()).expect("restore");
-        assert_eq!(
-            outcome,
-            SaveRestore::Conflict,
-            "diverged value is left alone"
-        );
+        assert_eq!(outcome, Restore::Conflict, "diverged value is left alone");
         assert_eq!(
             Ini::parse(&std::fs::read_to_string(&custom_ini).unwrap())
                 .get("General", "SLocalSavePath"),
@@ -198,6 +191,6 @@ mod tests {
         let (_tmp, custom_ini, _saves_dir) = setup();
         // Never written; a clean restore should simply succeed.
         let outcome = restore_save_redirect(&custom_ini, "Hardcore", None).expect("restore");
-        assert_eq!(outcome, SaveRestore::Restored);
+        assert_eq!(outcome, Restore::Restored);
     }
 }
