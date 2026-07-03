@@ -22,9 +22,6 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Command {
-    /// Run a self-contained proof of the hardlink deployment engine in a temp directory
-    Demo,
-
     /// Deploy a profile's enabled mods into the instance's game `Data/` directory
     Deploy {
         #[command(flatten)]

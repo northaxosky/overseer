@@ -9,7 +9,7 @@ Rust, modeled on Mod Organizer 2. It is licensed **GPL-3.0-or-later**.
   `rustfmt` and `clippy` — is declared in [`rust-toolchain.toml`](rust-toolchain.toml) and
   installed automatically the first time you run `cargo`.
 - Build it: `cargo build`
-- Try it: `cargo run -p overseer-cli -- demo` (a self-contained proof of the deployment engine)
+- Try it: `cargo run -p overseer-tui` (launches the terminal UI)
 
 ## The gate
 

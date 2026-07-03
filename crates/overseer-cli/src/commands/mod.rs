@@ -1,7 +1,6 @@
 //! Command handlers, one module per command group.
 
 pub mod conflicts;
-pub mod demo;
 pub mod deploy;
 pub mod doctor;
 pub mod downloads;

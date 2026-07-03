@@ -38,15 +38,11 @@ over the same core.
 
 ## Try it
 
-A self-contained proof of the deployment engine (no game install required):
+Launch the terminal UI:
 
 ```
-cargo run -p overseer-cli -- demo
+cargo run -p overseer-tui
 ```
-
-This stages two conflicting mods in a temporary directory, hard-links them into a target
-`Data` folder in priority order, proves the deployed files are links (not copies), then
-purges everything back to a clean state.
 
 ### Manage a Fallout 4 install
 

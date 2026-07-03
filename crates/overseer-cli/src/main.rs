@@ -19,7 +19,6 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
     ui::apply_color_choice(cli.color);
     match cli.command {
-        Command::Demo => commands::demo::run(),
         Command::Deploy { target } => commands::deploy::deploy(&target),
         Command::Purge { instance } => commands::deploy::purge(instance),
         Command::Install {
