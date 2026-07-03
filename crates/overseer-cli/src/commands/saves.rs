@@ -1,7 +1,6 @@
 //! `overseer saves`: list or delete a profile's save files
 
 use crate::cli::{ProfileArgs, SaveCommand};
-use crate::context::open_instance;
 use crate::ui::{heading, list_item, success};
 use anyhow::{Context, Result};
 use overseer_core::saves;
@@ -14,7 +13,7 @@ pub fn run(command: SaveCommand) -> Result<()> {
 }
 
 fn list(target: &ProfileArgs) -> Result<()> {
-    let instance = open_instance(&target.instance)?;
+    let (instance, _profile) = target.load_profile()?;
     let dir = instance
         .saves_dir(&target.profile)
         .context("resolving the saves directory")?;
@@ -46,7 +45,7 @@ fn list(target: &ProfileArgs) -> Result<()> {
 }
 
 fn delete(target: &ProfileArgs, file: &str) -> Result<()> {
-    let instance = open_instance(&target.instance)?;
+    let (instance, _profile) = target.load_profile()?;
     let dir = instance
         .saves_dir(&target.profile)
         .context("resolving the saves directory")?;

@@ -5,7 +5,6 @@ use overseer_core::instance::Instance;
 use overseer_core::plugins::{PluginLoadOrder, PluginMeta, discover_plugins};
 
 use crate::cli::{PluginCommand, ProfileArgs};
-use crate::context::{load_reconciled, open_instance};
 use crate::ui::{heading, list_item, success};
 
 pub fn run(command: PluginCommand) -> Result<()> {
@@ -17,20 +16,20 @@ pub fn run(command: PluginCommand) -> Result<()> {
 }
 
 /// Reconcile the mod list, discover plugins from enabled mods, and load + reconcile the plugin load order.
-fn synced(instance: &Instance, profile_name: &str) -> Result<(Vec<PluginMeta>, PluginLoadOrder)> {
-    let profile = load_reconciled(instance, profile_name)?;
-    let discovered = discover_plugins(instance, &profile).context("discovering plugins")?;
-    let mut order = PluginLoadOrder::load(instance, profile_name)
+fn synced(target: &ProfileArgs) -> Result<(Instance, Vec<PluginMeta>, PluginLoadOrder)> {
+    let (instance, profile) = target.load_context()?;
+    let profile_name = profile.name.as_str();
+    let discovered = discover_plugins(&instance, &profile).context("discovering plugins")?;
+    let mut order = PluginLoadOrder::load(&instance, profile_name)
         .with_context(|| format!("loading plugins.txt for `{profile_name}`"))?;
     if order.reconcile(&discovered) {
-        order.save(instance).context("saving plugins.txt")?;
+        order.save(&instance).context("saving plugins.txt")?;
     }
-    Ok((discovered, order))
+    Ok((instance, discovered, order))
 }
 
 fn list(target: &ProfileArgs) -> Result<()> {
-    let instance = open_instance(&target.instance)?;
-    let (discovered, order) = synced(&instance, &target.profile)?;
+    let (_instance, discovered, order) = synced(target)?;
 
     if order.plugins.is_empty() {
         println!("No plugins. (Install mods with plugins and enable them.)");
@@ -53,8 +52,7 @@ fn list(target: &ProfileArgs) -> Result<()> {
 }
 
 fn set_active(target: &ProfileArgs, plugin: &str, active: bool) -> Result<()> {
-    let instance = open_instance(&target.instance)?;
-    let (_discovered, mut order) = synced(&instance, &target.profile)?;
+    let (instance, _discovered, mut order) = synced(target)?;
 
     if active {
         order.activate(plugin)

@@ -45,6 +45,9 @@ fn init(
     };
 
     let instance = Instance::init(&path, config).with_context(|| format!("initializing {path}"))?;
+    instance
+        .create_profile(&instance.config.default_profile)
+        .context("creating the default profile")?;
     success(format!("Created instance at {}", instance.root));
     println!("  game:     {}", instance.config.game);
     println!("  game dir: {}", instance.config.game_dir);

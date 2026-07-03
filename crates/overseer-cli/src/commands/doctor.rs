@@ -4,11 +4,10 @@ use anyhow::{Context, Result};
 use overseer_diagnostics::{Finding, Report, Severity, diagnose};
 
 use crate::cli::ProfileArgs;
-use crate::context::open_instance;
 use crate::ui::{Role, heading, styled};
 
 pub fn run(target: &ProfileArgs) -> Result<()> {
-    let instance = open_instance(&target.instance)?;
+    let (instance, _profile) = target.load_profile()?;
     let report = diagnose(&instance, &target.profile)
         .with_context(|| format!("running diagnostics for profile `{}`", target.profile))?;
 

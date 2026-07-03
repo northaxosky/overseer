@@ -1,14 +1,12 @@
 //! `overseer conflicts`: files provided by more than one enabled mod
 
 use crate::cli::ProfileArgs;
-use crate::context::{load_reconciled, open_instance};
 use crate::ui::{Role, heading, styled};
 use anyhow::{Context, Result};
 use overseer_core::deploy::detect_conflicts;
 
 pub fn run(target: &ProfileArgs) -> Result<()> {
-    let instance = open_instance(&target.instance)?;
-    let profile = load_reconciled(&instance, &target.profile)?;
+    let (instance, profile) = target.load_context()?;
     let conflicts =
         detect_conflicts(&profile.deploy_sources(&instance)).context("detecting conflicts")?;
 

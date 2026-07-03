@@ -6,7 +6,6 @@ use crate::cli::{ProfileArgs, ProfileCommand, Toggle};
 use crate::context::open_instance;
 use crate::ui::success;
 use camino::Utf8Path;
-use overseer_core::instance::Profile;
 
 pub fn run(command: ProfileCommand) -> Result<()> {
     match command {
@@ -17,9 +16,7 @@ pub fn run(command: ProfileCommand) -> Result<()> {
 
 /// Show or set the profile's `LocalSaves` flag, writing it back as-is without mod-list reconcile.
 fn saves(target: &ProfileArgs, state: Option<Toggle>) -> Result<()> {
-    let instance = open_instance(&target.instance)?;
-    let mut profile = Profile::load(&instance, &target.profile)
-        .with_context(|| format!("loading profile `{}`", target.profile))?;
+    let (instance, mut profile) = target.load_profile()?;
 
     match state {
         Some(toggle) => {
