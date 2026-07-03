@@ -5,6 +5,7 @@ use crate::fs::size_opt;
 use crate::patch::delta::crc32_file;
 use camino::Utf8Path;
 use sha2::{Digest, Sha256};
+use std::fmt::Write as _;
 use std::io::Read;
 
 /// The measured identity of a file on disk
@@ -81,7 +82,12 @@ pub fn sha256_file(path: &Utf8Path) -> Result<String, IoError> {
         }
         hasher.update(&buf[..n]);
     }
-    Ok(format!("{:x}", hasher.finalize()))
+    let digest = hasher.finalize();
+    let mut hex = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        let _ = write!(hex, "{byte:02x}");
+    }
+    Ok(hex)
 }
 
 /// Measure `path`'s size, CRC32 and SHA-256; `None` if it does not exist
