@@ -25,7 +25,7 @@ pub(crate) fn read_opt(path: &Utf8Path) -> Result<Option<Vec<u8>>, IoError> {
     }
 }
 
-/// The size in bytes of a file; `Ok(None)` when it doesn't exist
+/// The size in bytes of a file; `Ok(None)` when it doesn't exist.
 pub(crate) fn size_opt(path: &Utf8Path) -> Result<Option<u64>, IoError> {
     match std::fs::metadata(path) {
         Ok(m) => Ok(Some(m.len())),
@@ -59,14 +59,7 @@ pub(crate) fn write_atomic(path: &Utf8Path, contents: &[u8]) -> Result<(), IoErr
         })
 }
 
-/// Copy a file's contents to `to`, binding the source path on error
-pub(crate) fn copy(from: &Utf8Path, to: &Utf8Path) -> Result<(), IoError> {
-    std::fs::copy(from, to)
-        .map(|_| ())
-        .map_err(|e| io_err(from, e))
-}
-
-/// Rename `from` to `to` (atomic); binds the source path on error
+/// Rename `from` to `to` (atomic); binds the source path on error.
 pub(crate) fn rename(from: &Utf8Path, to: &Utf8Path) -> Result<(), IoError> {
     std::fs::rename(from, to).map_err(|e| io_err(from, e))
 }
@@ -89,7 +82,7 @@ pub(crate) fn remove_file_opt(path: &Utf8Path) -> Result<(), IoError> {
     }
 }
 
-/// Open a directory for iteration: `Ok(None)` when it doesn't exist
+/// Open a directory for iteration: `Ok(None)` when it doesn't exist.
 pub(crate) fn read_dir_opt(dir: &Utf8Path) -> Result<Option<std::fs::ReadDir>, IoError> {
     match std::fs::read_dir(dir) {
         Ok(entries) => Ok(Some(entries)),

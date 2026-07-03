@@ -6,7 +6,7 @@ use super::fingerprint::{
 };
 use crate::detect::Generation;
 use crate::error::{IoError, io_err};
-use crate::fs::{copy, fsync, remove_file_opt, rename};
+use crate::fs::{fsync, remove_file_opt, rename, size_opt};
 use crate::patch::delta::{DeltaDecoder, DeltaError};
 use crate::patch::fingerprint::{FileFingerprint, VerifiedBy, fingerprint_file};
 use camino::{Utf8Path, Utf8PathBuf};
@@ -150,12 +150,21 @@ pub fn explicit_item(target: Generation, rel_path: &str) -> Option<ConvertItem> 
     })
 }
 
+/// Restore any core file left in a crashed mid-swap state; run before planning a real conversion
+pub fn recover_install(game_dir: &Utf8Path, target: Generation) -> Result<(), ConvertError> {
+    for item in items(target) {
+        recover_leftover_backup(game_dir, item)?;
+    }
+    Ok(())
+}
+
 fn prepare(
     game_dir: &Utf8Path,
     job: &ConvertJob,
     decoder: &dyn DeltaDecoder,
 ) -> Result<Prepared, ConvertError> {
     let item = job.item;
+    recover_leftover_backup(game_dir, item)?;
     cleanup_leftover_tmp(game_dir, item)?;
     let plan = classify(game_dir, item)?;
     match plan.state {
@@ -240,12 +249,6 @@ struct PreparedReady {
     verified_by: VerifiedBy,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum BackupAction {
-    Created,
-    Reused,
-}
-
 trait RenameOp {
     fn rename(&mut self, from: &Utf8Path, to: &Utf8Path) -> Result<(), IoError>;
 }
@@ -268,37 +271,36 @@ fn commit_batch_with_renamer(
     renamer: &mut dyn RenameOp,
 ) -> Result<(), ConvertError> {
     preflight_writable(game_dir, ready)?;
-    let mut backups = Vec::new();
     for ready in ready {
-        let action = ensure_backup(game_dir, ready)?;
-        backups.push((backup_path(game_dir, ready.item), action));
+        guard_backup_slot(game_dir, ready)?;
     }
-    let mut swapped: Vec<&PreparedReady> = Vec::new();
+    let mut moved: Vec<&PreparedReady> = Vec::new();
     for (idx, current) in ready.iter().enumerate() {
         debug_assert!(matches!(
             current.verified_by,
             VerifiedBy::Sha256 | VerifiedBy::Crc32
         ));
         if !source_still_matches(game_dir, current)? {
-            rollback(game_dir, &swapped);
+            rollback(game_dir, &moved, renamer);
             cleanup_remaining_temps(&ready[idx..]);
-            cleanup_created_backups(&backups);
             return Err(ConvertError::SourceChanged {
                 item: current.item.rel_path.to_owned(),
             });
         }
+        if let Err(err) = move_original_aside(game_dir, current, renamer) {
+            rollback(game_dir, &moved, renamer);
+            cleanup_remaining_temps(&ready[idx..]);
+            return Err(err);
+        }
+        moved.push(current);
         let real = game_dir.join(current.item.rel_path);
-        match renamer.rename(&current.tmp, &real) {
-            Ok(()) => swapped.push(current),
-            Err(source) => {
-                rollback(game_dir, &swapped);
-                cleanup_remaining_temps(&ready[idx..]);
-                cleanup_created_backups(&backups);
-                return Err(ConvertError::CommitFailed {
-                    item: current.item.rel_path.to_owned(),
-                    source,
-                });
-            }
+        if let Err(source) = renamer.rename(&current.tmp, &real) {
+            rollback(game_dir, &moved, renamer);
+            cleanup_remaining_temps(&ready[idx..]);
+            return Err(ConvertError::CommitFailed {
+                item: current.item.rel_path.to_owned(),
+                source,
+            });
         }
     }
     Ok(())
@@ -310,29 +312,34 @@ fn cleanup_remaining_temps(ready: &[PreparedReady]) {
     }
 }
 
-fn cleanup_created_backups(backups: &[(Utf8PathBuf, BackupAction)]) {
-    for (path, action) in backups {
-        if *action == BackupAction::Created {
-            let _ = remove_file_opt(path);
-        }
-    }
-}
-
-fn ensure_backup(game_dir: &Utf8Path, ready: &PreparedReady) -> Result<BackupAction, ConvertError> {
-    let real = game_dir.join(ready.item.rel_path);
+/// Refuse up front if a backup slot is occupied by a file that is not this source.
+fn guard_backup_slot(game_dir: &Utf8Path, ready: &PreparedReady) -> Result<(), ConvertError> {
     let bak = backup_path(game_dir, ready.item);
-    if let Some(existing) = fingerprint_file(&bak)? {
-        if existing.size == ready.source.size
-            && existing.crc32 == ready.source.crc32
-            && existing.sha256.eq_ignore_ascii_case(&ready.source.sha256)
-        {
-            return Ok(BackupAction::Reused);
-        }
+    if let Some(existing) = fingerprint_file(&bak)?
+        && !source_matches(&existing, &ready.source)
+    {
         return Err(ConvertError::BackupConflict { backup: bak });
     }
-    copy(&real, &bak)?;
-    fsync(&bak)?;
-    Ok(BackupAction::Created)
+    Ok(())
+}
+
+/// Move the original aside via atomic rename; a matching pre-existing backup is left in place.
+fn move_original_aside(
+    game_dir: &Utf8Path,
+    ready: &PreparedReady,
+    renamer: &mut dyn RenameOp,
+) -> Result<(), ConvertError> {
+    let bak = backup_path(game_dir, ready.item);
+    if size_opt(&bak)?.is_some() {
+        return Ok(());
+    }
+    let real = game_dir.join(ready.item.rel_path);
+    renamer
+        .rename(&real, &bak)
+        .map_err(|source| ConvertError::CommitFailed {
+            item: ready.item.rel_path.to_owned(),
+            source,
+        })
 }
 
 fn source_still_matches(game_dir: &Utf8Path, ready: &PreparedReady) -> Result<bool, ConvertError> {
@@ -340,17 +347,32 @@ fn source_still_matches(game_dir: &Utf8Path, ready: &PreparedReady) -> Result<bo
     let Some(current) = fingerprint_file(&real)? else {
         return Ok(false);
     };
-    Ok(current.size == ready.source.size
-        && current.crc32 == ready.source.crc32
-        && current.sha256.eq_ignore_ascii_case(&ready.source.sha256))
+    Ok(source_matches(&current, &ready.source))
 }
 
-fn rollback(game_dir: &Utf8Path, swapped: &[&PreparedReady]) {
-    for ready in swapped.iter().rev() {
+fn source_matches(file: &FileFingerprint, source: &FileFingerprint) -> bool {
+    file.size == source.size
+        && file.crc32 == source.crc32
+        && file.sha256.eq_ignore_ascii_case(&source.sha256)
+}
+
+/// Restore every already-moved file from its backup via atomic rename; best-effort.
+fn rollback(game_dir: &Utf8Path, moved: &[&PreparedReady], renamer: &mut dyn RenameOp) {
+    for ready in moved.iter().rev() {
         let real = game_dir.join(ready.item.rel_path);
         let bak = backup_path(game_dir, ready.item);
-        let _ = copy(&bak, &real);
+        let _ = renamer.rename(&bak, &real);
     }
+}
+
+/// Recover a crash mid-swap: if the real file is gone but its backup survives, restore it.
+fn recover_leftover_backup(game_dir: &Utf8Path, item: ConvertItem) -> Result<(), ConvertError> {
+    let real = game_dir.join(item.rel_path);
+    let bak = backup_path(game_dir, item);
+    if size_opt(&real)?.is_none() && size_opt(&bak)?.is_some() {
+        rename(&bak, &real)?;
+    }
+    Ok(())
 }
 
 fn cleanup_leftover_tmp(game_dir: &Utf8Path, item: ConvertItem) -> Result<(), ConvertError> {
@@ -687,14 +709,13 @@ mod tests {
         assert_eq!(std::fs::read(root.join("bad.bin")).unwrap(), b"OLD-bad");
     }
 
-    struct FailSecondRename {
-        calls: usize,
+    struct FailInstallOf {
+        tmp_suffix: String,
     }
 
-    impl RenameOp for FailSecondRename {
+    impl RenameOp for FailInstallOf {
         fn rename(&mut self, from: &Utf8Path, to: &Utf8Path) -> Result<(), IoError> {
-            self.calls += 1;
-            if self.calls == 2 {
+            if from.as_str().ends_with(&self.tmp_suffix) {
                 return Err(IoError::new(
                     to,
                     std::io::Error::other("injected rename failure"),
@@ -705,7 +726,7 @@ mod tests {
     }
 
     #[test]
-    fn commit_failure_on_second_rename_rolls_back_first_swap() {
+    fn commit_failure_mid_batch_rolls_back_every_prior_swap() {
         static ONE_FP: BinaryFingerprint = BinaryFingerprint {
             generation: Generation::OldGen,
             rel_path: "one.bin",
@@ -780,7 +801,9 @@ mod tests {
                 _ => panic!("all three jobs should prepare"),
             }
         }
-        let mut renamer = FailSecondRename { calls: 0 };
+        let mut renamer = FailInstallOf {
+            tmp_suffix: "two.bin.overseer-tmp".to_owned(),
+        };
         let err = commit_batch_with_renamer(&root, &ready, &mut renamer).expect_err("commit fails");
         assert!(matches!(err, ConvertError::CommitFailed { item, .. } if item == "two.bin"));
         assert_eq!(std::fs::read(root.join("one.bin")).unwrap(), b"original1");
@@ -804,5 +827,40 @@ mod tests {
         )
         .unwrap();
         assert_eq!(std::fs::read(root.join("check.bin")).unwrap(), b"123456789");
+    }
+
+    #[test]
+    fn recovers_when_real_is_missing_but_backup_survives() {
+        // Simulate a crash mid-swap: the original moved to its backup slot, real not yet installed.
+        let (_tmp, root) = temp();
+        std::fs::write(root.join("check.bin.overseer-bak"), b"AE-version").unwrap();
+        assert!(!root.join("check.bin").exists());
+        let outcome = convert_item(
+            &root,
+            item(),
+            Utf8Path::new("d.vcdiff"),
+            &FakeDecoder::Writes(b"123456789".to_vec()),
+        )
+        .unwrap();
+        assert_eq!(outcome, Outcome::Converted);
+        assert_eq!(std::fs::read(root.join("check.bin")).unwrap(), b"123456789");
+        assert_eq!(
+            std::fs::read(root.join("check.bin.overseer-bak")).unwrap(),
+            b"AE-version"
+        );
+    }
+
+    #[test]
+    fn recover_install_restores_a_crashed_core_file_before_planning() {
+        // A killed run can leave the real file moved to its backup slot; recovery puts it back.
+        let (_tmp, root) = temp();
+        std::fs::write(root.join("Fallout4.exe.overseer-bak"), b"og-exe-bytes").unwrap();
+        assert!(!root.join("Fallout4.exe").exists());
+        recover_install(&root, Generation::OldGen).unwrap();
+        assert_eq!(
+            std::fs::read(root.join("Fallout4.exe")).unwrap(),
+            b"og-exe-bytes"
+        );
+        assert!(!root.join("Fallout4.exe.overseer-bak").exists());
     }
 }

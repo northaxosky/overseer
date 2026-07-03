@@ -92,6 +92,9 @@ fn convert_install(args: ConvertArgs<'_>) -> Result<()> {
     let install = detect::detect(GameKind::Fallout4, &game_dir);
     let edition = detect::edition(&install, &game_dir);
     let delta_map = resolve_deltas(args.deltas, args)?;
+    if args.yes && !args.dry_run {
+        convert::recover_install(&game_dir, args.target)?;
+    }
     let item_plans = convert::plan(&game_dir, args.target)?;
     validate_edition_for_auto_convert(edition, &item_plans)?;
     let (jobs, complete_noop) = build_jobs(
