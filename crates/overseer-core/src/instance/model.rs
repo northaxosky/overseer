@@ -231,6 +231,7 @@ impl Instance {
 
     /// Create a new & empty profile
     pub fn create_profile(&self, name: &str) -> Result<Profile, InstanceError> {
+        validate_profile_name(name)?;
         let dir = self.profile_dir(name);
         crate::fs::ensure_dir(&self.profiles_dir())?;
         std::fs::create_dir(&dir).map_err(|source| {
@@ -305,49 +306,102 @@ impl Instance {
 
         Ok(())
     }
+
+    /// rename a profile directory and its redirected saves
+    pub(crate) fn rename_profile(&self, old: &str, new: &str) -> Result<(), InstanceError> {
+        validate_profile_name(new)?;
+        if new.eq_ignore_ascii_case(old) {
+            return Err(InstanceError::InvalidProfileName(
+                "new name (case-insensitive) matches old name".to_owned(),
+            ));
+        }
+
+        let profiles = self.profiles()?;
+        let old_name = profiles
+            .iter()
+            .find(|p| p.eq_ignore_ascii_case(old))
+            .cloned()
+            .ok_or_else(|| InstanceError::ProfileNotFound(old.to_owned()))?;
+        if profiles
+            .iter()
+            .any(|p| !p.eq_ignore_ascii_case(&old_name) && p.eq_ignore_ascii_case(new))
+        {
+            return Err(InstanceError::ProfileExists(new.to_owned()));
+        }
+
+        // Redirected saves are name-keyed and live outside the profile dir
+        let saves_move = if Profile::load(self, &old_name)?.local_saves {
+            let from = self.saves_dir(&old_name)?;
+            let to = self.saves_dir(new)?;
+            match (from.exists(), to.exists()) {
+                (true, true) => return Err(InstanceError::ProfileExists(new.to_owned())),
+                (true, false) => Some((from, to)),
+                (false, _) => None,
+            }
+        } else {
+            None
+        };
+
+        let old_dir = self.profile_dir(&old_name);
+        let new_dir = self.profile_dir(new);
+        std::fs::rename(&old_dir, &new_dir)
+            .map_err(|e| InstanceError::from(io_err(&old_dir, e)))?;
+
+        // If the saves move fails, undo the dir rename
+        if let Some((from, to)) = saves_move
+            && let Err(e) = std::fs::rename(&from, &to)
+        {
+            let _ = std::fs::rename(&new_dir, &old_dir);
+            return Err(InstanceError::from(io_err(&from, e)));
+        }
+        Ok(())
+    }
 }
 
-/// Validate a managed mod folder name.
-pub(crate) fn validate_mod_name(name: &str) -> Result<(), InstanceError> {
+/// Filesystem safety checks shared by mod and profile names; returns the failure reason
+fn check_fs_name(name: &str) -> Result<(), &'static str> {
     const BAD: &[char] = &['/', '\\', ':', '*', '?', '"', '<', '>', '|'];
     const RESERVED: &[&str] = &[
         "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8",
         "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
     ];
     if name.is_empty() {
-        Err(InstanceError::InvalidModName(
-            "name cannot be empty".to_owned(),
-        ))
+        Err("name cannot be empty")
     } else if name.chars().count() > 64 {
-        Err(InstanceError::InvalidModName(
-            "name cannot be longer than 64 characters".to_owned(),
-        ))
+        Err("name cannot be longer than 64 characters")
     } else if name.contains("..") || name.contains(BAD) || name.contains(char::is_control) {
-        Err(InstanceError::InvalidModName(
-            "name cannot contain .. or any of / \\ : * ? \" < > |".to_owned(),
-        ))
+        Err("name cannot contain .. or any of / \\ : * ? \" < > |")
     } else if name.ends_with('.') || name.ends_with(' ') {
-        Err(InstanceError::InvalidModName(
-            "name cannot end with a space or '.'".to_owned(),
-        ))
+        Err("name cannot end with a space or '.'")
     } else if RESERVED.iter().any(|r| r.eq_ignore_ascii_case(name)) {
-        Err(InstanceError::InvalidModName(
-            "that name is reserved by Windows".to_owned(),
-        ))
-    } else if name.ends_with("_separator") {
-        Err(InstanceError::InvalidModName(
-            "mod names cannot end with _separator".to_owned(),
-        ))
-    } else if ["overwrite", "downloads"]
-        .iter()
-        .any(|reserved| reserved.eq_ignore_ascii_case(name))
-    {
-        Err(InstanceError::InvalidModName(
-            "that name is reserved by the instance layout".to_owned(),
-        ))
+        Err("that name is reserved by Windows")
     } else {
         Ok(())
     }
+}
+
+/// Validate a managed mod folder name.
+pub(crate) fn validate_mod_name(name: &str) -> Result<(), InstanceError> {
+    check_fs_name(name).map_err(|m| InstanceError::InvalidModName(m.to_owned()))?;
+    if name.ends_with("_separator") {
+        return Err(InstanceError::InvalidModName(
+            "mod names cannot end with _separator".to_owned(),
+        ));
+    }
+    if ["overwrite", "downloads"]
+        .iter()
+        .any(|reserved| reserved.eq_ignore_ascii_case(name))
+    {
+        return Err(InstanceError::InvalidModName(
+            "that name is reserved by the instance layout".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+/// Validate a profile directory name.
+pub(crate) fn validate_profile_name(name: &str) -> Result<(), InstanceError> {
+    check_fs_name(name).map_err(|m| InstanceError::InvalidProfileName(m.to_owned()))
 }
 
 fn profile_has_managed(profile: &Profile, name: &str) -> bool {
@@ -610,6 +664,96 @@ mod tests {
             .create_profile("Default")
             .expect_err("should refuse");
         assert!(matches!(err, InstanceError::ProfileExists(name) if name == "Default"));
+    }
+
+    #[test]
+    fn create_profile_rejects_a_filesystem_unsafe_name() {
+        let (_tmp, instance) = temp_instance();
+        let err = instance
+            .create_profile("bad/name")
+            .expect_err("invalid name must be rejected");
+        assert!(matches!(err, InstanceError::InvalidProfileName(_)));
+    }
+
+    #[test]
+    fn rename_profile_moves_the_directory_and_its_contents() {
+        let (_tmp, instance) = temp_instance();
+        save_profile(&instance, "Old", &[]);
+        // A file living inside the profile dir must travel with the rename.
+        std::fs::write(instance.profile_dir("Old").join("plugins.txt"), "*A.esp\n").expect("seed");
+
+        instance.rename_profile("Old", "New").expect("rename");
+
+        assert!(!instance.profile_dir("Old").exists());
+        assert!(instance.profile_dir("New").is_dir());
+        assert_eq!(
+            std::fs::read_to_string(instance.profile_dir("New").join("plugins.txt")).expect("read"),
+            "*A.esp\n"
+        );
+        assert_eq!(instance.profiles().expect("profiles"), ["New"]);
+    }
+
+    #[test]
+    fn rename_profile_moves_redirected_local_saves() {
+        let (_tmp, instance) = temp_instance();
+        let profile = Profile {
+            name: "Old".to_owned(),
+            mods: Vec::new(),
+            local_saves: true,
+        };
+        profile.save(&instance).expect("save profile");
+        let old_saves = instance.saves_dir("Old").expect("saves dir");
+        std::fs::create_dir_all(&old_saves).expect("mk saves");
+        std::fs::write(old_saves.join("Quicksave.fos"), "save").expect("seed save");
+
+        instance.rename_profile("Old", "New").expect("rename");
+
+        let new_saves = instance.saves_dir("New").expect("saves dir");
+        assert!(!old_saves.exists(), "old saves dir moved");
+        assert_eq!(
+            std::fs::read_to_string(new_saves.join("Quicksave.fos")).expect("read save"),
+            "save"
+        );
+    }
+
+    #[test]
+    fn rename_profile_rejects_a_colliding_target() {
+        let (_tmp, instance) = temp_instance();
+        save_profile(&instance, "Old", &[]);
+        save_profile(&instance, "Taken", &[]);
+
+        let err = instance
+            .rename_profile("Old", "taken")
+            .expect_err("collision must be rejected");
+        assert!(matches!(err, InstanceError::ProfileExists(name) if name == "taken"));
+        assert!(instance.profile_dir("Old").is_dir());
+        assert!(instance.profile_dir("Taken").is_dir());
+    }
+
+    #[test]
+    fn rename_profile_rejects_a_missing_source() {
+        let (_tmp, instance) = temp_instance();
+        let err = instance
+            .rename_profile("Ghost", "New")
+            .expect_err("missing source must be rejected");
+        assert!(matches!(err, InstanceError::ProfileNotFound(name) if name == "Ghost"));
+    }
+
+    #[test]
+    fn rename_profile_rejects_invalid_and_case_only_names() {
+        let (_tmp, instance) = temp_instance();
+        save_profile(&instance, "Old", &[]);
+
+        let bad = instance
+            .rename_profile("Old", "a/b")
+            .expect_err("invalid name must be rejected");
+        assert!(matches!(bad, InstanceError::InvalidProfileName(_)));
+
+        let case_only = instance
+            .rename_profile("Old", "old")
+            .expect_err("case-only rename must be rejected");
+        assert!(matches!(case_only, InstanceError::InvalidProfileName(_)));
+        assert!(instance.profile_dir("Old").is_dir(), "nothing moved");
     }
 
     #[test]

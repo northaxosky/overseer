@@ -6,5 +6,5 @@ mod ops;
 mod state;
 
 pub use error::ApplyError;
-pub use ops::{DeploymentStatus, deploy_profile, purge, rename_mod, status};
+pub use ops::{DeploymentStatus, deploy_profile, purge, rename_mod, rename_profile, status};
 pub use state::{Deployment, Status};

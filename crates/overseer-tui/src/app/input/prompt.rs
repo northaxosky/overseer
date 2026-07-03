@@ -5,20 +5,23 @@ use overseer_core::apply;
 use overseer_core::instance::{Executable, InstanceError, ModKind};
 use ratatui::crossterm::event::{KeyCode, KeyEvent};
 
-use crate::app::{App, Focus, Modal, Prompt, PromptKind, SelectKind};
+use crate::app::{App, Focus, Modal, Prompt, PromptKind, SelectKind, Session};
 
 impl App {
     /// Keys for Prompt modal: edit the line, submit, or cancel
     pub(super) fn handle_prompt_key(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Esc => match self.open_prompt_kind() {
-                Some(PromptKind::NewProfile) => self.open_select(SelectKind::Profile),
+                Some(PromptKind::NewProfile) | Some(PromptKind::RenameProfile { .. }) => {
+                    self.open_select(SelectKind::Profile)
+                }
                 Some(PromptKind::AddExe) => self.open_select(SelectKind::Launch),
                 Some(PromptKind::RenameMod { .. }) => self.modal = None,
                 None => {}
             },
             KeyCode::Enter => match self.open_prompt_kind() {
                 Some(PromptKind::NewProfile) => self.submit_new_profile(),
+                Some(PromptKind::RenameProfile { old }) => self.submit_rename_profile(old),
                 Some(PromptKind::AddExe) => self.submit_add_exe(),
                 Some(PromptKind::RenameMod { old }) => self.submit_rename_mod(old),
                 None => {}
@@ -94,16 +97,10 @@ impl App {
         };
         let name = prompt.input.trim().to_owned();
 
-        // Compute the outcome first, then touch the modal once below — so we never
-        // hold a borrow of `self.modal` across a `&mut self` call.
+        // Compute the outcome first
         match self.create_named_profile(&name) {
             Ok(()) => {
-                self.open_select(SelectKind::Profile);
-                if let Some(Modal::Select(s)) = self.modal.as_mut()
-                    && let Some(i) = s.items.iter().position(|p| p == &name)
-                {
-                    s.state.select(Some(i));
-                }
+                self.reopen_profiles_selecting(&name);
                 self.ok(format!("Created profile: {name}"));
             }
             Err(msg) => self.set_prompt_error(msg),
@@ -211,6 +208,80 @@ impl App {
         Ok(())
     }
 
+    /// Open a rename prompt for the profile highlighted in the open Profile picker
+    pub(super) fn open_rename_profile(&mut self) {
+        let Some(Modal::Select(select)) = &self.modal else {
+            return;
+        };
+        let Some(old) = select
+            .state
+            .selected()
+            .and_then(|i| select.items.get(i).cloned())
+        else {
+            self.note("No profile to rename");
+            return;
+        };
+        self.modal = Some(Modal::Prompt(Prompt {
+            kind: PromptKind::RenameProfile { old },
+            input: String::new(),
+            error: None,
+        }));
+    }
+
+    fn submit_rename_profile(&mut self, old: String) {
+        let Some(Modal::Prompt(prompt)) = self.modal.as_ref() else {
+            return;
+        };
+        let new = prompt.input.trim().to_owned();
+        if let Err(msg) = validate_name(&new) {
+            self.set_prompt_error(msg);
+            return;
+        }
+
+        // Distinguish "rename didnt happen" from "rename stuck"
+        let warning = match apply::rename_profile(&mut self.session.instance, &old, &new) {
+            Ok(()) => None,
+            Err(apply::ApplyError::DefaultProfileNotUpdated(e)) => Some(format!(
+                "Renamed, but couldn't update the default profile: {e}"
+            )),
+            Err(e) => {
+                self.set_prompt_error(rename_profile_error_message(e));
+                return;
+            }
+        };
+
+        // The rename is committed on disk
+        if self.session.profile.name.eq_ignore_ascii_case(&old) {
+            let root = self.session.instance.root.clone();
+            match Session::load(&root, &new) {
+                Ok(session) => {
+                    self.session = session;
+                    self.after_session_changed();
+                }
+                Err(e) => {
+                    self.reopen_profiles_selecting(&new);
+                    self.fail(format!("Renamed profile, but reloading it failed: {e}"));
+                    return;
+                }
+            }
+        }
+        self.reopen_profiles_selecting(&new);
+        match warning {
+            Some(w) => self.fail(w),
+            None => self.ok(format!("Renamed profile {old} \u{2192} {new}")),
+        }
+    }
+
+    /// Reopen the Profile picker with `name` highlighted
+    fn reopen_profiles_selecting(&mut self, name: &str) {
+        self.open_select(SelectKind::Profile);
+        if let Some(Modal::Select(s)) = self.modal.as_mut()
+            && let Some(i) = s.items.iter().position(|p| p == name)
+        {
+            s.state.select(Some(i));
+        }
+    }
+
     /// Show an inline error on the open prompt (no-op if no prompt is open).
     fn set_prompt_error(&mut self, msg: String) {
         if let Some(Modal::Prompt(prompt)) = self.modal.as_mut() {
@@ -232,6 +303,22 @@ fn rename_error_message(error: apply::ApplyError) -> String {
             format!("No installed mod named {name}")
         }
         apply::ApplyError::Instance(InstanceError::InvalidModName(msg)) => msg,
+        other => other.to_string(),
+    }
+}
+
+fn rename_profile_error_message(error: apply::ApplyError) -> String {
+    match error {
+        apply::ApplyError::DeployedCannotRename { .. } => {
+            "Purge before renaming the deployed profile".to_owned()
+        }
+        apply::ApplyError::Instance(InstanceError::ProfileExists(name)) => {
+            format!("A profile named {name} already exists")
+        }
+        apply::ApplyError::Instance(InstanceError::ProfileNotFound(name)) => {
+            format!("No profile named {name}")
+        }
+        apply::ApplyError::Instance(InstanceError::InvalidProfileName(msg)) => msg,
         other => other.to_string(),
     }
 }
@@ -291,6 +378,122 @@ mod tests {
                 }))
             ),
             "n opens the new-profile prompt"
+        );
+    }
+
+    #[test]
+    fn r_in_the_profile_picker_opens_a_rename_prompt_for_the_highlighted_profile() {
+        let (_tmp, instance) = overseer_core::test_support::temp_instance();
+        instance.create_profile("Default").expect("create Default");
+        let mut app = App::sample();
+        app.session.instance = instance;
+
+        app.handle_key(key(KeyCode::Char('p'))); // profile picker
+        app.handle_key(key(KeyCode::Char('r'))); // rename side-action
+
+        match &app.modal {
+            Some(Modal::Prompt(Prompt {
+                kind: PromptKind::RenameProfile { old },
+                input,
+                error,
+            })) => {
+                assert_eq!(old, "Default");
+                assert_eq!(input, "");
+                assert!(error.is_none());
+            }
+            other => panic!("expected a rename-profile prompt, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn submitting_a_valid_profile_rename_moves_it_on_disk_and_reopens_the_picker() {
+        let (_tmp, instance) = overseer_core::test_support::temp_instance();
+        instance.create_profile("Default").expect("create Default");
+        instance.create_profile("Extra").expect("create Extra");
+        let mut app = App::sample();
+        app.session.instance = instance;
+
+        app.handle_key(key(KeyCode::Char('p'))); // picker: [Default, Extra]
+        app.handle_key(key(KeyCode::Down)); // highlight the non-active "Extra"
+        app.handle_key(key(KeyCode::Char('r')));
+        for c in "Extra2".chars() {
+            app.handle_key(key(KeyCode::Char(c)));
+        }
+        app.handle_key(key(KeyCode::Enter));
+
+        assert!(app.session.instance.profile_dir("Extra2").is_dir());
+        assert!(!app.session.instance.profile_dir("Extra").exists());
+        match &app.modal {
+            Some(Modal::Select(s)) => {
+                assert!(
+                    s.items.iter().any(|p| p == "Extra2"),
+                    "picker reopened with the new name"
+                );
+                assert!(!s.items.iter().any(|p| p == "Extra"));
+            }
+            other => panic!("expected the reopened profile picker, got {other:?}"),
+        }
+        assert!(app.message.is_some(), "an ok notice is shown");
+    }
+
+    #[test]
+    fn renaming_the_active_profile_reloads_the_session_under_the_new_name() {
+        let (_tmp, instance) = overseer_core::test_support::temp_instance();
+        instance.create_profile("Default").expect("create Default");
+        let mut app = App::sample();
+        app.session.instance = instance;
+
+        app.handle_key(key(KeyCode::Char('p'))); // picker: [Default] (the active profile)
+        app.handle_key(key(KeyCode::Char('r')));
+        for c in "Main".chars() {
+            app.handle_key(key(KeyCode::Char(c)));
+        }
+        app.handle_key(key(KeyCode::Enter));
+
+        assert_eq!(
+            app.session.profile.name, "Main",
+            "the active session reloaded under the new name"
+        );
+        assert!(app.session.instance.profile_dir("Main").is_dir());
+    }
+
+    #[test]
+    fn submitting_an_invalid_profile_rename_keeps_the_prompt_with_error() {
+        let (_tmp, instance) = overseer_core::test_support::temp_instance();
+        instance.create_profile("Default").expect("create Default");
+        let mut app = App::sample();
+        app.session.instance = instance;
+
+        app.handle_key(key(KeyCode::Char('p')));
+        app.handle_key(key(KeyCode::Char('r')));
+        for c in "a/b".chars() {
+            app.handle_key(key(KeyCode::Char(c)));
+        }
+        app.handle_key(key(KeyCode::Enter));
+
+        assert!(matches!(prompt_state(&app), Some(("a/b", Some(_)))));
+    }
+
+    #[test]
+    fn submitting_a_duplicate_profile_rename_keeps_the_prompt_with_error() {
+        let (_tmp, instance) = overseer_core::test_support::temp_instance();
+        instance.create_profile("Default").expect("create Default");
+        instance.create_profile("Extra").expect("create Extra");
+        let mut app = App::sample();
+        app.session.instance = instance;
+
+        app.handle_key(key(KeyCode::Char('p')));
+        app.handle_key(key(KeyCode::Down)); // Extra
+        app.handle_key(key(KeyCode::Char('r')));
+        for c in "Default".chars() {
+            app.handle_key(key(KeyCode::Char(c)));
+        }
+        app.handle_key(key(KeyCode::Enter));
+
+        assert!(matches!(prompt_state(&app), Some(("Default", Some(_)))));
+        assert!(
+            app.session.instance.profile_dir("Extra").is_dir(),
+            "nothing moved on collision"
         );
     }
 

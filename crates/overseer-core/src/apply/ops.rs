@@ -232,6 +232,33 @@ pub fn rename_mod(instance: &Instance, old: &str, new: &str) -> Result<(), Apply
     instance.rename_mod(old, new).map_err(Into::into)
 }
 
+/// Rename a profile, refusing only while that profile's own deployment is live
+pub fn rename_profile(instance: &mut Instance, old: &str, new: &str) -> Result<(), ApplyError> {
+    let _lock = InstanceLock::acquire(instance)?;
+    recover_if_needed(instance, &NullSink)?;
+
+    if Deployment::exists(instance)
+        && Deployment::load(instance)?
+            .profile
+            .eq_ignore_ascii_case(old)
+    {
+        return Err(ApplyError::DeployedCannotRename {
+            path: Deployment::path(instance),
+        });
+    }
+    instance.rename_profile(old, new)?;
+
+    // The profile renamed on disk; keep the persisted default pointer in sync
+    if instance.config.default_profile.eq_ignore_ascii_case(old) {
+        let prev = std::mem::replace(&mut instance.config.default_profile, new.to_owned());
+        if let Err(e) = instance.save() {
+            instance.config.default_profile = prev;
+            return Err(ApplyError::DefaultProfileNotUpdated(e));
+        }
+    }
+    Ok(())
+}
+
 /// Lock held recovery used by every mutating entry point
 fn recover_if_needed(instance: &Instance, progress: &dyn ProgressSink) -> Result<(), ApplyError> {
     if !Deployment::exists(instance) {
@@ -445,6 +472,47 @@ mod tests {
 
         assert!(!instance.mods_dir().join("CoolMod").exists());
         assert!(instance.mods_dir().join("BetterMod").is_dir());
+    }
+
+    #[test]
+    fn rename_profile_is_refused_while_that_profile_is_deployed() {
+        let (_tmp, mut instance) = temp_instance();
+        install_mod(&instance, "CoolMod", &[("Textures/a.dds", "pixels")]);
+        save_profile(&instance, "Default", &[("CoolMod", true)]);
+        deploy_profile(&instance, "Default", &NullSink).expect("deploy");
+
+        let err = rename_profile(&mut instance, "Default", "Main")
+            .expect_err("renaming the deployed profile must be refused");
+        assert!(matches!(err, ApplyError::DeployedCannotRename { .. }));
+        assert!(instance.profile_dir("Default").is_dir());
+    }
+
+    #[test]
+    fn rename_profile_is_allowed_while_a_different_profile_is_deployed() {
+        let (_tmp, mut instance) = temp_instance();
+        install_mod(&instance, "CoolMod", &[("Textures/a.dds", "pixels")]);
+        save_profile(&instance, "Default", &[("CoolMod", true)]);
+        save_profile(&instance, "Other", &[]);
+        deploy_profile(&instance, "Default", &NullSink).expect("deploy");
+
+        rename_profile(&mut instance, "Other", "Renamed")
+            .expect("renaming a non-deployed profile is allowed");
+        assert!(instance.profile_dir("Renamed").is_dir());
+        assert!(!instance.profile_dir("Other").exists());
+    }
+
+    #[test]
+    fn rename_profile_syncs_the_default_pointer() {
+        let (_tmp, mut instance) = temp_instance();
+        save_profile(&instance, "Default", &[]);
+        assert_eq!(instance.config.default_profile, "Default");
+
+        rename_profile(&mut instance, "Default", "Main").expect("rename");
+
+        assert_eq!(instance.config.default_profile, "Main");
+        // The change is persisted, so a fresh load sees it too.
+        let reloaded = Instance::load(&instance.root).expect("reload");
+        assert_eq!(reloaded.config.default_profile, "Main");
     }
 
     #[test]

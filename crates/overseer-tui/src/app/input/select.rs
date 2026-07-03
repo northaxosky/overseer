@@ -21,7 +21,7 @@ impl App {
             // Esc/q always cancel
             KeyCode::Esc | KeyCode::Char('q') => self.modal = None,
             KeyCode::Char('n') if select.kind == SelectKind::Profile => self.open_new_profile(),
-            KeyCode::Char('n') if select.kind == SelectKind::Profile => self.open_new_profile(),
+            KeyCode::Char('r') if select.kind == SelectKind::Profile => self.open_rename_profile(),
             KeyCode::Char('a') if select.kind == SelectKind::Launch => self.open_add_exe(),
             KeyCode::Char('x') if select.kind == SelectKind::Launch => self.confirm_remove_exe(),
             KeyCode::Char(c) if c == toggle => self.modal = None,

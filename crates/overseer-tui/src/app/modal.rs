@@ -27,6 +27,7 @@ pub(crate) struct Prompt {
 pub(crate) enum PromptKind {
     NewProfile,
     RenameMod { old: String },
+    RenameProfile { old: String },
     AddExe,
 }
 
@@ -36,6 +37,7 @@ impl PromptKind {
         match self {
             PromptKind::NewProfile => "New profile".to_owned(),
             PromptKind::RenameMod { old } => format!("Rename: {old}"),
+            PromptKind::RenameProfile { old } => format!("Rename profile: {old}"),
             PromptKind::AddExe => "Add launch target — full path".to_owned(),
         }
     }
@@ -97,7 +99,7 @@ impl SelectKind {
     pub(crate) fn extra_hint(self) -> &'static str {
         match self {
             SelectKind::Launch => " · a add · x remove",
-            SelectKind::Profile => " · n new",
+            SelectKind::Profile => " · n new · r rename",
             SelectKind::Instance => "",
         }
     }

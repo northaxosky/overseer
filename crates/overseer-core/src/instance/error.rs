@@ -59,6 +59,12 @@ pub enum InstanceError {
 
     #[error("a profile named `{0}` already exists")]
     ProfileExists(String),
+
+    #[error("invalid profile name `{0}`")]
+    InvalidProfileName(String),
+
+    #[error("no profile named `{0}`")]
+    ProfileNotFound(String),
 }
 
 pub(crate) use crate::error::io_err;
