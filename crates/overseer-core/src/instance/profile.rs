@@ -76,12 +76,13 @@ impl Profile {
         out
     }
 
-    /// Enabled mods as deploy sources, lowest priority first
+    /// Enabled *managed* mods as deploy sources, lowest priority first. Foreign (game-shipped DLC/CC)
+    /// and separator entries are never deployed — they have no `mods/` staging dir.
     pub fn deploy_sources(&self, instance: &Instance) -> Vec<ModSource> {
         self.mods
             .iter()
             .rev()
-            .filter(|entry| entry.enabled)
+            .filter(|entry| entry.enabled && entry.kind == ModKind::Managed)
             .map(|entry| ModSource::new(entry.name.clone(), instance.mods_dir().join(&entry.name)))
             .collect()
     }
@@ -426,6 +427,27 @@ mod tests {
         let names: Vec<&str> = sources.iter().map(|s| s.name.as_str()).collect();
         // Only the managed mods, lowest-priority first; the separator never deploys.
         assert_eq!(names, ["Low", "High"]);
+    }
+
+    #[test]
+    fn deploy_sources_excludes_foreign_mods() {
+        // Foreign (game-shipped DLC/CC) entries have no `mods/` dir; including them would crash the
+        // deploy/diagnose plan with MissingStaging on any real MO2 profile that lists DLC.
+        let (_tmp, instance) = temp_instance();
+        let profile = Profile {
+            name: "P".to_owned(),
+            mods: vec![
+                entry("RealMod", true),
+                foreign_entry("DLC: Wasteland Workshop"),
+            ],
+            local_saves: false,
+        };
+        let names: Vec<String> = profile
+            .deploy_sources(&instance)
+            .iter()
+            .map(|s| s.name.clone())
+            .collect();
+        assert_eq!(names, ["RealMod"], "foreign DLC/CC entries never deploy");
     }
 
     #[test]
