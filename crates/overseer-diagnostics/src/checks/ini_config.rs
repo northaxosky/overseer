@@ -1,7 +1,7 @@
 //! The game's INI configuration: archive invalidation and related setup
 
 use super::Check;
-use crate::context::GameContext;
+use crate::context::{GameContext, IniStatus};
 use crate::finding::{Finding, Severity};
 
 /// Reads the game INIs for archive invalidation and related problems
@@ -13,9 +13,15 @@ impl Check for IniConfig {
     }
 
     fn run(&self, ctx: &GameContext) -> Vec<Finding> {
-        // No INIs could be read, nothing to say
         let Some(inis) = &ctx.inis else {
-            return Vec::new();
+            return match &ctx.ini_status {
+                IniStatus::Unreadable(error) => vec![Finding::new(
+                    Severity::Warning,
+                    "The game INIs could not be read",
+                    Some(error.clone()),
+                )],
+                IniStatus::Missing | IniStatus::Present => Vec::new(),
+            };
         };
         let settings = &inis.settings;
 
@@ -126,6 +132,23 @@ mod tests {
     fn no_inis_is_silent() {
         // The default context has `inis: None`.
         assert!(IniConfig.run(&GameContext::default()).is_empty());
+    }
+
+    #[test]
+    fn unreadable_inis_warn() {
+        let findings = IniConfig.run(&GameContext {
+            ini_status: IniStatus::Unreadable("access denied".to_owned()),
+            ..GameContext::default()
+        });
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].severity, Severity::Warning);
+        assert!(findings[0].title.contains("could not be read"));
+        assert!(
+            findings[0]
+                .detail
+                .as_deref()
+                .is_some_and(|d| d.contains("access denied"))
+        );
     }
 
     #[test]

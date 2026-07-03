@@ -10,7 +10,7 @@ use overseer_core::detect::{
 };
 use overseer_core::f4se::{F4seDll, F4sePlugin, parse_f4se_dll};
 use overseer_core::game::GameKind;
-use overseer_core::ini::{GameInis, read_game_inis};
+use overseer_core::ini::{GameInis, IniError, read_game_inis};
 use overseer_core::instance::{Instance, Profile};
 use overseer_core::plugins::{
     PluginLoadOrder, PluginMeta, discover_plugins, implicit_active_plugins, read_metadata,
@@ -62,6 +62,8 @@ pub struct GameContext {
     pub ccc: CccStatus,
     /// The game's parsed INIs, if they could be read
     pub inis: Option<GameInis>,
+    /// Whether the game INIs were found, missing, or unreadable
+    pub ini_status: IniStatus,
     /// Race subgraph (`SADD`) record counts for active mod plugins
     pub sadd_records: Vec<SaddCount>,
     /// BA2 archives in the profile's deploy set, with their headers
@@ -159,6 +161,18 @@ pub enum ArchiveScan {
     Unreadable(String),
 }
 
+/// The state of the game's INI files
+#[derive(Default)]
+pub enum IniStatus {
+    /// INIs were read successfully
+    Present,
+    /// INIs are not configured for this instance
+    #[default]
+    Missing,
+    /// INIs exist conceptually but could not be read
+    Unreadable(String),
+}
+
 /// The state of the game's Creation Club manifest (e.g. `Fallout4.ccc`)
 #[derive(Default)]
 pub enum CccStatus {
@@ -167,6 +181,8 @@ pub enum CccStatus {
     NotApplicable,
     /// The named manifest should exist in the game folder but doesn't
     Missing { file: &'static str },
+    /// The manifest exists conceptually but could not be read
+    Unreadable { file: &'static str, error: String },
     /// The manifest lists these Creation Club plugin filenames, in load order
     Present {
         file: &'static str,
@@ -251,12 +267,18 @@ impl GameContext {
         let binaries = game_edition
             .map(|_| binaries::scan(&instance.config.game_dir))
             .unwrap_or_default();
+        let (inis, ini_status) = match read_game_inis(instance) {
+            Ok(inis) => (Some(inis), IniStatus::Present),
+            Err(IniError::Instance(_)) => (None, IniStatus::Missing),
+            Err(IniError::Io(error)) => (None, IniStatus::Unreadable(error.to_string())),
+        };
 
         Ok(Self {
             active_plugins,
             data_files,
             ccc: read_ccc(instance),
-            inis: read_game_inis(instance).ok(),
+            inis,
+            ini_status,
             sadd_records,
             loaded_plugins,
             archives,
@@ -324,7 +346,7 @@ fn address_library_status(
     }
 }
 
-/// Read the game's Creation Club manifest, reporting any read error as [`CccStatus::Missing`] instead of failing.
+/// Read the game's Creation Club manifest without failing the whole diagnostic run.
 fn read_ccc(instance: &Instance) -> CccStatus {
     let Some(file) = instance.config.game.ccc_file() else {
         return CccStatus::NotApplicable;
@@ -340,7 +362,11 @@ fn read_ccc(instance: &Instance) -> CccStatus {
                 .map(str::to_owned)
                 .collect(),
         },
-        Err(_) => CccStatus::Missing { file },
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => CccStatus::Missing { file },
+        Err(error) => CccStatus::Unreadable {
+            file,
+            error: error.to_string(),
+        },
     }
 }
 

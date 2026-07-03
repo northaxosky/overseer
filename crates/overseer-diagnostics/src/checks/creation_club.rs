@@ -25,6 +25,12 @@ impl Check for CreationClub {
                 ),
             ),
 
+            CccStatus::Unreadable { file, error } => Finding::new(
+                Severity::Warning,
+                format!("`{file}` could not be read"),
+                Some(error.clone()),
+            ),
+
             CccStatus::Present { file, entries } => Finding::new(
                 Severity::Info,
                 format!(
@@ -75,6 +81,23 @@ mod tests {
         assert_eq!(findings[0].severity, Severity::Warning);
         assert!(findings[0].title.contains("Fallout4.ccc"));
         assert!(findings[0].title.contains("missing"));
+    }
+
+    #[test]
+    fn an_unreadable_manifest_warns() {
+        let findings = CreationClub.run(&ctx(CccStatus::Unreadable {
+            file: "Fallout4.ccc",
+            error: "access denied".to_owned(),
+        }));
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].severity, Severity::Warning);
+        assert!(findings[0].title.contains("could not be read"));
+        assert!(
+            findings[0]
+                .detail
+                .as_deref()
+                .is_some_and(|d| d.contains("access denied"))
+        );
     }
 
     #[test]

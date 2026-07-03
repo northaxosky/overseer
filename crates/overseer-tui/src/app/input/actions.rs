@@ -102,7 +102,7 @@ impl App {
             Ok(d) => self.ok(format!("Deployed {} files", d.record.entries.len())),
             Err(e) => self.fail(format!("Deploy failed: {e}")),
         }
-        self.session.status = apply::status(&self.session.instance).unwrap_or(None);
+        self.refresh_status();
     }
 
     pub(super) fn purge(&mut self) {
@@ -110,7 +110,15 @@ impl App {
             Ok(()) => self.ok("Purged the live deployment"),
             Err(e) => self.fail(format!("Purge failed: {e}")),
         }
-        self.session.status = apply::status(&self.session.instance).unwrap_or(None);
+        self.refresh_status();
+    }
+
+    /// Refresh cached deployment status after deploy/purge without surfacing probe failures.
+    fn refresh_status(&mut self) {
+        self.session.status = apply::status(&self.session.instance).unwrap_or_else(|e| {
+            tracing::warn!(error = %e, "could not read deployment status");
+            None
+        });
     }
 }
 
