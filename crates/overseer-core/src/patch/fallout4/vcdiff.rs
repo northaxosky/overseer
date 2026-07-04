@@ -1,6 +1,5 @@
 //! Minimal VCDIFF header parsing for delta auto-mapping
 
-use super::catalog::GROUPS;
 use crate::error::{IoError, io_err};
 use crate::fs::read_dir_opt;
 use camino::{Utf8Path, Utf8PathBuf};
@@ -11,7 +10,7 @@ const VCD_DECOMPRESS: u8 = 0x01;
 const VCD_CODETABLE: u8 = 0x02;
 const VCD_APPHEADER: u8 = 0x04;
 
-/// Something went wrong reading a delta or mapping it to a core binary
+/// Something went wrong reading a delta or mapping it to a known target file
 #[derive(Debug, Error)]
 pub enum VcdiffError {
     #[error("VCDIFF file `{path}` is too short")]
@@ -26,7 +25,7 @@ pub enum VcdiffError {
     #[error("delta `{path}` does not contain an app-header basename; pass an explicit delta flag")]
     MissingAppHeaderName { path: Utf8PathBuf },
 
-    #[error("delta `{path}` app-header names more than one core binary: {names}")]
+    #[error("delta `{path}` app-header names more than one known target: {names}")]
     AmbiguousAppHeader { path: Utf8PathBuf, names: String },
 
     #[error("more than one delta maps to {name}: `{first}` and `{second}`")]
@@ -36,8 +35,20 @@ pub enum VcdiffError {
         second: Utf8PathBuf,
     },
 
+    #[error("the target file set has duplicate basenames: {names}")]
+    AmbiguousCatalog { names: String },
+
     #[error(transparent)]
     Io(#[from] IoError),
+}
+
+/// The result of mapping a delta directory against an allowed file set
+#[derive(Debug, Default)]
+pub struct DeltaMap {
+    /// Deltas that map onto an allowed target, keyed by that target's rel-path
+    pub mapped: HashMap<String, Utf8PathBuf>,
+    /// Valid deltas whose app-header names no allowed target (e.g. a mixed pack's off-scope deltas)
+    pub ignored: Vec<Utf8PathBuf>,
 }
 
 /// Bytes of a delta scanned for its app-header; xdelta3 path headers are well under a KiB, so this bounds reads of multi-GB bodies
@@ -57,11 +68,12 @@ fn read_prefix(path: &Utf8Path, max: u64) -> std::io::Result<Vec<u8>> {
     Ok(buf)
 }
 
-/// Map every delta under `dir` (recursively) to the catalog file its app-header names
-pub fn map_deltas(dir: &Utf8Path) -> Result<HashMap<String, Utf8PathBuf>, VcdiffError> {
-    let mut mapped = HashMap::new();
+/// Map every delta under `dir` (recursively) against `allowed`, splitting on- and off-scope deltas
+pub fn map_deltas(dir: &Utf8Path, allowed: &[&str]) -> Result<DeltaMap, VcdiffError> {
+    assert_unique_basenames(allowed)?;
+    let mut out = DeltaMap::default();
     if read_dir_opt(dir)?.is_none() {
-        return Ok(mapped);
+        return Ok(out);
     }
     for entry in walkdir::WalkDir::new(dir).sort_by_file_name() {
         let entry = entry.map_err(|e| {
@@ -82,35 +94,66 @@ pub fn map_deltas(dir: &Utf8Path) -> Result<HashMap<String, Utf8PathBuf>, Vcdiff
         if !is_delta_file(&path) {
             continue;
         }
-        let name = target_from_header(&path)?;
-        if let Some(first) = mapped.insert(name.clone(), path.clone()) {
-            return Err(VcdiffError::DuplicateBinary {
-                name,
-                first,
-                second: path,
-            });
+        match header_target(&path, allowed)? {
+            Some(name) => {
+                if let Some(first) = out.mapped.insert(name.clone(), path.clone()) {
+                    return Err(VcdiffError::DuplicateBinary {
+                        name,
+                        first,
+                        second: path,
+                    });
+                }
+            }
+            None => out.ignored.push(path),
         }
     }
-    Ok(mapped)
+    Ok(out)
 }
 
-/// The catalog rel-path a single delta's app header names
-pub fn target_from_header(path: &Utf8Path) -> Result<String, VcdiffError> {
+/// The allowed rel-path a single delta's app header names; errors when it names none
+pub fn target_from_header(path: &Utf8Path, allowed: &[&str]) -> Result<String, VcdiffError> {
+    match header_target(path, allowed)? {
+        Some(name) => Ok(name),
+        None => Err(VcdiffError::MissingAppHeaderName {
+            path: path.to_owned(),
+        }),
+    }
+}
+
+/// The allowed rel-path a delta names, `None` for a valid header that names no allowed target
+fn header_target(path: &Utf8Path, allowed: &[&str]) -> Result<Option<String>, VcdiffError> {
     let Some(header) = app_header(path)? else {
         return Err(VcdiffError::MissingAppHeaderName {
             path: path.to_owned(),
         });
     };
-    let matches = matching_catalog_files(&header);
+    let matches = matching_catalog_files(&header, allowed);
     match matches.as_slice() {
-        [name] => Ok((*name).to_owned()),
-        [] => Err(VcdiffError::MissingAppHeaderName {
-            path: path.to_owned(),
-        }),
+        [name] => Ok(Some(name.clone())),
+        [] => Ok(None),
         many => Err(VcdiffError::AmbiguousAppHeader {
             path: path.to_owned(),
             names: many.join(", "),
         }),
+    }
+}
+
+/// Fail if two allowed files share a basename, which would make app-header mapping ambiguous
+fn assert_unique_basenames(allowed: &[&str]) -> Result<(), VcdiffError> {
+    let mut seen = std::collections::HashSet::new();
+    let mut dups = Vec::new();
+    for &rel in allowed {
+        let base = basename(rel).to_ascii_lowercase();
+        if !seen.insert(base.clone()) {
+            dups.push(base);
+        }
+    }
+    if dups.is_empty() {
+        Ok(())
+    } else {
+        Err(VcdiffError::AmbiguousCatalog {
+            names: dups.join(", "),
+        })
     }
 }
 
@@ -165,18 +208,21 @@ fn read_varint(bytes: &[u8], idx: &mut usize) -> Option<usize> {
     None
 }
 
-fn matching_catalog_files(header: &str) -> Vec<&'static str> {
+/// Every allowed rel-path whose basename appears in `header`'s path tokens
+fn matching_catalog_files(header: &str, allowed: &[&str]) -> Vec<String> {
     let tokens = header_tokens(header);
     let mut out = Vec::new();
-    for group in GROUPS {
-        for &rel in group.files {
-            let base = rel.rsplit('/').next().unwrap_or(rel);
-            if tokens.iter().any(|token| token.eq_ignore_ascii_case(base)) {
-                out.push(rel);
-            }
+    for &rel in allowed {
+        let base = basename(rel);
+        if tokens.iter().any(|token| token.eq_ignore_ascii_case(base)) {
+            out.push(rel.to_owned());
         }
     }
     out
+}
+
+fn basename(rel: &str) -> &str {
+    rel.rsplit('/').next().unwrap_or(rel)
 }
 
 fn header_tokens(header: &str) -> Vec<String> {
@@ -203,6 +249,13 @@ fn malformed(path: &Utf8Path) -> VcdiffError {
 mod tests {
     use super::*;
     use crate::test_support::temp;
+
+    const CORE: &[&str] = &["Fallout4.exe", "Fallout4Launcher.exe", "steam_api64.dll"];
+    const DLC: &[&str] = &[
+        "Data/DLCCoast.esm",
+        "Data/DLCCoast - Textures.ba2",
+        "Data/DLCNukaWorld.esm",
+    ];
 
     fn header_delta(app: Option<&[u8]>) -> Vec<u8> {
         let mut bytes = vec![0xD6, 0xC3, 0xC4, 0x00, 0x00];
@@ -233,7 +286,7 @@ mod tests {
             header_delta(Some(br"C:\old\Fallout4.exe//C:\new\Fallout4.exe/")),
         )
         .unwrap();
-        assert_eq!(target_from_header(&path).unwrap(), "Fallout4.exe");
+        assert_eq!(target_from_header(&path, CORE).unwrap(), "Fallout4.exe");
     }
 
     #[test]
@@ -243,7 +296,7 @@ mod tests {
         let header = br"C:\mods\Best DLC Data\DLCCoast - Textures.ba2//C:\Steam\Fallout 4\Data\DLCCoast - Textures.ba2/";
         std::fs::write(&path, header_delta(Some(header))).unwrap();
         assert_eq!(
-            target_from_header(&path).unwrap(),
+            target_from_header(&path, DLC).unwrap(),
             "Data/DLCCoast - Textures.ba2"
         );
     }
@@ -254,7 +307,7 @@ mod tests {
         let path = root.join("patch.vcdiff");
         std::fs::write(&path, header_delta(None)).unwrap();
         assert!(matches!(
-            target_from_header(&path),
+            target_from_header(&path, CORE),
             Err(VcdiffError::MissingAppHeaderName { .. })
         ));
     }
@@ -270,7 +323,7 @@ mod tests {
             .unwrap();
         }
         assert!(matches!(
-            map_deltas(&root),
+            map_deltas(&root, CORE),
             Err(VcdiffError::DuplicateBinary { .. })
         ));
     }
@@ -290,10 +343,32 @@ mod tests {
             header_delta(Some(br"old\Fallout4.exe//new\Fallout4.exe/")),
         )
         .unwrap();
-        let mapped = map_deltas(&root).unwrap();
-        assert!(mapped.contains_key("Data/DLCCoast.esm"));
-        assert!(mapped.contains_key("Fallout4.exe"));
-        assert_eq!(mapped.len(), 2);
+        let allowed = ["Data/DLCCoast.esm", "Fallout4.exe"];
+        let map = map_deltas(&root, &allowed).unwrap();
+        assert!(map.mapped.contains_key("Data/DLCCoast.esm"));
+        assert!(map.mapped.contains_key("Fallout4.exe"));
+        assert_eq!(map.mapped.len(), 2);
+        assert!(map.ignored.is_empty());
+    }
+
+    #[test]
+    fn a_mixed_pack_ignores_off_scope_deltas() {
+        let (_tmp, root) = temp();
+        std::fs::write(
+            root.join("core.vcdiff"),
+            header_delta(Some(br"old\Fallout4.exe//new\Fallout4.exe/")),
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("dlc.vcdiff"),
+            header_delta(Some(br"old\DLCCoast.esm//new\Data\DLCCoast.esm/")),
+        )
+        .unwrap();
+        let map = map_deltas(&root, DLC).unwrap();
+        assert!(map.mapped.contains_key("Data/DLCCoast.esm"));
+        assert_eq!(map.mapped.len(), 1);
+        assert_eq!(map.ignored.len(), 1);
+        assert!(map.ignored[0].as_str().ends_with("core.vcdiff"));
     }
 
     #[test]
@@ -302,6 +377,9 @@ mod tests {
         let path = root.join("patch.xdelta");
         let header = br"C:\Users\KARV\Downloads\fo4patchy\fo4andsteamdll\old\Fallout4Launcher.exe//C:\Users\KARV\Downloads\fo4patchy\fo4andsteamdll\NEW\Fallout4Launcher.exe/";
         std::fs::write(&path, header_delta(Some(header))).unwrap();
-        assert_eq!(target_from_header(&path).unwrap(), "Fallout4Launcher.exe");
+        assert_eq!(
+            target_from_header(&path, CORE).unwrap(),
+            "Fallout4Launcher.exe"
+        );
     }
 }

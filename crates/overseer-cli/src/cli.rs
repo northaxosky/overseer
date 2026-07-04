@@ -359,6 +359,30 @@ pub enum PatchCommand {
         #[arg(long)]
         yes: bool,
     },
+    /// Bring the Fallout 4 DLC to the cross-storefront consistency revision
+    DlcConsistency {
+        /// Directory containing `.vcdiff` or `.xdelta` files with usable app headers
+        #[arg(long, value_name = "DIR")]
+        deltas: Option<Utf8PathBuf>,
+        /// Instance directory; supplies the game dir when `--game-dir` is omitted
+        #[arg(long, value_name = "DIR")]
+        instance: Option<Utf8PathBuf>,
+        /// Fallout 4 install directory; overrides the instance config
+        #[arg(long, value_name = "DIR")]
+        game_dir: Option<Utf8PathBuf>,
+        /// Path to the `xdelta3` executable
+        #[arg(long, value_name = "PATH")]
+        xdelta3: Option<Utf8PathBuf>,
+        /// Permit an incomplete repair instead of a complete consistency revision
+        #[arg(long)]
+        allow_incomplete_repair: bool,
+        /// Show the plan without writing
+        #[arg(long)]
+        dry_run: bool,
+        /// Apply the revision (required since it mutates the real install)
+        #[arg(long)]
+        yes: bool,
+    },
 }
 
 /// A Fallout 4 generation as a CLI argument (`og` / `ng` / `ae`), mapping to core's [`Generation`].

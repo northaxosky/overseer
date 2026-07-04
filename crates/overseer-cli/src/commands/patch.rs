@@ -9,9 +9,11 @@ use overseer_core::archive::{Ba2Header, Ba2Kind};
 use overseer_core::detect::{self, Edition, Generation};
 use overseer_core::game::GameKind;
 use overseer_core::patch::delta::Xdelta3CliDecoder;
-use overseer_core::patch::fallout4::convert::{self, ItemState, Outcome};
-use overseer_core::patch::fallout4::vcdiff;
-use overseer_core::patch::fallout4::{self, Ba2Edition, PatchOutcome};
+use overseer_core::patch::fallout4::engine::{
+    self, ConvertJob, ItemPlan, ItemState, Outcome, Policy,
+};
+use overseer_core::patch::fallout4::vcdiff::{self, DeltaMap};
+use overseer_core::patch::fallout4::{self, Ba2Edition, PatchOutcome, convert, dlc};
 use overseer_core::patch::fingerprint::VerifiedBy;
 use std::collections::{HashMap, HashSet};
 use std::env;
@@ -50,6 +52,23 @@ pub fn run(command: PatchCommand) -> Result<()> {
             dry_run,
             yes,
         }),
+        PatchCommand::DlcConsistency {
+            deltas,
+            instance,
+            game_dir,
+            xdelta3,
+            allow_incomplete_repair,
+            dry_run,
+            yes,
+        } => dlc_consistency_install(DlcArgs {
+            deltas: deltas.as_deref(),
+            instance: instance.as_deref(),
+            game_dir: game_dir.as_deref(),
+            xdelta3: xdelta3.as_deref(),
+            allow_incomplete_repair,
+            dry_run,
+            yes,
+        }),
     }
 }
 
@@ -62,6 +81,17 @@ struct ConvertArgs<'a> {
     exe_delta: Option<&'a Utf8Path>,
     launcher_delta: Option<&'a Utf8Path>,
     steamapi_delta: Option<&'a Utf8Path>,
+    xdelta3: Option<&'a Utf8Path>,
+    allow_incomplete_repair: bool,
+    dry_run: bool,
+    yes: bool,
+}
+
+#[derive(Clone, Copy)]
+struct DlcArgs<'a> {
+    deltas: Option<&'a Utf8Path>,
+    instance: Option<&'a Utf8Path>,
+    game_dir: Option<&'a Utf8Path>,
     xdelta3: Option<&'a Utf8Path>,
     allow_incomplete_repair: bool,
     dry_run: bool,
@@ -91,42 +121,145 @@ fn convert_install(args: ConvertArgs<'_>) -> Result<()> {
     let xdelta3 = resolve_xdelta3(args.xdelta3)?;
     let install = detect::detect(GameKind::Fallout4, &game_dir);
     let edition = detect::edition(&install, &game_dir);
-    let delta_map = resolve_deltas(args.deltas, args)?;
+    let delta_map = resolve_core_deltas(args.deltas, args)?;
+    let target = args.target;
+    let target_for = |rel: &str| convert::core_target_spec(target, rel);
+    let policy = Policy {
+        groups: convert::CORE_GROUPS,
+        target_for: &target_for,
+        any_known_size: &convert::core_any_known_size,
+        known_source: &convert::core_known_source,
+    };
     if args.yes && !args.dry_run {
-        convert::recover_install(&game_dir, args.target)?;
+        engine::recover_install(&game_dir, &policy)?;
     }
-    let item_plans = convert::plan(&game_dir, args.target)?;
+    let item_plans = engine::plan(&game_dir, &policy)?;
     validate_edition_for_auto_convert(edition, &item_plans)?;
-    let (jobs, complete_noop) = build_jobs(
-        args.target,
-        &item_plans,
-        &delta_map,
-        args.allow_incomplete_repair,
-    )?;
-    let view = ConvertPlanView {
+    print_convert_plan(ConvertPlanView {
         game_dir: &game_dir,
         edition,
-        target: args.target,
+        target,
         xdelta3: &xdelta3,
         plans: &item_plans,
-        deltas: &delta_map,
+        deltas: &delta_map.mapped,
         allow_incomplete_repair: args.allow_incomplete_repair,
         dry_run: args.dry_run,
         yes: args.yes,
-    };
-    print_convert_plan(view);
+    });
+    warn_ignored_deltas(
+        &delta_map.ignored,
+        "core binaries",
+        "overseer patch dlc-consistency",
+        "DLC deltas",
+    );
+    let (jobs, complete_noop) = build_jobs(
+        target.label(),
+        &item_plans,
+        &delta_map.mapped,
+        args.allow_incomplete_repair,
+    )?;
     if complete_noop {
-        bail!("the selected files already match {}", args.target.label());
+        bail!("the selected files already match {}", target.label());
     }
     if args.dry_run || !args.yes {
         return Ok(());
     }
     let decoder = Xdelta3CliDecoder::new(xdelta3.path);
-    let outcomes = convert::convert(&game_dir, &jobs, &decoder)?;
-    let converted = outcomes
+    let outcomes = engine::convert(&game_dir, &jobs, &decoder)?;
+    print_outcomes(&outcomes);
+    let converted = count_converted(&outcomes);
+    if args.allow_incomplete_repair {
+        success(format!("{converted} file(s) repaired"));
+    } else {
+        success(format!(
+            "{converted} file(s) converted to {}",
+            target.label()
+        ));
+    }
+    Ok(())
+}
+
+fn dlc_consistency_install(args: DlcArgs<'_>) -> Result<()> {
+    if args.allow_incomplete_repair && !args.yes && !args.dry_run {
+        bail!("--allow-incomplete-repair requires --yes");
+    }
+    let game_dir = resolve_game_dir(args.instance, args.game_dir)?;
+    if !game_dir.is_dir() {
+        bail!("no such game directory: {game_dir}");
+    }
+    let xdelta3 = resolve_xdelta3(args.xdelta3)?;
+    let allowed: Vec<&str> = dlc::DLC_GROUPS
+        .iter()
+        .flat_map(|g| g.files.iter().copied())
+        .collect();
+    let delta_map = resolve_dlc_deltas(args.deltas, &allowed)?;
+    let policy = Policy {
+        groups: dlc::DLC_GROUPS,
+        target_for: &dlc::dlc_target,
+        any_known_size: &dlc_no_known_size,
+        known_source: &dlc_no_known_source,
+    };
+    if args.yes && !args.dry_run {
+        engine::recover_install(&game_dir, &policy)?;
+    }
+    let item_plans = engine::plan(&game_dir, &policy)?;
+    print_dlc_plan(DlcPlanView {
+        game_dir: &game_dir,
+        xdelta3: &xdelta3,
+        plans: &item_plans,
+        deltas: &delta_map.mapped,
+        allow_incomplete_repair: args.allow_incomplete_repair,
+        dry_run: args.dry_run,
+        yes: args.yes,
+    });
+    warn_ignored_deltas(
+        &delta_map.ignored,
+        "DLC files",
+        "overseer patch convert",
+        "core deltas",
+    );
+    let (jobs, complete_noop) = build_jobs(
+        "the DLC consistency revision",
+        &item_plans,
+        &delta_map.mapped,
+        args.allow_incomplete_repair,
+    )?;
+    if complete_noop {
+        bail!("the selected files already match the DLC consistency revision");
+    }
+    if args.dry_run || !args.yes {
+        return Ok(());
+    }
+    let decoder = Xdelta3CliDecoder::new(xdelta3.path);
+    let outcomes = engine::convert(&game_dir, &jobs, &decoder)?;
+    print_outcomes(&outcomes);
+    let converted = count_converted(&outcomes);
+    success(format!(
+        "{converted} file(s) brought to the DLC consistency revision"
+    ));
+    Ok(())
+}
+
+/// The DLC policy has no source table; its only identity is the target, handled by the size check
+fn dlc_no_known_size(_: &str, _: u64) -> bool {
+    false
+}
+
+fn dlc_no_known_source(
+    _: &str,
+    _: &overseer_core::patch::fingerprint::FileFingerprint,
+) -> Option<String> {
+    None
+}
+
+fn count_converted(outcomes: &[(String, Outcome)]) -> usize {
+    outcomes
         .iter()
         .filter(|(_, outcome)| matches!(outcome, Outcome::Converted))
-        .count();
+        .count()
+}
+
+fn print_outcomes(outcomes: &[(String, Outcome)]) {
     for (name, outcome) in outcomes {
         match outcome {
             Outcome::Converted => {
@@ -139,15 +272,6 @@ fn convert_install(args: ConvertArgs<'_>) -> Result<()> {
             Outcome::Missing => println!("{}", styled(Role::Muted, format!("- {name}: missing"))),
         }
     }
-    if args.allow_incomplete_repair {
-        success(format!("{converted} file(s) repaired"));
-    } else {
-        success(format!(
-            "{converted} file(s) converted to {}",
-            args.target.label()
-        ));
-    }
-    Ok(())
 }
 
 fn resolve_game_dir(
@@ -163,17 +287,15 @@ fn resolve_game_dir(
     Ok(open_instance(instance_dir)?.config.game_dir)
 }
 
-fn resolve_deltas(
-    deltas: Option<&Utf8Path>,
-    args: ConvertArgs<'_>,
-) -> Result<HashMap<String, Utf8PathBuf>> {
-    let mut mapped = if let Some(dir) = deltas {
+fn resolve_core_deltas(deltas: Option<&Utf8Path>, args: ConvertArgs<'_>) -> Result<DeltaMap> {
+    let mut map = if let Some(dir) = deltas {
         if !dir.is_dir() {
             bail!("no such delta directory: {dir}");
         }
-        vcdiff::map_deltas(dir).with_context(|| format!("mapping deltas in {dir}"))?
+        vcdiff::map_deltas(dir, convert::core_binary_names())
+            .with_context(|| format!("mapping deltas in {dir}"))?
     } else {
-        HashMap::new()
+        DeltaMap::default()
     };
     for (name, path) in [
         ("Fallout4.exe", args.exe_delta),
@@ -184,14 +306,45 @@ fn resolve_deltas(
             if !path.is_file() {
                 bail!("delta for {name} not found: {path}");
             }
-            mapped.insert(name.to_owned(), path.to_owned());
+            map.mapped.insert(name.to_owned(), path.to_owned());
         }
     }
-    Ok(mapped)
+    Ok(map)
+}
+
+fn resolve_dlc_deltas(deltas: Option<&Utf8Path>, allowed: &[&str]) -> Result<DeltaMap> {
+    let Some(dir) = deltas else {
+        return Ok(DeltaMap::default());
+    };
+    if !dir.is_dir() {
+        bail!("no such delta directory: {dir}");
+    }
+    vcdiff::map_deltas(dir, allowed).with_context(|| format!("mapping deltas in {dir}"))
+}
+
+fn warn_ignored_deltas(
+    ignored: &[Utf8PathBuf],
+    this_kind: &str,
+    other_cmd: &str,
+    other_kind: &str,
+) {
+    if ignored.is_empty() {
+        return;
+    }
+    println!(
+        "{}",
+        styled(
+            Role::Warning,
+            format!(
+                "~ {} delta(s) ignored (not {this_kind}); use `{other_cmd}` for {other_kind}",
+                ignored.len()
+            )
+        )
+    );
 }
 
 fn selected_groups<'a>(
-    plans: &'a [convert::ItemPlan],
+    plans: &'a [ItemPlan],
     deltas: &HashMap<String, Utf8PathBuf>,
 ) -> HashSet<&'a str> {
     plans
@@ -202,18 +355,17 @@ fn selected_groups<'a>(
 }
 
 fn build_jobs(
-    target: Generation,
-    plans: &[convert::ItemPlan],
+    target_label: &str,
+    plans: &[ItemPlan],
     deltas: &HashMap<String, Utf8PathBuf>,
     allow_incomplete_repair: bool,
-) -> Result<(Vec<convert::ConvertJob>, bool)> {
+) -> Result<(Vec<ConvertJob>, bool)> {
     let selected = selected_groups(plans, deltas);
     let mut jobs = Vec::new();
     let mut selected_files = 0usize;
     let mut already = 0usize;
     for plan in plans {
-        // A group is converted only if the user supplied a delta for one of its files; other groups
-        // (including core) are left untouched, so a mixed generation is allowed (BASS handles it).
+        // A group converts only when the user supplied a delta for one of its files.
         if !selected.contains(plan.item.group) {
             continue;
         }
@@ -227,7 +379,7 @@ fn build_jobs(
                 plan.item.rel_path
             ),
             ItemState::NeedsConversion => match deltas.get(plan.item.rel_path) {
-                Some(delta) => jobs.push(convert::ConvertJob {
+                Some(delta) => jobs.push(ConvertJob {
                     item: plan.item,
                     delta: delta.clone(),
                 }),
@@ -245,21 +397,20 @@ fn build_jobs(
             return Ok((jobs, true));
         }
         if !allow_incomplete_repair {
-            bail!("no files can be converted to {}", target.label());
+            bail!("no files can be converted to {target_label}");
         }
     }
     Ok((jobs, false))
 }
 
-fn validate_edition_for_auto_convert(edition: Edition, plans: &[convert::ItemPlan]) -> Result<()> {
+fn validate_edition_for_auto_convert(edition: Edition, plans: &[ItemPlan]) -> Result<()> {
     if matches!(
         edition,
         Edition::OldGen | Edition::NextGen | Edition::Anniversary
     ) {
         return Ok(());
     }
-    // Only the core binaries define the install edition; DLC has no source fingerprints, and the
-    // target-hash gate guarantees a correct conversion regardless of the detected edition.
+    // Only the core binaries define the install edition; the target-hash gate is the real safety net.
     if plans
         .iter()
         .filter(|plan| plan.item.group == "core" && !matches!(plan.state, ItemState::Missing))
@@ -277,7 +428,7 @@ struct ConvertPlanView<'a> {
     edition: Edition,
     target: Generation,
     xdelta3: &'a ResolvedXdelta3,
-    plans: &'a [convert::ItemPlan],
+    plans: &'a [ItemPlan],
     deltas: &'a HashMap<String, Utf8PathBuf>,
     allow_incomplete_repair: bool,
     dry_run: bool,
@@ -293,53 +444,92 @@ fn print_convert_plan(view: ConvertPlanView<'_>) {
         heading(format!("Repairing selected binaries in {}", view.game_dir));
     } else {
         heading(format!(
-            "Converting {} to {}",
-            view.game_dir,
-            view.target.label()
+            "Converting the core binaries to {} in {}",
+            view.target.label(),
+            view.game_dir
         ));
     }
-    println!(
-        "Detected edition: {:?} -> target: {}",
-        view.edition,
-        view.target.label()
-    );
+    println!("Detected edition (Fallout4.exe): {:?}", view.edition);
     println!("xdelta3: {} ({})", view.xdelta3.path, view.xdelta3.version);
     println!("Backups: <binary>.overseer-bak beside each converted file");
-    let selected = selected_groups(view.plans, view.deltas);
-    for plan in view.plans {
+    let label = view.target.label().to_owned();
+    print_plan_lines(view.plans, view.deltas, |_| label.clone());
+}
+
+struct DlcPlanView<'a> {
+    game_dir: &'a Utf8Path,
+    xdelta3: &'a ResolvedXdelta3,
+    plans: &'a [ItemPlan],
+    deltas: &'a HashMap<String, Utf8PathBuf>,
+    allow_incomplete_repair: bool,
+    dry_run: bool,
+    yes: bool,
+}
+
+fn print_dlc_plan(view: DlcPlanView<'_>) {
+    if view.dry_run {
+        heading("Dry run - nothing will be written");
+    } else if !view.yes {
+        heading("Preview - re-run with --yes to apply");
+    } else if view.allow_incomplete_repair {
+        heading(format!("Repairing selected DLC files in {}", view.game_dir));
+    } else {
+        heading(format!(
+            "Applying the DLC consistency revision in {}",
+            view.game_dir
+        ));
+    }
+    println!("xdelta3: {} ({})", view.xdelta3.path, view.xdelta3.version);
+    println!("Backups: <file>.overseer-bak beside each converted file");
+    print_plan_lines(view.plans, view.deltas, |plan| {
+        format!(
+            "consistency ({})",
+            dlc::dlc_note(plan.item.rel_path).unwrap_or("revision")
+        )
+    });
+}
+
+fn print_plan_lines(
+    plans: &[ItemPlan],
+    deltas: &HashMap<String, Utf8PathBuf>,
+    label_for: impl Fn(&ItemPlan) -> String,
+) {
+    let selected = selected_groups(plans, deltas);
+    for plan in plans {
         print_plan_line(
             plan,
-            view.deltas.get(plan.item.rel_path),
+            deltas.get(plan.item.rel_path),
             selected.contains(plan.item.group),
+            &label_for(plan),
         );
     }
 }
 
-fn print_plan_line(plan: &convert::ItemPlan, delta: Option<&Utf8PathBuf>, selected: bool) {
+fn print_plan_line(
+    plan: &ItemPlan,
+    delta: Option<&Utf8PathBuf>,
+    selected: bool,
+    target_label: &str,
+) {
     let source = plan
         .known_source
-        .map(|fp| fp.label())
+        .clone()
         .unwrap_or_else(|| "unknown source".to_owned());
     let delta_label = delta
         .map(|path| path.as_str().to_owned())
         .unwrap_or_else(|| "no delta".to_owned());
-    let gate = match plan.item.target.verified_by() {
+    let gate = match plan.item.target.expected.verified_by() {
         VerifiedBy::Sha256 => String::new(),
         VerifiedBy::Crc32 => format!("; verified by {}", VerifiedBy::Crc32.label()),
     };
     let (role, msg) = match plan.state {
         ItemState::AlreadyTarget => (
             Role::Muted,
-            format!(
-                "= {}: already {}{}",
-                plan.item.rel_path,
-                plan.item.target.label(),
-                gate
-            ),
+            format!("= {}: already {target_label}{gate}", plan.item.rel_path),
         ),
         ItemState::Missing => (
             Role::Muted,
-            format!("- {}: missing{}", plan.item.rel_path, gate),
+            format!("- {}: missing{gate}", plan.item.rel_path),
         ),
         ItemState::NeedsConversion if !selected => (
             Role::Muted,
@@ -351,10 +541,8 @@ fn print_plan_line(plan: &convert::ItemPlan, delta: Option<&Utf8PathBuf>, select
         ItemState::NeedsConversion => (
             Role::Added,
             format!(
-                "+ {}: {source} -> {}; delta: {delta_label}{}",
-                plan.item.rel_path,
-                plan.item.target.label(),
-                gate
+                "+ {}: {source} -> {target_label}; delta: {delta_label}{gate}",
+                plan.item.rel_path
             ),
         ),
     };
@@ -597,9 +785,18 @@ mod tests {
         "Data/DLCCoast - Textures.ba2",
     ];
 
-    fn plan_for(rel: &str, state: ItemState) -> convert::ItemPlan {
-        convert::ItemPlan {
-            item: convert::explicit_item(Generation::OldGen, rel).expect("known rel_path"),
+    fn core_plan_for(rel: &str, state: ItemState) -> ItemPlan {
+        ItemPlan {
+            item: convert::explicit_item(Generation::OldGen, rel).expect("known core rel_path"),
+            state,
+            current: None,
+            known_source: None,
+        }
+    }
+
+    fn dlc_plan_for(rel: &str, state: ItemState) -> ItemPlan {
+        ItemPlan {
+            item: dlc::explicit_item(rel).expect("known dlc rel_path"),
             state,
             current: None,
             known_source: None,
@@ -614,13 +811,19 @@ mod tests {
 
     #[test]
     fn dlc_only_deltas_convert_dlc_and_leave_core_untouched() {
-        let mut plans = vec![plan_for("Fallout4.exe", ItemState::NeedsConversion)];
+        let mut plans = vec![core_plan_for("Fallout4.exe", ItemState::NeedsConversion)];
         plans.extend(
             COAST
                 .iter()
-                .map(|r| plan_for(r, ItemState::NeedsConversion)),
+                .map(|r| dlc_plan_for(r, ItemState::NeedsConversion)),
         );
-        let (jobs, noop) = build_jobs(Generation::OldGen, &plans, &deltas(COAST), false).unwrap();
+        let (jobs, noop) = build_jobs(
+            "the DLC consistency revision",
+            &plans,
+            &deltas(COAST),
+            false,
+        )
+        .unwrap();
         assert!(!noop);
         assert_eq!(jobs.len(), COAST.len());
         assert!(jobs.iter().all(|j| j.item.group == "DLCCoast"));
@@ -630,10 +833,10 @@ mod tests {
     fn a_partial_dlc_group_is_refused() {
         let plans: Vec<_> = COAST
             .iter()
-            .map(|r| plan_for(r, ItemState::NeedsConversion))
+            .map(|r| dlc_plan_for(r, ItemState::NeedsConversion))
             .collect();
         let err = build_jobs(
-            Generation::OldGen,
+            "the DLC consistency revision",
             &plans,
             &deltas(&["Data/DLCCoast.esm"]),
             false,
@@ -644,17 +847,23 @@ mod tests {
 
     #[test]
     fn no_deltas_means_nothing_to_convert() {
-        let plans = vec![plan_for("Fallout4.exe", ItemState::NeedsConversion)];
-        assert!(build_jobs(Generation::OldGen, &plans, &HashMap::new(), false).is_err());
+        let plans = vec![core_plan_for("Fallout4.exe", ItemState::NeedsConversion)];
+        assert!(build_jobs("Old-Gen", &plans, &HashMap::new(), false).is_err());
     }
 
     #[test]
     fn a_fully_converted_selected_group_is_a_noop() {
         let plans: Vec<_> = COAST
             .iter()
-            .map(|r| plan_for(r, ItemState::AlreadyTarget))
+            .map(|r| dlc_plan_for(r, ItemState::AlreadyTarget))
             .collect();
-        let (jobs, noop) = build_jobs(Generation::OldGen, &plans, &deltas(COAST), false).unwrap();
+        let (jobs, noop) = build_jobs(
+            "the DLC consistency revision",
+            &plans,
+            &deltas(COAST),
+            false,
+        )
+        .unwrap();
         assert!(jobs.is_empty());
         assert!(noop);
     }
