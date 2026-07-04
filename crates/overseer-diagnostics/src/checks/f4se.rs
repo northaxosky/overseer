@@ -40,7 +40,7 @@ impl Check for F4se {
         if let (Some(packed), Some(game)) = (ctx.runtime_packed, ctx.runtime_family) {
             for p in &ctx.f4se_plugins {
                 let advertises = if p.plugin.supports_ngae {
-                    p.plugin.supports(packed) // exact-runtime match in compatibleVersions
+                    p.plugin.supports(packed) || p.plugin.version_independent_for(game)
                 } else {
                     game == Generation::OldGen // OG-only plugins (Query, no Version)
                 };
@@ -169,6 +169,8 @@ mod tests {
                 supports_og: !supports_ngae,
                 supports_ngae,
                 compatible: compatible.to_vec(),
+                address_independence: 0,
+                structure_independence: 0,
             },
         }
     }
@@ -209,5 +211,25 @@ mod tests {
             F4se.run(&plugin_ctx(vec![scan("x.dll", true, &[0x010A_3D80])], None))
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn a_version_independent_plugin_is_silent_without_an_exact_match() {
+        // AE-band address + structure independence, so F4SE loads it on AE despite compat listing only OG.
+        let mut s = scan("indep.dll", true, &[0x010A_3D80]);
+        s.plugin.address_independence = 0x4; // Address Library 1.11.137
+        s.plugin.structure_independence = 0x4; // 1.11.137 struct layout
+        assert!(F4se.run(&plugin_ctx(vec![s], Some(0x010B_0DD0))).is_empty());
+    }
+
+    #[test]
+    fn a_nextgen_only_independent_plugin_still_warns_on_anniversary() {
+        // NG-band independence (1.10.980) doesn't cover AE, and compat omits it → warn.
+        let mut s = scan("ng.dll", true, &[]);
+        s.plugin.address_independence = 0x2;
+        s.plugin.structure_independence = 0x2;
+        let findings = F4se.run(&plugin_ctx(vec![s], Some(0x010B_0DD0)));
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].severity, Severity::Warning);
     }
 }
