@@ -220,3 +220,104 @@ pub fn plugin_meta(
         header_version: None,
     }
 }
+
+// Testbed: a declarative synthetic instance
+
+/// One synthetic plugin: its filename, header flags, masters, and HEDR version.
+struct PluginSpec {
+    name: String,
+    flags: u32,
+    masters: Vec<String>,
+    header_version: f32,
+}
+
+/// A synthetic mod's staged content: plugins plus files (loose assets or archives).
+#[derive(Default)]
+pub struct ModSpec {
+    plugins: Vec<PluginSpec>,
+    files: Vec<(String, Vec<u8>)>,
+}
+
+impl ModSpec {
+    /// Add a plugin with the given flags and masters (HEDR version 1.0).
+    pub fn plugin(mut self, name: &str, flags: u32, masters: &[&str]) -> Self {
+        self.plugins.push(PluginSpec {
+            name: name.to_owned(),
+            flags,
+            masters: masters.iter().map(|m| (*m).to_owned()).collect(),
+            header_version: 1.0,
+        });
+        self
+    }
+
+    /// Add a loose file at a mod-relative path with exact bytes.
+    pub fn loose(mut self, rel: &str, bytes: &[u8]) -> Self {
+        self.files.push((rel.to_owned(), bytes.to_vec()));
+        self
+    }
+
+    /// Add a stub BA2 archive (24-byte `BTDX` header) at the mod root.
+    pub fn archive(mut self, name: &str, version: u32, tag: &[u8; 4]) -> Self {
+        self.files
+            .push((name.to_owned(), ba2_bytes(version, tag, &[])));
+        self
+    }
+}
+
+/// A declarative synthetic instance: managed mods in priority order (first is highest) and a profile.
+#[derive(Default)]
+pub struct TestbedSpec {
+    profile: String,
+    mods: Vec<(String, bool, ModSpec)>,
+}
+
+impl TestbedSpec {
+    /// An empty spec whose single profile is named `Default`.
+    pub fn new() -> Self {
+        Self {
+            profile: "Default".to_owned(),
+            mods: Vec::new(),
+        }
+    }
+
+    /// Append a managed mod (built by `build`) at the next-lower priority, enabled or not.
+    pub fn managed(
+        mut self,
+        name: &str,
+        enabled: bool,
+        build: impl FnOnce(ModSpec) -> ModSpec,
+    ) -> Self {
+        self.mods
+            .push((name.to_owned(), enabled, build(ModSpec::default())));
+        self
+    }
+}
+
+/// Generate the instance described by `spec` under `dir`, with temp local/INI dirs, and return it.
+pub fn build_testbed(dir: &Utf8Path, spec: &TestbedSpec) -> Instance {
+    let mut instance = Instance::new(dir.join("instance"), dir.join("game"));
+    instance.config.local_dir = Some(dir.join("local"));
+    instance.config.ini_dir = Some(dir.join("my_games"));
+
+    for (name, _enabled, m) in &spec.mods {
+        let mod_dir = instance.mods_dir().join(name);
+        std::fs::create_dir_all(&mod_dir).expect("create mod dir");
+        for p in &m.plugins {
+            let masters: Vec<&str> = p.masters.iter().map(String::as_str).collect();
+            write_plugin_versioned(&mod_dir, &p.name, p.flags, &masters, p.header_version);
+        }
+        for (rel, bytes) in &m.files {
+            let path = mod_dir.join(rel);
+            std::fs::create_dir_all(path.parent().expect("file parent")).expect("create parents");
+            std::fs::write(path, bytes).expect("write file");
+        }
+    }
+
+    let order: Vec<(&str, bool)> = spec
+        .mods
+        .iter()
+        .map(|(name, enabled, _)| (name.as_str(), *enabled))
+        .collect();
+    save_profile(&instance, &spec.profile, &order);
+    instance
+}
