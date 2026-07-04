@@ -576,7 +576,8 @@ fn resolve_xdelta3(cli_path: Option<&Utf8Path>) -> Result<ResolvedXdelta3> {
 }
 
 fn resolve_executable(path: &Utf8Path) -> Result<Utf8PathBuf> {
-    if path.is_absolute() || path.parent().is_some() {
+    let has_dir = path.parent().is_some_and(|p| !p.as_str().is_empty());
+    if path.is_absolute() || has_dir {
         return Ok(absolutize(path)?);
     }
     find_on_path(path.as_str()).with_context(|| format!("{path} not found on PATH"))
@@ -866,5 +867,22 @@ mod tests {
         .unwrap();
         assert!(jobs.is_empty());
         assert!(noop);
+    }
+
+    #[test]
+    fn a_bare_tool_name_is_searched_on_path_not_absolutized() {
+        // A bare name (empty parent) must go through PATH lookup, not be absolutized against the CWD.
+        let result = resolve_executable(Utf8Path::new("overseer-nonexistent-tool-xyz"));
+        assert!(
+            result.is_err(),
+            "a bare name not on PATH must error, not silently absolutize to the CWD"
+        );
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("not found on PATH"),
+            "the error must come from the PATH lookup branch"
+        );
     }
 }
