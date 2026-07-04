@@ -22,10 +22,9 @@ pub fn run(target: &ProfileArgs) -> Result<()> {
     ));
 
     for conflict in &conflicts {
-        let (winner, overridden) = conflict
-            .providers
-            .split_last()
-            .expect("a conflict has at least two providers");
+        let Some((winner, overridden)) = conflict.providers.split_last() else {
+            continue;
+        };
         println!("  {}", conflict.relative);
         println!("    winner:     {}", styled(Role::Success, winner));
         for loser in overridden {

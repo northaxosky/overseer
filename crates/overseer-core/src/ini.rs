@@ -4,9 +4,6 @@ use crate::instance::{Instance, InstanceError};
 use std::collections::BTreeMap;
 use thiserror::Error;
 
-/// Bethesda INIs are CRLF by convention;
-const NL: &str = "\r\n";
-
 /// Something went wrong locating or reading the game INIs
 #[derive(Debug, Error)]
 pub enum IniError {
@@ -75,6 +72,15 @@ fn assigns(line: &str, key_lower: &str) -> bool {
         .is_some_and(|(k, _)| k.trim().to_lowercase() == key_lower)
 }
 
+/// The newline to write for `text`: preserve LF/CRLF (default=CRLF)
+fn newline_of(text: &str) -> &'static str {
+    if text.contains("\r\n") || !text.contains('\n') {
+        "\r\n"
+    } else {
+        "\n"
+    }
+}
+
 /// Remove `[section] key`, leaving every other line intact. No-op if absent
 pub fn unset_key(text: &str, section: &str, key: &str) -> String {
     let want_section = section.trim().to_lowercase();
@@ -90,7 +96,7 @@ pub fn unset_key(text: &str, section: &str, key: &str) -> String {
             }
         })
         .collect::<Vec<_>>()
-        .join(NL)
+        .join(newline_of(text))
 }
 
 /// Set `[section] key=value`, leaving every other line intact
@@ -120,7 +126,7 @@ pub fn set_key(text: &str, section: &str, key: &str, value: &str) -> String {
             lines.push(format!("{key}={value}"));
         }
     }
-    lines.join(NL)
+    lines.join(newline_of(text))
 }
 
 /// The game INIs, parsed: `settings` is `<stem>.ini` merged with `<stem>Custom.ini`; prefs is `<stem>Prefs.ini`
@@ -411,5 +417,27 @@ mod tests {
         assert_eq!(ini.get("general", "SLocalSavePath"), None);
         assert_eq!(ini.get("general", "uGridsToLoad"), Some("5"));
         assert_eq!(ini.get("archive", "bInvalidateOlderFiles"), Some("1"));
+    }
+
+    #[test]
+    fn set_key_preserves_a_pure_lf_files_newlines() {
+        // An LF-only INI must stay LF, not be rewritten to CRLF.
+        let out = set_key(
+            "[General]\nuGridsToLoad=5\n",
+            "General",
+            "SLocalSavePath",
+            "Saves\\P\\",
+        );
+        assert_eq!(out, "[General]\nuGridsToLoad=5\nSLocalSavePath=Saves\\P\\");
+    }
+
+    #[test]
+    fn unset_key_preserves_a_pure_lf_files_newlines() {
+        let out = unset_key(
+            "[General]\nuGridsToLoad=5\nSLocalSavePath=x\n",
+            "General",
+            "SLocalSavePath",
+        );
+        assert_eq!(out, "[General]\nuGridsToLoad=5");
     }
 }
