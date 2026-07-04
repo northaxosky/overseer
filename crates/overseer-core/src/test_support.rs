@@ -240,12 +240,23 @@ pub struct ModSpec {
 
 impl ModSpec {
     /// Add a plugin with the given flags and masters (HEDR version 1.0).
-    pub fn plugin(mut self, name: &str, flags: u32, masters: &[&str]) -> Self {
+    pub fn plugin(self, name: &str, flags: u32, masters: &[&str]) -> Self {
+        self.plugin_versioned(name, flags, masters, 1.0)
+    }
+
+    /// Add a plugin with a chosen HEDR module version, for header-version fixtures.
+    pub fn plugin_versioned(
+        mut self,
+        name: &str,
+        flags: u32,
+        masters: &[&str],
+        header_version: f32,
+    ) -> Self {
         self.plugins.push(PluginSpec {
             name: name.to_owned(),
             flags,
             masters: masters.iter().map(|m| (*m).to_owned()).collect(),
-            header_version: 1.0,
+            header_version,
         });
         self
     }
