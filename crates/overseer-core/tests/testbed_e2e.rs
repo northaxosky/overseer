@@ -339,7 +339,9 @@ fn deploy_purge_roundtrip_leaves_testbed_pristine() {
     let _ = std::fs::remove_dir_all(&work);
 }
 
-// ---------------------------------------------------------------------------; Curated real-mod round-trip; ---------------------------------------------------------------------------
+// ────────────────────────────────────────────────────────────────────────
+// Curated real-mod round-trip
+// ────────────────────────────────────────────────────────────────────────
 
 /// Curated mods from the standing testbed instance (`OVERSEER_TESTBED`) covering a real conflict (`Interface/MCM.swf`), an ESM master, `.ba2` archives, and loose F4SE plugin DLLs; highest-priority first so the first entry wins.
 const CURATED_MODS: &[&str] = &[
