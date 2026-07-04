@@ -32,54 +32,57 @@ impl App {
         }
     }
 
-    /// Move the selected mod one step in priority
-    fn shift_selected_mod(&mut self, delta: isize) -> bool {
+    /// Move the selected mod up or down in priority, in display (MO2) order
+    fn shift_selected_mod(&mut self, display_delta: isize) -> bool {
         if self.focus != Focus::Mods {
             return false;
         }
-        let Some(i) = self.mods_state.selected() else {
+        let rows = self.visible_rows();
+        let Some(p) = self.mods_state.selected() else {
             return false;
         };
-        let target = i as isize + delta;
-        if target < 0 || target >= self.session.profile.mods.len() as isize {
+        let q = p as isize + display_delta;
+        if q < 0 || q >= rows.len() as isize {
             return false;
         }
-        let name = self.session.profile.mods[i].name.clone();
-        let moved = if delta < 0 {
-            self.session.profile.move_up(&name).is_ok()
-        } else {
-            self.session.profile.move_down(&name).is_ok()
-        };
-        if moved {
-            self.mods_state.select(Some(target as usize));
-            self.mark_conflicts_stale();
+        let (a, b) = (rows[p], rows[q as usize]);
+        let mods = &self.session.profile.mods;
+        if mods[a].kind != ModKind::Managed {
+            self.note("Only mods can be reordered");
+            return false;
         }
-        moved
+        if mods[b].kind == ModKind::Foreign {
+            self.note("Can't reorder past a base-game entry");
+            return false;
+        }
+        // Both endpoints visible, they are model-adjacent: plain swap is clean
+        self.session.profile.mods.swap(a, b);
+        self.mods_state.select(Some(q as usize));
+        self.mark_conflicts_stale();
+        true
     }
 
-    /// Flip the mod's `enabled` / plugin's `active`
+    /// Flip the mod's `enabled`, or act on the focused workspace spane
     fn flip_selected(&mut self) -> bool {
         match self.focus {
             Focus::Mods => {
-                if let Some(i) = self.mods_state.selected() {
-                    let m = &mut self.session.profile.mods[i];
-                    // Only Managed mods serialize an enabled flag; flipping a DLC/CC; (Foreign) or Separator would be a silent no-op on save.
-                    if m.kind != ModKind::Managed {
-                        self.note("Only managed mods can be toggled");
-                        return false;
-                    }
-                    m.enabled = !m.enabled;
-                    // The enabled set drives conflict detection; invalidate the scan.
-                    self.mark_conflicts_stale();
-                    return true;
+                let Some(m) = self.selected_mod() else {
+                    return false;
+                };
+                let entry = &mut self.session.profile.mods[m];
+                if entry.kind != ModKind::Managed {
+                    self.note("Only managed mods can be toggled");
+                    return false;
                 }
+                entry.enabled = !entry.enabled;
+                self.mark_conflicts_stale();
+                true
             }
             Focus::Workspace => {
                 let ws = self.workspace;
-                return ws.primary(self);
+                ws.primary(self)
             }
         }
-        false
     }
 
     /// Save the profile and load order, re-deriving plugins
@@ -166,7 +169,12 @@ mod tests {
                 kind: ModKind::Foreign,
             });
         let foreign = app.session.profile.mods.len() - 1;
-        app.mods_state.select(Some(foreign));
+        let display = app
+            .visible_rows()
+            .iter()
+            .position(|&i| i == foreign)
+            .expect("the foreign row is visible");
+        app.mods_state.select(Some(display));
         assert!(!app.flip_selected(), "foreign entries can't be flipped");
         assert!(app.session.profile.mods[foreign].enabled, "left unchanged");
         assert!(app.message.is_some(), "user is told why");
@@ -175,9 +183,10 @@ mod tests {
     #[test]
     fn flip_toggles_the_selected_mod() {
         let mut app = App::sample();
-        assert!(app.session.profile.mods[0].enabled);
+        let m = app.selected_mod().expect("a row is selected");
+        let before = app.session.profile.mods[m].enabled;
         assert!(app.flip_selected());
-        assert!(!app.session.profile.mods[0].enabled);
+        assert_eq!(app.session.profile.mods[m].enabled, !before);
     }
 
     #[test]
@@ -234,5 +243,97 @@ mod tests {
         assert_eq!(app.mods_state.selected(), Some(0));
         app.focus = Focus::Workspace;
         assert!(!app.shift_selected_mod(1)); // unsupported pane
+    }
+
+    fn managed(name: &str) -> overseer_core::instance::ModListEntry {
+        overseer_core::instance::ModListEntry {
+            name: name.to_owned(),
+            enabled: true,
+            kind: ModKind::Managed,
+        }
+    }
+
+    fn separator(name: &str) -> overseer_core::instance::ModListEntry {
+        overseer_core::instance::ModListEntry {
+            name: name.to_owned(),
+            enabled: false,
+            kind: ModKind::Separator,
+        }
+    }
+
+    fn foreign(name: &str) -> overseer_core::instance::ModListEntry {
+        overseer_core::instance::ModListEntry {
+            name: name.to_owned(),
+            enabled: true,
+            kind: ModKind::Foreign,
+        }
+    }
+
+    fn names(app: &App) -> Vec<String> {
+        app.session
+            .profile
+            .mods
+            .iter()
+            .map(|m| m.name.clone())
+            .collect()
+    }
+
+    #[test]
+    fn j_moves_a_mod_down_the_ui_which_raises_its_priority() {
+        // model [CoolMod(0), OffMod(1)]; display [OffMod, CoolMod] (highest priority at the bottom).
+        let mut app = App::sample();
+        app.mods_state.select(Some(0)); // OffMod: lowest priority, top of the UI
+        assert!(app.shift_selected_mod(1)); // J: move down the UI
+        assert_eq!(names(&app), vec!["OffMod", "CoolMod"]); // OffMod is now model 0 = highest priority
+        assert_eq!(
+            app.mods_state.selected(),
+            Some(1),
+            "selection follows the moved mod"
+        );
+    }
+
+    #[test]
+    fn a_managed_mod_crosses_an_expanded_separator() {
+        let mut app = App::sample();
+        app.session.profile.mods = vec![
+            managed("PatchA"),
+            separator("Group_separator"),
+            managed("TextureX"),
+        ];
+        // display: [TextureX(d0,m2), Group(d1,m1), PatchA(d2,m0)]
+        app.mods_state.select(Some(0)); // TextureX, above the group
+        assert!(
+            app.shift_selected_mod(1),
+            "swaps with the expanded separator, crossing into the group"
+        );
+        assert_eq!(names(&app), vec!["PatchA", "TextureX", "Group_separator"]);
+        assert_eq!(
+            app.mods_state.selected(),
+            Some(1),
+            "selection follows across the boundary"
+        );
+    }
+
+    #[test]
+    fn a_move_past_a_foreign_entry_is_refused() {
+        let mut app = App::sample();
+        app.session.profile.mods = vec![foreign("DLCArmor"), managed("TextureX")];
+        // display: [TextureX(d0,m1), DLCArmor(d1,m0)]
+        app.mods_state.select(Some(0)); // TextureX
+        assert!(
+            !app.shift_selected_mod(1),
+            "can't displace a base-game entry"
+        );
+        assert!(app.message.is_some());
+    }
+
+    #[test]
+    fn reordering_a_separator_row_is_refused() {
+        let mut app = App::sample();
+        app.session.profile.mods = vec![managed("PatchA"), separator("Group_separator")];
+        // display: [Group(d0,m1), PatchA(d1,m0)]
+        app.mods_state.select(Some(0)); // the separator
+        assert!(!app.shift_selected_mod(1), "separators don't reorder in v1");
+        assert!(app.message.is_some());
     }
 }

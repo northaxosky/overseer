@@ -24,6 +24,18 @@ enum RefreshCause {
 }
 
 impl App {
+    /// Model indices of the mods pane in display (MO2) order: file order reversed
+    pub(crate) fn visible_rows(&self) -> Vec<usize> {
+        (0..self.session.profile.mods.len()).rev().collect()
+    }
+
+    /// Model index of the selected mods-pane row, translating from display space
+    pub(crate) fn selected_mod(&self) -> Option<usize> {
+        self.visible_rows()
+            .get(self.mods_state.selected()?)
+            .copied()
+    }
+
     pub(crate) fn handle_key(&mut self, key: KeyEvent) {
         // A modal blocks everything beneath it: it gets keys before the main view
         if self.modal.is_some() {
@@ -125,7 +137,10 @@ impl App {
     /// Move the selection within the focused pane, clamped to its bounds.
     fn move_main_selection(&mut self, delta: isize) {
         let (state, len) = match self.focus {
-            Focus::Mods => (&mut self.mods_state, self.session.profile.mods.len()),
+            Focus::Mods => {
+                let len = self.visible_rows().len();
+                (&mut self.mods_state, len)
+            }
             Focus::Workspace => {
                 let ws = self.workspace;
                 ws.selection(self)
@@ -764,5 +779,50 @@ mod tests {
                 "{w:?} round-trips through its key"
             );
         }
+    }
+
+    fn managed_row(name: &str) -> overseer_core::instance::ModListEntry {
+        overseer_core::instance::ModListEntry {
+            name: name.to_owned(),
+            enabled: true,
+            kind: overseer_core::instance::ModKind::Managed,
+        }
+    }
+
+    fn separator_row(name: &str) -> overseer_core::instance::ModListEntry {
+        overseer_core::instance::ModListEntry {
+            name: name.to_owned(),
+            enabled: false,
+            kind: overseer_core::instance::ModKind::Separator,
+        }
+    }
+
+    /// A fixture whose file order is PatchA, PatchB, [Gameplay], TextureX, [Visual].
+    fn app_with_groups() -> App {
+        let mut app = App::sample();
+        app.session.profile.mods = vec![
+            managed_row("PatchA"),
+            managed_row("PatchB"),
+            separator_row("Gameplay_separator"),
+            managed_row("TextureX"),
+            separator_row("Visual_separator"),
+        ];
+        app.mods_state.select(Some(0));
+        app
+    }
+
+    #[test]
+    fn visible_rows_reverses_file_order_into_mo2_order() {
+        let app = app_with_groups();
+        assert_eq!(app.visible_rows(), vec![4, 3, 2, 1, 0]);
+    }
+
+    #[test]
+    fn selected_mod_translates_display_to_model() {
+        let mut app = app_with_groups();
+        app.mods_state.select(Some(0));
+        assert_eq!(app.selected_mod(), Some(4)); // top of the UI = the Visual separator
+        app.mods_state.select(Some(4));
+        assert_eq!(app.selected_mod(), Some(0)); // bottom = PatchA, the highest priority
     }
 }

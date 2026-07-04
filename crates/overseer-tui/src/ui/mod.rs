@@ -72,11 +72,9 @@ pub(crate) fn draw_main(app: &mut App, frame: &mut Frame) {
         app.session.profile.mods.len()
     );
     let mods_items: Vec<ListItem<'static>> = app
-        .session
-        .profile
-        .mods
+        .visible_rows()
         .iter()
-        .map(|m| mod_row(m, cols[0].width))
+        .map(|&i| mod_row(&app.session.profile.mods[i], cols[0].width))
         .collect();
     render_pane(
         frame,

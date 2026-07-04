@@ -74,7 +74,7 @@ impl App {
             self.note("Switch to the mods pane to rename a mod");
             return;
         }
-        let Some(i) = self.mods_state.selected() else {
+        let Some(i) = self.selected_mod() else {
             return;
         };
         let entry = &self.session.profile.mods[i];
@@ -133,16 +133,19 @@ impl App {
 
     /// Insert a separator above the selection and persist; revert the in-memory insert if it fails
     fn insert_selected_separator(&mut self, name: &str) -> Result<(), String> {
-        let index = self.mods_state.selected().unwrap_or(0);
+        let anchor = self
+            .selected_mod()
+            .map_or(self.session.profile.mods.len(), |m| m + 1);
         self.session
             .profile
-            .insert_separator(index, name)
+            .insert_separator(anchor, name)
             .map_err(|e| e.to_string())?;
         if let Err(e) = self.session.profile.save(&self.session.instance) {
-            self.session.profile.mods.remove(index);
+            self.session.profile.mods.remove(anchor);
             return Err(format!("Could not save: {e}"));
         }
-        self.mods_state.select(Some(index));
+        let display = self.visible_rows().iter().position(|&i| i == anchor);
+        self.mods_state.select(display);
         Ok(())
     }
 
@@ -653,6 +656,7 @@ mod tests {
     #[test]
     fn r_on_a_managed_mod_opens_an_empty_rename_prompt() {
         let mut app = App::sample();
+        app.mods_state.select(Some(1)); // display 1 = CoolMod (model 0) under reversal
 
         app.handle_key(key(KeyCode::Char('R')));
 
@@ -681,7 +685,7 @@ mod tests {
                 enabled: true,
                 kind: ModKind::Foreign,
             });
-        app.mods_state.select(Some(2));
+        app.mods_state.select(Some(0)); // display 0 = the pushed row (model 2) under reversal
 
         app.handle_key(key(KeyCode::Char('R')));
 
@@ -708,7 +712,7 @@ mod tests {
         save_profile(&instance, "Default", &[("CoolMod", true)]);
         let mut app = App::sample();
         app.session.instance = instance;
-        app.mods_state.select(Some(0));
+        app.mods_state.select(Some(1)); // display 1 = CoolMod (model 0), the installed mod
 
         app.handle_key(key(KeyCode::Char('R')));
         for c in "BetterMod".chars() {
@@ -718,7 +722,7 @@ mod tests {
 
         assert!(app.modal.is_none(), "successful rename closes prompt");
         assert_eq!(app.session.profile.mods[0].name, "BetterMod");
-        assert_eq!(app.mods_state.selected(), Some(0));
+        assert_eq!(app.mods_state.selected(), Some(1));
         assert!(app.message.is_some(), "an ok notice is shown");
     }
 
@@ -746,7 +750,7 @@ mod tests {
         let mut app = App::sample();
         app.session.instance = instance;
         app.mods_state = ListState::default();
-        app.mods_state.select(Some(0));
+        app.mods_state.select(Some(1)); // display 1 = CoolMod (model 0), the installed mod
 
         app.handle_key(key(KeyCode::Char('R')));
         for c in "Existing".chars() {
@@ -762,7 +766,7 @@ mod tests {
     }
 
     #[test]
-    fn a_adds_a_separator_above_the_selection_and_saves() {
+    fn a_adds_a_separator_heading_the_selection_and_saves() {
         let (_tmp, instance) = overseer_core::test_support::temp_instance();
         install_mod(&instance, "CoolMod", &[("Textures/a.dds", "pixels")]);
         save_profile(&instance, "Default", &[("CoolMod", true)]);
@@ -777,12 +781,14 @@ mod tests {
         app.handle_key(key(KeyCode::Enter));
 
         assert!(app.modal.is_none(), "success closes the prompt");
-        assert_eq!(app.session.profile.mods[0].kind, ModKind::Separator);
-        assert_eq!(app.session.profile.mods[0].name, "Gameplay_separator");
+        // The new separator becomes the selection and heads the previously-selected row.
+        let sel = app.selected_mod().expect("a row is selected");
+        assert_eq!(app.session.profile.mods[sel].kind, ModKind::Separator);
+        assert_eq!(app.session.profile.mods[sel].name, "Gameplay_separator");
         assert_eq!(
             app.mods_state.selected(),
             Some(0),
-            "the new separator is selected"
+            "the new separator heads the selection at the top of its group"
         );
     }
 
