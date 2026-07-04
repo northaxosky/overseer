@@ -4,6 +4,7 @@ mod archive_names;
 mod archives;
 mod binaries;
 mod creation_club;
+mod dlc_consistency;
 mod f4se;
 mod header_versions;
 mod ini_config;
@@ -22,6 +23,7 @@ use archive_names::ArchiveNames;
 use archives::Archives;
 use binaries::Binaries;
 use creation_club::CreationClub;
+use dlc_consistency::DlcConsistency;
 use f4se::F4se;
 use header_versions::HeaderVersions;
 use ini_config::IniConfig;
@@ -57,6 +59,7 @@ pub fn all() -> Vec<Box<dyn Check>> {
         Box::new(ArchiveNames),
         Box::new(ScriptOverrides),
         Box::new(Binaries),
+        Box::new(DlcConsistency),
     ]
 }
 

@@ -12,6 +12,8 @@ use overseer_core::f4se::{F4seDll, F4sePlugin, parse_f4se_dll};
 use overseer_core::game::GameKind;
 use overseer_core::ini::{GameInis, IniError, read_game_inis};
 use overseer_core::instance::{Instance, Profile};
+use overseer_core::patch::fallout4::dlc;
+use overseer_core::patch::fingerprint::fingerprint_file;
 use overseer_core::plugins::{
     PluginLoadOrder, PluginMeta, discover_plugins, implicit_active_plugins, read_metadata,
 };
@@ -86,6 +88,8 @@ pub struct GameContext {
     pub game_edition: Option<Edition>,
     /// The core game binaries (`Fallout4Launcher.exe`, `steam_api64.dll`) and their generation
     pub binaries: Vec<BinaryScan>,
+    /// Installed DLC groups, each with any files not at the cross-storefront consistency revision
+    pub dlc_consistency: Vec<DlcGroupState>,
 }
 
 /// Loaded BA2 counts split by content kind and Fallout 4 archive generation
@@ -99,6 +103,17 @@ pub struct LoadedArchiveCounts {
     pub v1: usize,
     /// Loaded version 7/8 archives
     pub vng: usize,
+}
+
+/// An installed DLC group and any of its files not at the consistency revision
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DlcGroupState {
+    /// The DLC group name (e.g. `DLCCoast`)
+    pub group: &'static str,
+    /// Present files whose on-disk identity differs from the consistency revision
+    pub off_revision: Vec<&'static str>,
+    /// Required files absent or unreadable in an otherwise-installed group
+    pub missing: Vec<&'static str>,
 }
 
 /// A deployed F4SE plugin DLL and the runtime support it advertises
@@ -272,6 +287,11 @@ impl GameContext {
             Err(IniError::Instance(_)) => (None, IniStatus::Missing),
             Err(IniError::Io(error)) => (None, IniStatus::Unreadable(error.to_string())),
         };
+        let dlc_consistency = if instance.config.game == GameKind::Fallout4 {
+            scan_dlc_consistency(&instance.config.game_dir)
+        } else {
+            Vec::new()
+        };
 
         Ok(Self {
             active_plugins,
@@ -291,6 +311,7 @@ impl GameContext {
             script_overrides,
             game_edition,
             binaries,
+            dlc_consistency,
         })
     }
 }
@@ -584,6 +605,45 @@ fn active_plugins_name<'a>(relative: &'a Utf8Path, active: &BTreeSet<String>) ->
     active.contains(&name.to_lowercase()).then_some(name)
 }
 
+/// Survey installed DLC groups for the consistency revision: `.ba2` by size, others by SHA
+fn scan_dlc_consistency(game_dir: &Utf8Path) -> Vec<DlcGroupState> {
+    dlc::DLC_GROUPS
+        .iter()
+        .filter(|group| group.is_owned(game_dir).unwrap_or(false))
+        .map(|group| {
+            let mut off_revision = Vec::new();
+            let mut missing = Vec::new();
+            for rel in group.files.iter().copied() {
+                match file_revision_state(game_dir, rel) {
+                    Some(true) => {}
+                    Some(false) => off_revision.push(rel),
+                    None => missing.push(rel),
+                }
+            }
+            DlcGroupState {
+                group: group.name,
+                off_revision,
+                missing,
+            }
+        })
+        .collect()
+}
+
+/// Whether a DLC file is present and at its consistency-revision identity: archives by size, others by SHA
+fn file_revision_state(game_dir: &Utf8Path, rel: &str) -> Option<bool> {
+    let target = dlc::dlc_target(rel)?;
+    let path = game_dir.join(rel);
+    if rel.to_ascii_lowercase().ends_with(".ba2") {
+        // Textures/archives: size is 2K vs 4K; dont hash GB
+        let size = std::fs::metadata(&path).ok()?.len();
+        Some(size == target.expected.size)
+    } else {
+        // Masters/idx/cdx: small and cheap(er) SHA
+        let fp = fingerprint_file(&path).ok()??;
+        Some(target.expected.matches(&fp))
+    }
+}
+
 // ---------------------------------------------------------------------------; Tests; ---------------------------------------------------------------------------
 
 #[cfg(test)]
@@ -602,6 +662,58 @@ mod tests {
 
     fn meta(name: &str) -> PluginMeta {
         overseer_core::test_support::plugin_meta(name, false, false, &[])
+    }
+
+    // --- scan_dlc_consistency (disk) ---
+
+    #[test]
+    fn dlc_survey_flags_off_revision_files_in_an_owned_group() {
+        let (_tmp, root) = temp_base();
+        let data = root.join("Data");
+        std::fs::create_dir_all(&data).unwrap();
+        // The sentinel makes DLCworkshop02 owned; neither file is the revision identity.
+        std::fs::write(data.join("DLCworkshop02.esm"), b"not the corrected master").unwrap();
+        std::fs::write(data.join("DLCworkshop02 - Textures.ba2"), b"tiny").unwrap();
+
+        let survey = scan_dlc_consistency(&root);
+        let group = survey
+            .iter()
+            .find(|g| g.group == "DLCworkshop02")
+            .expect("owned group surveyed");
+        // The master fails the fingerprint check; the archive fails the size check.
+        assert!(group.off_revision.contains(&"Data/DLCworkshop02.esm"));
+        assert!(
+            group
+                .off_revision
+                .contains(&"Data/DLCworkshop02 - Textures.ba2")
+        );
+    }
+
+    #[test]
+    fn dlc_survey_skips_a_group_whose_sentinel_is_absent() {
+        let (_tmp, root) = temp_base();
+        std::fs::create_dir_all(root.join("Data")).unwrap();
+        // No DLCworkshop02.esm → the group isn't owned → not surveyed.
+        assert!(
+            scan_dlc_consistency(&root)
+                .iter()
+                .all(|g| g.group != "DLCworkshop02")
+        );
+    }
+
+    #[test]
+    fn dlc_survey_reports_a_missing_companion_file() {
+        let (_tmp, root) = temp_base();
+        let data = root.join("Data");
+        std::fs::create_dir_all(&data).unwrap();
+        // Sentinel present (group owned), but the textures archive is absent.
+        std::fs::write(data.join("DLCworkshop02.esm"), b"present but off-revision").unwrap();
+        let survey = scan_dlc_consistency(&root);
+        let group = survey
+            .iter()
+            .find(|g| g.group == "DLCworkshop02")
+            .expect("owned group surveyed");
+        assert!(group.missing.contains(&"Data/DLCworkshop02 - Textures.ba2"));
     }
 
     // --- active_plugins_name (pure) ---
