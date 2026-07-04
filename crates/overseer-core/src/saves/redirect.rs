@@ -1,4 +1,4 @@
-//! Per profile save-game redirection via the game's `SLocalSavePath` INI key
+//! Per-profile save-game redirection via the game's `SLocalSavePath` INI key
 
 use crate::error::IoError;
 use crate::fs;
@@ -68,7 +68,7 @@ mod tests {
     use crate::test_support::temp;
     use camino::Utf8PathBuf;
 
-    /// A temp My Games dir plus the paths the deploy flow would compute from it.
+    /// A temp My Games dir plus the paths the deploy flow would compute from it
     fn setup() -> (tempfile::TempDir, Utf8PathBuf, Utf8PathBuf) {
         let (tmp, my_games) = temp();
         let custom_ini = my_games.join("Fallout4Custom.ini");
@@ -84,7 +84,7 @@ mod tests {
     #[test]
     fn apply_into_a_fresh_install_writes_the_redirect_and_creates_the_folder() {
         let (_tmp, custom_ini, saves_dir) = setup();
-        // No INI yet: the user never launched the game.
+        // No INI yet: the user never launched the game
         let original = apply_save_redirect(&custom_ini, &saves_dir, "Hardcore").expect("apply");
 
         assert_eq!(original, None, "nothing to back up");
@@ -117,7 +117,7 @@ mod tests {
             ini.get("General", "SLocalSavePath"),
             Some("Saves\\Hardcore\\")
         );
-        // The user's archive-invalidation block is untouched.
+        // The user's archive-invalidation block is untouched
         assert_eq!(ini.get("Archive", "bInvalidateOlderFiles"), Some("1"));
     }
 
@@ -169,7 +169,7 @@ mod tests {
         let (_tmp, custom_ini, saves_dir) = setup();
         let original = apply_save_redirect(&custom_ini, &saves_dir, "Hardcore").expect("apply");
 
-        // The user (or a tool) re-pointed the save path while we were deployed.
+        // The user (or a tool) re-pointed the save path while we were deployed
         std::fs::write(
             &custom_ini,
             "[General]\r\nSLocalSavePath=Saves\\Manual\\\r\n",
@@ -189,7 +189,7 @@ mod tests {
     #[test]
     fn restore_is_a_noop_when_the_ini_is_gone() {
         let (_tmp, custom_ini, _saves_dir) = setup();
-        // Never written; a clean restore should simply succeed.
+        // Never written; a clean restore should simply succeed
         let outcome = restore_save_redirect(&custom_ini, "Hardcore", None).expect("restore");
         assert_eq!(outcome, Restore::Restored);
     }

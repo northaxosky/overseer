@@ -10,7 +10,7 @@ pub fn run(archive: Utf8PathBuf, instance_dir: Utf8PathBuf, name: Option<String>
     let archive = absolutize(&archive)?;
     let instance = open_instance(&instance_dir)?;
 
-    // Default the mod name to the archive's file stem (CoolMod.7z -> CoolMod).
+    // Default the mod name to the archive's file stem (CoolMod.7z -> CoolMod)
     let name = match name {
         Some(name) => name,
         None => archive

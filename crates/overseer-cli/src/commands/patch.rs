@@ -365,7 +365,7 @@ fn build_jobs(
     let mut selected_files = 0usize;
     let mut already = 0usize;
     for plan in plans {
-        // A group converts only when the user supplied a delta for one of its files.
+        // A group converts only when the user supplied a delta for one of its files
         if !selected.contains(plan.item.group) {
             continue;
         }
@@ -410,7 +410,7 @@ fn validate_edition_for_auto_convert(edition: Edition, plans: &[ItemPlan]) -> Re
     ) {
         return Ok(());
     }
-    // Only the core binaries define the install edition; the target-hash gate is the real safety net.
+    // Only the core binaries define the install edition; the target-hash gate is the real safety net
     if plans
         .iter()
         .filter(|plan| plan.item.group == "core" && !matches!(plan.state, ItemState::Missing))
@@ -871,7 +871,7 @@ mod tests {
 
     #[test]
     fn a_bare_tool_name_is_searched_on_path_not_absolutized() {
-        // A bare name (empty parent) must go through PATH lookup, not be absolutized against the CWD.
+        // A bare name (empty parent) must go through PATH lookup, not be absolutized against the CWD
         let result = resolve_executable(Utf8Path::new("overseer-nonexistent-tool-xyz"));
         assert!(
             result.is_err(),

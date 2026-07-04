@@ -1,3 +1,5 @@
+//! Errors for plugin reading and load-order management
+
 use camino::Utf8PathBuf;
 use thiserror::Error;
 

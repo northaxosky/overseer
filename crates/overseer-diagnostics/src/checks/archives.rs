@@ -4,7 +4,7 @@ use super::Check;
 use crate::context::{ArchiveScan, GameContext};
 use crate::finding::{Finding, Severity};
 
-/// BA2 header versions Fallout 4 can read: 1 = OG, 7/8 = NG/AE. Starfield's v2/v3 are not FO4-readable.
+/// BA2 header versions Fallout 4 can read: 1 = OG, 7/8 = NG/AE. Starfield's v2/v3 are not FO4-readable
 const SUPPORTED_VERSIONS: &[u32] = &[1, 7, 8];
 const MAX_ARCHIVES_GNRL: usize = 256;
 const MAX_ARCHIVES_DX10: usize = 255;
@@ -269,7 +269,7 @@ mod tests {
 
     #[test]
     fn starfield_ba2_versions_are_unsupported_for_fallout_4() {
-        // v2/v3 are Starfield BA2 versions; Fallout 4 cannot read them, so they must be flagged.
+        // v2/v3 are Starfield BA2 versions; Fallout 4 cannot read them, so they must be flagged
         for version in [2, 3] {
             let findings = run(vec![info("sf.ba2", header(version, Ba2Kind::General))]);
             assert!(
@@ -282,7 +282,7 @@ mod tests {
 
     #[test]
     fn an_other_tag_is_not_counted_in_the_buckets() {
-        // A console GNMF archive parses as `Other` — neither general nor texture, and v1; is supported, so a lone one produces no findings at all.
+        // A console GNMF archive parses as `Other` — neither general nor texture, and v1; is supported, so a lone one produces no findings at all
         let findings = run(vec![info(
             "Console.ba2",
             header(1, Ba2Kind::Other(*b"GNMF")),

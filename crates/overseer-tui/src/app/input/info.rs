@@ -5,14 +5,13 @@ use ratatui::crossterm::event::{KeyCode, KeyEvent};
 use crate::app::{App, HELP_ENTRIES, Info, Modal, initial_selection};
 
 impl App {
-    /// Keys for an Info modal: scroll the list or dismiss. It has no submit.
+    /// Keys for an Info modal: scroll the list or dismiss. It has no submit
     pub(super) fn handle_info_key(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('?') => self.modal = None,
             KeyCode::Down | KeyCode::Char('j') => self.move_in_modal_list(1),
             KeyCode::Up | KeyCode::Char('k') => self.move_in_modal_list(-1),
-            // Dismiss-only: Enter does nothing.
-            KeyCode::Enter => {}
+            // Dismiss-only: Enter and any other key are inert
             _ => {}
         }
     }

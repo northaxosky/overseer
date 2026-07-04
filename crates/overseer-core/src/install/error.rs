@@ -1,3 +1,5 @@
+//! Errors surfaced by the mod installer
+
 use super::archive::ArchiveFormat;
 use camino::Utf8PathBuf;
 use thiserror::Error;

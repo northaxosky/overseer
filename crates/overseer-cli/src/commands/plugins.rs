@@ -15,7 +15,7 @@ pub fn run(command: PluginCommand) -> Result<()> {
     }
 }
 
-/// Reconcile the mod list, discover plugins from enabled mods, and load + reconcile the plugin load order.
+/// Reconcile the mod list, discover plugins from enabled mods, and load + reconcile the plugin load order
 fn synced(target: &ProfileArgs) -> Result<(Instance, Vec<PluginMeta>, PluginLoadOrder)> {
     let (instance, profile) = target.load_context()?;
     let (discovered, order) = profile

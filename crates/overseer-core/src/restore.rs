@@ -1,11 +1,11 @@
 //! Shared content-aware restore helpers.
 
-/// Whether a content-aware restore put the original back, or left a diverged file alone.
+/// Whether a content-aware restore put the original back, or left a diverged file alone
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Restore {
-    /// The original was restored, or there was nothing to undo.
+    /// The original was restored, or there was nothing to undo
     Restored,
-    /// The live file no longer matched what we wrote, so it was left untouched.
+    /// The live file no longer matched what we wrote, so it was left untouched
     Conflict,
 }
 

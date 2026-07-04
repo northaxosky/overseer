@@ -15,7 +15,7 @@ use crate::theme;
 
 /// Draw the active modal centered over the main view
 pub(super) fn render_modal(app: &mut App, frame: &mut Frame) {
-    // Split the borrow: the Doctor summary needs the profile name while the modal; itself is borrowed mutably for its list state.
+    // Split the borrow: the Doctor summary needs the profile name while the modal itself is borrowed mutably for its list state
     let App { modal, session, .. } = app;
     match modal.as_mut() {
         Some(Modal::Select(select)) => render_select(select, frame),
@@ -44,7 +44,7 @@ fn render_info(info: &mut Info, frame: &mut Frame) {
     ])
     .split(inner);
 
-    // Two columns: keys left, description right, aligned with a fixed key width.
+    // Two columns: keys left, description right, aligned with a fixed key width
     let items: Vec<ListItem> = info
         .entries
         .iter()

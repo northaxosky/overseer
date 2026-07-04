@@ -79,21 +79,6 @@ fn hex_digest(bytes: impl AsRef<[u8]>) -> String {
     hex
 }
 
-/// Stream `path` through SHA-256 and return the lowercase hex digest
-pub fn sha256_file(path: &Utf8Path) -> Result<String, IoError> {
-    let mut file = std::fs::File::open(path).map_err(|e| io_err(path, e))?;
-    let mut hasher = Sha256::new();
-    let mut buf = [0u8; 64 * 1024];
-    loop {
-        let n = file.read(&mut buf).map_err(|e| io_err(path, e))?;
-        if n == 0 {
-            break;
-        }
-        hasher.update(&buf[..n]);
-    }
-    Ok(hex_digest(hasher.finalize()))
-}
-
 /// Measure `path`'s size, CRC32 and SHA-256 in one read pass; `None` if it does not exist
 pub fn fingerprint_file(path: &Utf8Path) -> Result<Option<FileFingerprint>, IoError> {
     let Some(size) = size_opt(path)? else {
@@ -143,17 +128,6 @@ mod tests {
     }
 
     #[test]
-    fn sha256_file_matches_known_vector() {
-        let (_tmp, root) = temp();
-        let path = root.join("check.bin");
-        std::fs::write(&path, b"abc").unwrap();
-        assert_eq!(
-            sha256_file(&path).unwrap(),
-            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
-        );
-    }
-
-    #[test]
     fn fingerprint_file_is_none_for_a_missing_path() {
         let (_tmp, root) = temp();
         assert!(fingerprint_file(&root.join("nope.bin")).unwrap().is_none());
@@ -172,7 +146,7 @@ mod tests {
 
     #[test]
     fn sha_gated_identity_rejects_a_crc32_collision() {
-        // The point of SHA-256: a same-size, same-CRC32 file with the wrong hash must not verify.
+        // The point of SHA-256: a same-size, same-CRC32 file with the wrong hash must not verify
         let forged = file(3, 0x1234_5678, &"00".repeat(32));
         assert_eq!(SHA_GATED.verify(&forged), None);
         assert!(!SHA_GATED.matches(&forged));

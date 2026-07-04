@@ -442,7 +442,7 @@ fn source_matches(file: &FileFingerprint, source: &FileFingerprint) -> bool {
         && file.sha256.eq_ignore_ascii_case(&source.sha256)
 }
 
-/// Restore every already-moved file from its backup via atomic rename; best-effort.
+/// Restore every already-moved file from its backup via atomic rename; best-effort
 fn rollback(game_dir: &Utf8Path, moved: &[&PreparedReady], renamer: &mut dyn RenameOp) {
     for ready in moved.iter().rev() {
         let real = game_dir.join(ready.item.rel_path);
@@ -451,7 +451,7 @@ fn rollback(game_dir: &Utf8Path, moved: &[&PreparedReady], renamer: &mut dyn Ren
     }
 }
 
-/// Recover a crash mid-swap: if the real file is gone but its backup survives, restore it.
+/// Recover a crash mid-swap: if the real file is gone but its backup survives, restore it
 fn recover_leftover_backup(game_dir: &Utf8Path, item: ConvertItem) -> Result<(), ConvertError> {
     let real = game_dir.join(item.rel_path);
     let bak = backup_path(game_dir, item);
@@ -791,7 +791,7 @@ mod tests {
 
     #[test]
     fn a_backup_conflict_cleans_up_the_prepared_temp() {
-        // Regression: prepare() writes check.bin.overseer-tmp; a guard-phase BackupConflict must not leak it.
+        // Regression: prepare() writes check.bin.overseer-tmp; a guard-phase BackupConflict must not leak it
         let (_tmp, root) = seed_source(b"AE-version");
         std::fs::write(root.join("check.bin.overseer-bak"), b"other").unwrap();
         let err = convert_item(
@@ -1021,7 +1021,7 @@ mod tests {
 
     #[test]
     fn recover_install_restores_a_crashed_sentinel_before_planning() {
-        // A crashed sentinel in its backup slot makes the group look unowned; recovery must ignore ownership.
+        // A crashed sentinel in its backup slot makes the group look unowned; recovery must ignore ownership
         let (_tmp, root) = temp();
         std::fs::create_dir_all(root.join("Data")).unwrap();
         std::fs::write(root.join("Data/sentinel.esm.overseer-bak"), b"og-esm-bytes").unwrap();

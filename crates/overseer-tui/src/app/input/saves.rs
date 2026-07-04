@@ -6,7 +6,7 @@ use camino::Utf8Path;
 use overseer_core::saves::{self, SaveInfo};
 
 impl App {
-    /// List the current profile's save, newest first, selecting the first row
+    /// List the current profile's saves in the saved sort order, selecting the first row
     pub(super) fn refresh_saves(&mut self) {
         match self.session.instance.saves_dir(&self.session.profile.name) {
             Ok(dir) => match saves::list_saves(&dir) {
@@ -70,7 +70,7 @@ impl App {
         }
     }
 
-    /// toggle the current profile's LocalSaves flag; inert unless the Saves pane is focused
+    /// Toggle the current profile's LocalSaves flag; inert unless the Saves pane is focused
     pub(super) fn toggle_local_saves(&mut self) {
         if self.focus != Focus::Workspace || self.workspace != Workspace::Saves {
             return;
@@ -102,7 +102,7 @@ mod tests {
     use overseer_core::test_support::{self, temp_instance};
     use ratatui::crossterm::event::KeyCode;
 
-    /// A temp instance plus its `App`, with `count` saves seeded for `profile`.
+    /// A temp instance plus its `App`, with `count` saves seeded for `profile`
     fn app_with_saves(profile: &str, count: u32) -> (tempfile::TempDir, App) {
         let (tmp, instance) = temp_instance();
         let dir = instance.saves_dir(profile).expect("saves dir");
@@ -222,7 +222,7 @@ mod tests {
                 .is_some_and(|n| n.text.contains("Local saves")),
             "a status notice is shown"
         );
-        // Persisted: reloading from disk reflects the new value.
+        // Persisted: reloading from disk reflects the new value
         let reloaded =
             overseer_core::instance::Profile::load(&app.session.instance, &name).unwrap();
         assert_eq!(
@@ -234,7 +234,7 @@ mod tests {
     #[test]
     fn local_saves_toggle_is_inert_off_the_saves_pane() {
         let (_tmp, mut app) = app_with_saves("Default", 1);
-        // Still focused on Mods, not the Saves workspace.
+        // Still focused on Mods, not the Saves workspace
         let before = app.session.profile.local_saves;
         app.handle_key(key(KeyCode::Char('L')));
         assert_eq!(
@@ -245,13 +245,13 @@ mod tests {
 
     #[test]
     fn switching_profile_while_on_saves_relists_for_the_new_profile() {
-        // A real on-disk instance so the profile switch (Session::load) works.
+        // A real on-disk instance so the profile switch (Session::load) works
         let (_tmp, scaffold) = temp_instance();
         let instance =
             Instance::init(scaffold.root.clone(), scaffold.config.clone()).expect("init");
         instance.create_profile("Default").expect("default profile");
         instance.create_profile("Other").expect("other profile");
-        // Only the Other profile has saves on disk.
+        // Only the Other profile has saves on disk
         test_support::write_fos(
             &instance.saves_dir("Other").unwrap().join("Low.fos"),
             1,
@@ -279,7 +279,7 @@ mod tests {
         app.handle_key(key(KeyCode::Char('4')));
         assert!(app.saves.entries.is_empty(), "Default has no saves yet");
 
-        // Open the profile picker and switch to Other (sorted second).
+        // Open the profile picker and switch to Other (sorted second)
         app.handle_key(key(KeyCode::Char('p')));
         app.handle_key(key(KeyCode::Down));
         app.handle_key(key(KeyCode::Enter));

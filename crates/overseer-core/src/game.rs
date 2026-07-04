@@ -13,12 +13,12 @@ pub enum GameKind {
     Starfield,
 }
 
-/// The per-game constants, declared once per variant so adding a game touches one place.
+/// The per-game constants, declared once per variant so adding a game touches one place
 struct GameSpecs {
     load_order_id: GameId,
     executable: &'static str,
     script_extender_loader: &'static str,
-    /// Folder name under both `%LOCALAPPDATA%` and `Documents/My Games` (identical per game).
+    /// Folder name under both `%LOCALAPPDATA%` and `Documents/My Games` (identical per game)
     data_dir_name: &'static str,
     ini_stem: &'static str,
     ccc_file: Option<&'static str>,
@@ -30,7 +30,7 @@ struct GameSpecs {
 }
 
 impl GameKind {
-    /// All per-game specifics in one place; every accessor below reads a field from here.
+    /// All per-game specifics in one place; every accessor below reads a field from here
     fn specs(self) -> GameSpecs {
         match self {
             Self::Fallout4 => GameSpecs {
@@ -228,7 +228,7 @@ mod tests {
 
     #[test]
     fn my_games_dir_and_ini_stem_match_the_games() {
-        // The My Games folder and the INI stem genuinely differ for Skyrim.
+        // The My Games folder and the INI stem genuinely differ for Skyrim
         assert_eq!(GameKind::Fallout4.my_games_dir(), "Fallout4");
         assert_eq!(GameKind::Fallout4.ini_stem(), "Fallout4");
         assert_eq!(GameKind::SkyrimSE.my_games_dir(), "Skyrim Special Edition");
@@ -244,7 +244,7 @@ mod tests {
             game: GameKind,
         }
 
-        // Instances persist this in overseer.toml, so the on-disk form must stay; stable -- a rename here would silently break existing instances.
+        // Instances persist this in overseer.toml, so the on-disk form must stay; stable -- a rename here would silently break existing instances
         let toml_str = toml::to_string(&Wrap {
             game: GameKind::Starfield,
         })

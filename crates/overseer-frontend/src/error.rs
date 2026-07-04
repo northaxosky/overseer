@@ -2,7 +2,7 @@
 
 use thiserror::Error;
 
-/// Error from [`crate::absolutize`].
+/// Error from [`crate::absolutize`]
 #[derive(Debug, Error)]
 pub enum AbsolutizeError {
     #[error("could not read the current working directory")]

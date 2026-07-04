@@ -71,7 +71,7 @@ mod tests {
         assert!(is_known_hedr(1.0));
         assert!(!is_known_hedr(0.94));
         assert!(!is_known_hedr(1.2));
-        // Exact bits, no tolerance: a value close to 0.95 is still rejected.
+        // Exact bits, no tolerance: a value close to 0.95 is still rejected
         assert!(!is_known_hedr(0.951));
         assert!(!is_known_hedr(0.949));
     }

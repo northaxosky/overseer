@@ -9,12 +9,12 @@ const STRUCTURE_INDEPENDENCE_OFFSET: usize = 524;
 const COMPAT_OFFSET: usize = 528;
 const PREFIX_LEN: usize = 592;
 
-// F4SE `addressIndependence` bits (PluginAPI.h): how a plugin finds its addresses.
+// F4SE `addressIndependence` bits (PluginAPI.h): how a plugin finds its addresses
 const ADDR_SIGNATURES: u32 = 1 << 0;
 const ADDR_LIBRARY_NG: u32 = 1 << 1;
 const ADDR_LIBRARY_AE: u32 = 1 << 2;
 
-// F4SE `structureIndependence` bits (PluginAPI.h): which game struct layouts a plugin tolerates.
+// F4SE `structureIndependence` bits (PluginAPI.h): which game struct layouts a plugin tolerates
 const STRUCT_NONE: u32 = 1 << 0;
 const STRUCT_LAYOUT_NG: u32 = 1 << 1;
 const STRUCT_LAYOUT_AE: u32 = 1 << 2;
@@ -39,14 +39,14 @@ pub struct F4sePlugin {
     pub supports_ngae: bool,
     /// Exact packed runtimes from `compatibleVersion`
     pub compatible: Vec<u32>,
-    /// F4SE `addressIndependence` bitfield — how the plugin finds addresses (signatures / address-library band).
+    /// F4SE `addressIndependence` bitfield — how the plugin finds addresses (signatures / address-library band)
     pub address_independence: u32,
-    /// F4SE `structureIndependence` bitfield — which game struct layouts the plugin tolerates.
+    /// F4SE `structureIndependence` bitfield — which game struct layouts the plugin tolerates
     pub structure_independence: u32,
 }
 
 impl F4sePlugin {
-    /// Whether this supports `runtime`; OG-only plugins are reported separately, so only version data is checked.
+    /// Whether this supports `runtime`; OG-only plugins are reported separately, so only version data is checked
     pub fn supports(&self, runtime: u32) -> bool {
         self.compatible.contains(&runtime)
     }
@@ -128,7 +128,7 @@ mod tests {
 
     #[test]
     fn an_ae_address_library_plugin_is_independent_on_anniversary_and_nextgen() {
-        // Matches the real Hydra/CellOffset flags (AddrLib 980+137, layout 980+137).
+        // Matches the real Hydra/CellOffset flags (AddrLib 980+137, layout 980+137)
         let p = indep(
             ADDR_LIBRARY_NG | ADDR_LIBRARY_AE,
             STRUCT_LAYOUT_NG | STRUCT_LAYOUT_AE,
@@ -155,12 +155,12 @@ mod tests {
 
     #[test]
     fn an_address_dependent_plugin_is_never_independent() {
-        // Structure-independent but hardcoded addresses → still version-locked.
+        // Structure-independent but hardcoded addresses → still version-locked
         let p = indep(0, STRUCT_LAYOUT_AE);
         assert!(!p.version_independent_for(Generation::Anniversary));
     }
 
-    // A real 64-bit PE with exports but no F4SE entry points classifies as NotF4se. Uses a; stock Windows DLL so we exercise pelite's export parsing on a genuine binary.
+    // A real 64-bit PE with exports but no F4SE entry points classifies as NotF4se. Uses a; stock Windows DLL so we exercise pelite's export parsing on a genuine binary
     #[cfg(windows)]
     #[test]
     fn a_real_non_f4se_dll_is_not_f4se() {

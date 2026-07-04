@@ -1,4 +1,4 @@
-//! Plugin metadata and per profile load order
+//! Plugin metadata and per-profile load order
 
 mod discover;
 mod error;

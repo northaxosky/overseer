@@ -3,7 +3,7 @@
 use anyhow::{Context, Result, bail};
 use camino::Utf8PathBuf;
 
-/// Parse `overseer-tui <instance-dir> [--profile NAME]`.
+/// Parse `overseer-tui <instance-dir> [--profile NAME]`
 pub(crate) fn parse_args() -> Result<(Option<Utf8PathBuf>, String)> {
     let mut instance: Option<Utf8PathBuf> = None;
     let mut profile = "Default".to_owned();

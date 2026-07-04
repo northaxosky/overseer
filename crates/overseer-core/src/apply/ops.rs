@@ -137,7 +137,7 @@ pub fn purge(instance: &Instance, progress: &dyn ProgressSink) -> Result<(), App
 /// Before tearing down, move files that appeared in directories our deploy created
 fn capture_overwrite(instance: &Instance, record: &DeployRecord) -> Result<(), ApplyError> {
     let overwrite = instance.overwrite_dir();
-    // Game-relative paths we deployed, lowercased, so we never capture our own files.
+    // Game-relative paths we deployed, lowercased, so we never capture our own files
     let ours: BTreeSet<String> = record
         .entries
         .iter()
@@ -178,9 +178,9 @@ fn capture_overwrite(instance: &Instance, record: &DeployRecord) -> Result<(), A
 /// Inverse of the deploy mapping: turn a deployed (game-relative) path back into its overwrite *staging* layout
 fn overwrite_staging_path(game_relative: &Utf8Path) -> Utf8PathBuf {
     match strip_data_prefix(game_relative) {
-        // Under Data/: the staging layout drops the Data/ prefix.
+        // Under Data/: the staging layout drops the Data/ prefix
         Some(under_data) if !under_data.as_str().is_empty() => under_data,
-        // Outside Data/ (a game-root file): it came from the mod's Root/ folder.
+        // Outside Data/ (a game-root file): it came from the mod's Root/ folder
         _ => Utf8Path::new(ROOT_DIR).join(game_relative),
     }
 }
@@ -220,7 +220,7 @@ pub fn status(instance: &Instance) -> Result<Option<DeploymentStatus>, ApplyErro
     }))
 }
 
-/// Rename an installed mod, refusing while any deployment is live.
+/// Rename an installed mod, refusing while any deployment is live
 pub fn rename_mod(instance: &Instance, old: &str, new: &str) -> Result<(), ApplyError> {
     let _lock = InstanceLock::acquire(instance)?;
     recover_if_needed(instance, &NullSink)?;
@@ -351,7 +351,7 @@ fn prepare_load_order(
     Ok(order)
 }
 
-/// This profile's `Fallout4Custom.ini` and `Saves/<profile>/` under the instance's My Games (INI) directory.
+/// This profile's `Fallout4Custom.ini` and `Saves/<profile>/` under the instance's My Games (INI) directory
 fn save_paths(
     instance: &Instance,
     profile: &str,
@@ -385,12 +385,12 @@ mod tests {
     use crate::test_support::{install_mod, install_plugin, save_profile, temp_instance};
     use camino::Utf8PathBuf;
 
-    /// Absolute path of a file as it would land under the game's Data/ directory.
+    /// Absolute path of a file as it would land under the game's Data/ directory
     fn deployed(instance: &Instance, rel: &str) -> Utf8PathBuf {
         instance.config.game_dir.join("Data").join(rel)
     }
 
-    /// Rewrite the on-disk journal's status to mimic a crash at a given stage.
+    /// Rewrite the on-disk journal's status to mimic a crash at a given stage
     fn force_status(instance: &Instance, status: Status) {
         let mut deployment = Deployment::load(instance).expect("load journal");
         deployment.status = status;
@@ -524,7 +524,7 @@ mod tests {
         rename_profile(&mut instance, "Default", "Main").expect("rename");
 
         assert_eq!(instance.config.default_profile, "Main");
-        // The change is persisted, so a fresh load sees it too.
+        // The change is persisted, so a fresh load sees it too
         let reloaded = Instance::load(&instance.root).expect("reload");
         assert_eq!(reloaded.config.default_profile, "Main");
     }
@@ -539,12 +539,12 @@ mod tests {
     #[test]
     fn deploy_backs_up_and_purge_restores_a_preexisting_data_file() {
         let (_tmp, instance) = temp_instance();
-        // A vanilla file already in the game's Data/ that a mod will overwrite.
+        // A vanilla file already in the game's Data/ that a mod will overwrite
         let data_file = deployed(&instance, "Textures/conflict.dds");
         std::fs::create_dir_all(data_file.parent().expect("parent")).expect("mk Data");
         std::fs::write(&data_file, "vanilla").expect("seed vanilla");
 
-        // A mod shipping the same file (non-plugin, so no load-order parsing).
+        // A mod shipping the same file (non-plugin, so no load-order parsing)
         install_mod(
             &instance,
             "Overwriter",
@@ -553,11 +553,11 @@ mod tests {
         save_profile(&instance, "Default", &[("Overwriter", true)]);
 
         deploy_profile(&instance, "Default", &NullSink).expect("deploy");
-        // The mod's version wins at the destination.
+        // The mod's version wins at the destination
         assert_eq!(std::fs::read_to_string(&data_file).expect("read"), "modded");
 
         purge(&instance, &NullSink).expect("purge");
-        // The vanilla original is restored byte-for-byte.
+        // The vanilla original is restored byte-for-byte
         assert_eq!(
             std::fs::read_to_string(&data_file).expect("read"),
             "vanilla"
@@ -567,7 +567,7 @@ mod tests {
     #[test]
     fn purge_leaves_a_data_file_replaced_after_deployment() {
         let (_tmp, instance) = temp_instance();
-        // A mod ships a non-plugin file we deploy as a hard link.
+        // A mod ships a non-plugin file we deploy as a hard link
         install_mod(&instance, "Texturer", &[("Textures/a.dds", "ours")]);
         save_profile(&instance, "Default", &[("Texturer", true)]);
 
@@ -575,12 +575,12 @@ mod tests {
         let dest = deployed(&instance, "Textures/a.dds");
         assert_eq!(std::fs::read_to_string(&dest).expect("read"), "ours");
 
-        // A tool rewrites the deployed file in place after deployment, breaking the link.
+        // A tool rewrites the deployed file in place after deployment, breaking the link
         std::fs::remove_file(&dest).expect("remove our link");
         std::fs::write(&dest, "tool output").expect("tool writes");
 
         purge(&instance, &NullSink).expect("purge");
-        // Purge must not delete the externally written file as if it were still ours.
+        // Purge must not delete the externally written file as if it were still ours
         assert!(dest.exists(), "an externally replaced file survives purge");
         assert_eq!(std::fs::read_to_string(&dest).expect("read"), "tool output");
     }
@@ -588,7 +588,7 @@ mod tests {
     #[test]
     fn deploy_routes_root_content_to_the_game_root_and_purge_restores() {
         let (_tmp, instance) = temp_instance();
-        // A mod with Root/ content (-> game root) and ordinary Data content (-> Data/).
+        // A mod with Root/ content (-> game root) and ordinary Data content (-> Data/)
         install_mod(
             &instance,
             "ScriptExtender",
@@ -620,7 +620,7 @@ mod tests {
     #[test]
     fn deploy_backs_up_and_purge_restores_a_preexisting_root_file() {
         let (_tmp, instance) = temp_instance();
-        // A vanilla DLL already sitting next to the game exe that a mod overwrites.
+        // A vanilla DLL already sitting next to the game exe that a mod overwrites
         std::fs::create_dir_all(&instance.config.game_dir).expect("mk game dir");
         let root_dll = instance.config.game_dir.join("dxgi.dll");
         std::fs::write(&root_dll, "vanilla").expect("seed vanilla");
@@ -632,14 +632,14 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&root_dll).expect("read"), "modded");
 
         purge(&instance, &NullSink).expect("purge");
-        // The vanilla original next to the exe is restored byte-for-byte.
+        // The vanilla original next to the exe is restored byte-for-byte
         assert_eq!(std::fs::read_to_string(&root_dll).expect("read"), "vanilla");
     }
 
     #[test]
     fn purge_captures_a_generated_file_from_a_mod_created_dir() {
         let (_tmp, instance) = temp_instance();
-        // A mod whose file forces creating Data/F4SE/Plugins/.
+        // A mod whose file forces creating Data/F4SE/Plugins/
         install_mod(
             &instance,
             "Buffout",
@@ -648,7 +648,7 @@ mod tests {
         save_profile(&instance, "Default", &[("Buffout", true)]);
         deploy_profile(&instance, "Default", &NullSink).expect("deploy");
 
-        // The game writes a crash log next to the plugin during play.
+        // The game writes a crash log next to the plugin during play
         let generated = instance
             .config
             .game_dir
@@ -663,7 +663,7 @@ mod tests {
             std::fs::read_to_string(&captured).expect("captured file"),
             "crashlog"
         );
-        // ...and gone from the game dir, which is left clean.
+        // ...and gone from the game dir, which is left clean
         assert!(
             !generated.exists(),
             "generated file moved out of the game dir"
@@ -677,19 +677,19 @@ mod tests {
     #[test]
     fn purge_leaves_generated_files_in_preexisting_dirs() {
         let (_tmp, instance) = temp_instance();
-        // Data/ already exists, like a real (vanilla) game install.
+        // Data/ already exists, like a real (vanilla) game install
         std::fs::create_dir_all(instance.config.game_dir.join("Data")).expect("vanilla Data");
         install_mod(&instance, "Tex", &[("Textures/x.dds", "pix")]);
         save_profile(&instance, "Default", &[("Tex", true)]);
         deploy_profile(&instance, "Default", &NullSink).expect("deploy");
 
-        // A tool writes a log directly into the pre-existing Data/ root.
+        // A tool writes a log directly into the pre-existing Data/ root
         let loose = instance.config.game_dir.join("Data/loose.log");
         std::fs::write(&loose, "log").expect("write");
 
         purge(&instance, &NullSink).expect("purge");
 
-        // We can't tell it from vanilla (Data/ pre-existed), so it's left in place.
+        // We can't tell it from vanilla (Data/ pre-existed), so it's left in place
         assert!(
             loose.exists(),
             "generated file in a pre-existing dir is left alone"
@@ -716,7 +716,7 @@ mod tests {
         purge(&instance, &NullSink).expect("purge 1");
         assert!(!generated.exists());
 
-        // Re-deploy: the captured file comes back to the same game-dir location.
+        // Re-deploy: the captured file comes back to the same game-dir location
         deploy_profile(&instance, "Default", &NullSink).expect("deploy 2");
         assert_eq!(
             std::fs::read_to_string(&generated).expect("redeployed"),
@@ -727,18 +727,18 @@ mod tests {
     #[test]
     fn purge_captures_a_generated_file_in_a_mod_created_root_dir() {
         let (_tmp, instance) = temp_instance();
-        // A Root mod that introduces enbseries/ in the game root.
+        // A Root mod that introduces enbseries/ in the game root
         install_mod(&instance, "ENB", &[("Root/enbseries/enbseries.ini", "cfg")]);
         save_profile(&instance, "Default", &[("ENB", true)]);
         deploy_profile(&instance, "Default", &NullSink).expect("deploy");
 
-        // ENB writes a cache file into enbseries/ during play.
+        // ENB writes a cache file into enbseries/ during play
         let generated = instance.config.game_dir.join("enbseries/cache.bin");
         std::fs::write(&generated, "cache").expect("write");
 
         purge(&instance, &NullSink).expect("purge");
 
-        // Captured under Root/ so it re-deploys to the game root next time.
+        // Captured under Root/ so it re-deploys to the game root next time
         let captured = instance.overwrite_dir().join("Root/enbseries/cache.bin");
         assert_eq!(
             std::fs::read_to_string(&captured).expect("captured"),
@@ -752,7 +752,7 @@ mod tests {
         let (_tmp, instance) = temp_instance();
         install_mod(&instance, "Winner", &[("shared.txt", "winner")]);
         install_mod(&instance, "Loser", &[("shared.txt", "loser")]);
-        // Top of the list = highest priority.
+        // Top of the list = highest priority
         save_profile(&instance, "Default", &[("Winner", true), ("Loser", true)]);
 
         deploy_profile(&instance, "Default", &NullSink).expect("deploy");
@@ -782,7 +782,7 @@ mod tests {
         let (_tmp, instance) = temp_instance();
         let local = instance.config.local_dir.clone().expect("local dir set");
         std::fs::create_dir_all(&local).expect("mk local");
-        // An existing Plugins.txt that purge must put back, byte for byte.
+        // An existing Plugins.txt that purge must put back, byte for byte
         std::fs::write(local.join("Plugins.txt"), b"*Original.esp\n").expect("seed");
 
         install_plugin(&instance, "CoolMod", "Cool.esp");
@@ -795,13 +795,13 @@ mod tests {
             "the original Plugins.txt is captured in the deployment record"
         );
 
-        // The real Plugins.txt now reflects the deployed, active plugin.
+        // The real Plugins.txt now reflects the deployed, active plugin
         let txt = std::fs::read_to_string(local.join("Plugins.txt")).expect("read");
         assert_eq!(txt, "*Cool.esp\n");
 
         purge(&instance, &NullSink).expect("purge");
 
-        // Purge restores the user's original file exactly.
+        // Purge restores the user's original file exactly
         assert_eq!(
             std::fs::read(local.join("Plugins.txt")).expect("read"),
             b"*Original.esp\n"
@@ -841,7 +841,7 @@ mod tests {
         save_profile(&instance, "Default", &[("CoolMod", true)]);
         deploy_profile(&instance, "Default", &NullSink).expect("deploy");
 
-        // Simulate the game dir being tampered with: delete a deployed file.
+        // Simulate the game dir being tampered with: delete a deployed file
         std::fs::remove_file(deployed(&instance, "Cool.esp")).expect("remove");
 
         let report = status(&instance).expect("status").expect("deployed");
@@ -861,11 +861,11 @@ mod tests {
         install_plugin(&instance, "CoolMod", "Cool.esp");
         save_profile(&instance, "Default", &[("CoolMod", true)]);
 
-        // Deploy, then forge the journal back to InProgress to mimic a crash that; struck after the files landed but before the commit flip.
+        // Deploy, then forge the journal back to InProgress to mimic a crash that; struck after the files landed but before the commit flip
         deploy_profile(&instance, "Default", &NullSink).expect("first deploy");
         force_status(&instance, Status::InProgress);
 
-        // A non-Committed journal must be reversed on the next entry; without; recovery this second deploy would be refused with AlreadyDeployed.
+        // A non-Committed journal must be reversed on the next entry; without; recovery this second deploy would be refused with AlreadyDeployed
         deploy_profile(&instance, "Default", &NullSink).expect("recovery clears the way");
 
         assert!(deployed(&instance, "Cool.esp").exists());
@@ -902,11 +902,11 @@ mod tests {
         install_plugin(&instance, "CoolMod", "Cool.esp");
         save_profile(&instance, "Default", &[("CoolMod", true)]);
 
-        // Deploy, then forge the journal back to InProgress to mimic a crash that; struck after the files landed but before the commit flip.
+        // Deploy, then forge the journal back to InProgress to mimic a crash that; struck after the files landed but before the commit flip
         deploy_profile(&instance, "Default", &NullSink).expect("deploy");
         force_status(&instance, Status::InProgress);
 
-        // status must reverse the interrupted deployment, not report it as live.
+        // status must reverse the interrupted deployment, not report it as live
         let live = status(&instance).expect("status");
         assert!(
             live.is_none(),
@@ -936,19 +936,19 @@ mod tests {
         let (_tmp, instance) = temp_instance();
         let local = instance.config.local_dir.clone().expect("local dir set");
         std::fs::create_dir_all(&local).expect("mk local");
-        // The user's original list, which an untouched purge would restore.
+        // The user's original list, which an untouched purge would restore
         std::fs::write(local.join("Plugins.txt"), b"*Original.esp\n").expect("seed original");
 
         install_plugin(&instance, "CoolMod", "Cool.esp");
         save_profile(&instance, "Default", &[("CoolMod", true)]);
         deploy_profile(&instance, "Default", &NullSink).expect("deploy");
 
-        // A tool or the user rewrites Plugins.txt after deployment.
+        // A tool or the user rewrites Plugins.txt after deployment
         std::fs::write(local.join("Plugins.txt"), b"*Edited.esp\n").expect("edit after deploy");
 
         purge(&instance, &NullSink).expect("purge");
 
-        // The post-deploy edit is preserved, not rolled back to the original.
+        // The post-deploy edit is preserved, not rolled back to the original
         assert_eq!(
             std::fs::read(local.join("Plugins.txt")).expect("read"),
             b"*Edited.esp\n"
@@ -965,7 +965,7 @@ mod tests {
         install_plugin(&instance, "CoolMod", "Cool.esp");
         save_profile(&instance, "Default", &[("CoolMod", true)]);
 
-        // A leftover backup dir means a previous run never finished cleaning up.
+        // A leftover backup dir means a previous run never finished cleaning up
         let backup_root = instance.config.game_dir.join(".overseer-backup");
         std::fs::create_dir_all(&backup_root).expect("plant orphan backup");
 
@@ -977,7 +977,7 @@ mod tests {
     #[test]
     fn a_reversal_that_cannot_finish_keeps_a_recovery_failed_journal() {
         let (_tmp, instance) = temp_instance();
-        // A vanilla file gets backed up on deploy, so a backup dir lives alongside; the deployment until purge restores it.
+        // A vanilla file gets backed up on deploy, so a backup dir lives alongside; the deployment until purge restores it
         let data_file = deployed(&instance, "conflict.txt");
         std::fs::create_dir_all(data_file.parent().expect("parent")).expect("mk Data");
         std::fs::write(&data_file, "vanilla").expect("seed vanilla");
@@ -986,14 +986,14 @@ mod tests {
 
         deploy_profile(&instance, "Default", &NullSink).expect("deploy");
 
-        // Plant a stray file no entry will claim, so the sweep at the end of; reversal reports it as an unresolved residual backup.
+        // Plant a stray file no entry will claim, so the sweep at the end of; reversal reports it as an unresolved residual backup
         let backup_root = instance.config.game_dir.join(".overseer-backup");
         std::fs::write(backup_root.join("stray.bin"), b"junk").expect("plant stray");
 
         let err = purge(&instance, &NullSink).expect_err("purge cannot fully resolve");
         assert!(matches!(err, ApplyError::RecoveryFailed { .. }));
 
-        // The journal survives, flagged so the next entry point knows to retry.
+        // The journal survives, flagged so the next entry point knows to retry
         assert!(Deployment::exists(&instance));
         assert_eq!(
             Deployment::load(&instance).expect("load").status,
@@ -1003,7 +1003,7 @@ mod tests {
 
     // --- per-profile saves ---
 
-    /// `Fallout4Custom.ini` under the instance's (temp) My Games dir.
+    /// `Fallout4Custom.ini` under the instance's (temp) My Games dir
     fn custom_ini(instance: &Instance) -> Utf8PathBuf {
         let stem = instance.config.game.ini_stem();
         instance
@@ -1012,7 +1012,7 @@ mod tests {
             .join(format!("{stem}Custom.ini"))
     }
 
-    /// The live `SLocalSavePath` value, if any.
+    /// The live `SLocalSavePath` value, if any
     fn save_path(instance: &Instance) -> Option<String> {
         let text = std::fs::read_to_string(custom_ini(instance)).ok()?;
         crate::ini::Ini::parse(&text)
@@ -1020,7 +1020,7 @@ mod tests {
             .map(str::to_owned)
     }
 
-    /// Save `Default` with a single enabled mod and per-profile saves switched on.
+    /// Save `Default` with a single enabled mod and per-profile saves switched on
     fn deploy_profile_with_local_saves(instance: &Instance) {
         install_mod(instance, "CoolMod", &[("Textures/a.dds", "pix")]);
         save_profile(instance, "Default", &[("CoolMod", true)]);
@@ -1051,7 +1051,7 @@ mod tests {
             "the profile's saves folder is pre-created"
         );
 
-        // Nothing to put back: the user had no prior value.
+        // Nothing to put back: the user had no prior value
         let journal = Deployment::load(&instance).expect("journal");
         assert_eq!(
             journal.save_redirect.expect("redirect journalled").original,
@@ -1066,7 +1066,7 @@ mod tests {
     fn deploy_without_local_saves_never_touches_saves() {
         let (_tmp, instance) = temp_instance();
         install_mod(&instance, "CoolMod", &[("Textures/a.dds", "pix")]);
-        // save_profile leaves local_saves off.
+        // save_profile leaves local_saves off
         save_profile(&instance, "Default", &[("CoolMod", true)]);
 
         deploy_profile(&instance, "Default", &NullSink).expect("deploy");
@@ -1089,7 +1089,7 @@ mod tests {
         let (_tmp, instance) = temp_instance();
         deploy_profile_with_local_saves(&instance);
 
-        // The user already had a custom save path.
+        // The user already had a custom save path
         let ini = custom_ini(&instance);
         std::fs::create_dir_all(ini.parent().unwrap()).unwrap();
         std::fs::write(&ini, "[General]\r\nSLocalSavePath=Saves\\Mine\\\r\n").unwrap();
@@ -1122,7 +1122,7 @@ mod tests {
 
         deploy_profile(&instance, "Default", &NullSink).expect("deploy");
 
-        // The user re-points their save path while deployed.
+        // The user re-points their save path while deployed
         std::fs::write(
             custom_ini(&instance),
             "[General]\r\nSLocalSavePath=Saves\\Manual\\\r\n",

@@ -1,3 +1,5 @@
+//! Discovering the plugins a profile's enabled mods provide
+
 use super::error::{PluginError, io_err};
 use super::metadata::{PluginMeta, is_plugin_file, read_metadata};
 use crate::instance::{Instance, Profile};
@@ -35,8 +37,8 @@ pub fn discover_plugins(
     Ok(plugins)
 }
 
-/// Plugin files (`.esp`/`.esm`/`.esl`) directly under a directory; a missing directory yields an empty list.
-pub(crate) fn find_plugin_files(dir: &Utf8Path) -> Result<Vec<camino::Utf8PathBuf>, PluginError> {
+/// Plugin files (`.esp`/`.esm`/`.esl`) directly under a directory; a missing directory yields an empty list
+fn find_plugin_files(dir: &Utf8Path) -> Result<Vec<camino::Utf8PathBuf>, PluginError> {
     let mut found = Vec::new();
     for entry in WalkDir::new(dir).min_depth(1).max_depth(1) {
         let entry = match entry {
@@ -66,7 +68,7 @@ pub(crate) fn find_plugin_files(dir: &Utf8Path) -> Result<Vec<camino::Utf8PathBu
             found.push(path.to_owned());
         }
     }
-    // WalkDir yields filesystem order; sort so a mod's plugins deploy deterministically.
+    // WalkDir yields filesystem order; sort so a mod's plugins deploy deterministically
     found.sort_by(|a, b| {
         a.file_name()
             .unwrap_or_default()
@@ -131,7 +133,7 @@ mod tests {
     #[test]
     fn higher_priority_mod_wins_a_plugin_name_conflict() {
         let (_t, instance) = temp_instance();
-        // Both mods provide Shared.esp; the higher-priority one (ModA, listed first) is a; master, the lower-priority one is not — we must read the winner's metadata.
+        // Both mods provide Shared.esp; the higher-priority one (ModA, listed first) is a master, the lower-priority one is not — we must read the winner's metadata
         write_plugin(
             &instance.mods_dir().join("ModA"),
             "Shared.esp",
@@ -154,7 +156,7 @@ mod tests {
         let (_t, instance) = temp_instance();
         let mod_dir = instance.mods_dir().join("ModA");
         write_plugin(&mod_dir, "Top.esp", 0, &[]);
-        // A plugin buried in a subdirectory is loose data, not a loadable plugin.
+        // A plugin buried in a subdirectory is loose data, not a loadable plugin
         write_plugin(&mod_dir.join("Meshes"), "Nested.esp", 0, &[]);
         let profile = profile(vec![entry("ModA", true)]);
 
@@ -179,7 +181,7 @@ mod tests {
     fn missing_mod_folder_contributes_nothing() {
         let (_t, instance) = temp_instance();
         write_plugin(&instance.mods_dir().join("Present"), "Here.esp", 0, &[]);
-        // "Absent" is in the list but was never installed (no folder).
+        // "Absent" is in the list but was never installed (no folder)
         let profile = profile(vec![entry("Absent", true), entry("Present", true)]);
 
         let found = discover_plugins(&instance, &profile).expect("discover");
@@ -204,7 +206,7 @@ mod tests {
     #[test]
     fn plugins_within_a_mod_are_sorted_deterministically() {
         let (_t, instance) = temp_instance();
-        // Written out of order; discovery must return them name-sorted, not in FS order.
+        // Written out of order; discovery must return them name-sorted, not in FS order
         write_plugin(&instance.mods_dir().join("ModA"), "Zeta.esp", 0, &[]);
         write_plugin(&instance.mods_dir().join("ModA"), "alpha.esp", 0, &[]);
         let profile = profile(vec![entry("ModA", true)]);

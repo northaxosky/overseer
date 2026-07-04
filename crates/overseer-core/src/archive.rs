@@ -1,4 +1,4 @@
-//! Reading Bethesda archive (BA2 / "BTDX" headers
+//! Reading Bethesda archive (BA2 / "BTDX") headers
 
 use crate::error::IoError;
 use camino::Utf8Path;
@@ -89,7 +89,7 @@ mod tests {
     use super::*;
     use crate::test_support::temp;
 
-    /// Build a 24-byte BA2 header with the given fields (name-table offset = 0).
+    /// Build a 24-byte BA2 header with the given fields (name-table offset = 0)
     fn header(version: u32, tag: &[u8; 4], file_count: u32) -> Vec<u8> {
         let mut b = Vec::with_capacity(HEADER_LEN);
         b.extend_from_slice(MAGIC);
@@ -130,7 +130,7 @@ mod tests {
 
     #[test]
     fn reads_starfield_versions_from_the_shared_24_byte_prefix() {
-        // Starfield headers are longer, but their first 24 bytes parse identically.
+        // Starfield headers are longer, but their first 24 bytes parse identically
         for v in [2u32, 3] {
             let h = Ba2Header::parse(&header(v, b"GNRL", 1)).expect("parse");
             assert_eq!(h.version, v);

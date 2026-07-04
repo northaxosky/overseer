@@ -109,7 +109,7 @@ mod tests {
             group("DLCCoast", &["Data/DLCCoast - Textures.ba2"], &[]),
             group("DLCNukaWorld", &[], &[]),
         ]));
-        // Only the off-revision group warns; no clean-bill Info alongside a warning.
+        // Only the off-revision group warns; no clean-bill Info alongside a warning
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].severity, Severity::Warning);
         assert!(findings[0].title.contains("DLCCoast"));

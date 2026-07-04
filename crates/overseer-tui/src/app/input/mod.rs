@@ -120,7 +120,7 @@ impl App {
                 let ws = Workspace::from_key(c).expect("guard ensured a workspace key");
                 self.switch_workspace(ws);
             }
-            // `r` refreshes the active workspace's data; inert in Plugins.
+            // `r` refreshes the active workspace's data; inert in Plugins
             KeyCode::Char('r') => {
                 let ws = self.workspace;
                 ws.refresh(self, RefreshCause::Explicit);
@@ -134,7 +134,7 @@ impl App {
                 ws.toggle_sort_dir(self);
             }
 
-            // `x` deletes the selected save; self-guards to the focused Saves pane.
+            // `x` deletes the selected save; self-guards to the focused Saves pane
             KeyCode::Char('x') => self.begin_delete_selected_save(),
             // `L` toggles the profile's LocalSaves; self-guards to the focused Saves pane
             KeyCode::Char('L') => self.toggle_local_saves(),
@@ -171,19 +171,19 @@ impl App {
         };
     }
 
-    /// Switch the active workspace, loading its lazily-listed data the first time it shows.
+    /// Switch the active workspace, loading its lazily-listed data the first time it shows
     fn switch_workspace(&mut self, ws: Workspace) {
         self.workspace = ws;
         self.refresh_visible_lazy_data();
     }
 
-    /// Reload the active workspace's lazy list; Plugins/Conflicts do nothing here, and Conflicts rescans on `r`.
+    /// Reload the active workspace's lazy list; Plugins/Conflicts do nothing here, and Conflicts rescans on `r`
     fn refresh_visible_lazy_data(&mut self) {
         let ws = self.workspace;
         ws.refresh(self, RefreshCause::Shown);
     }
 
-    /// Move the selection within the focused pane, clamped to its bounds.
+    /// Move the selection within the focused pane, clamped to its bounds
     fn move_main_selection(&mut self, delta: isize) {
         let (state, len) = match self.focus {
             Focus::Mods => {
@@ -198,7 +198,7 @@ impl App {
         move_in_list(state, len, delta);
     }
 
-    /// Walk the enabled mods' staging dirs and record any file they both provide.
+    /// Walk the enabled mods' staging dirs and record any file they both provide
     fn scan_conflicts(&mut self) {
         let sources = self.session.profile.deploy_sources(&self.session.instance);
         match detect_conflicts(&sources) {
@@ -210,7 +210,7 @@ impl App {
         }
     }
 
-    /// Invalidate the last conflicts scan after the enabled mod set changes.
+    /// Invalidate the last conflicts scan after the enabled mod set changes
     pub(super) fn mark_conflicts_stale(&mut self) {
         self.conflicts.status = ConflictsStatus::Stale;
     }
@@ -238,7 +238,7 @@ impl App {
 }
 
 impl Workspace {
-    /// Refresh this workspace for either a view-shown or explicit user refresh.
+    /// Refresh this workspace for either a view-shown or explicit user refresh
     fn refresh(self, app: &mut App, cause: RefreshCause) {
         match self {
             Workspace::Plugins => {}
@@ -249,7 +249,7 @@ impl Workspace {
         }
     }
 
-    /// Cycle the active workspace's sort key when that workspace owns a sortable list.
+    /// Cycle the active workspace's sort key when that workspace owns a sortable list
     fn cycle_sort(self, app: &mut App) {
         match self {
             Workspace::Plugins | Workspace::Conflicts => app.note("Only Saves and Downloads sort"),
@@ -258,7 +258,7 @@ impl Workspace {
         }
     }
 
-    /// Toggle the active workspace's sort direction when that workspace owns a sortable list.
+    /// Toggle the active workspace's sort direction when that workspace owns a sortable list
     fn toggle_sort_dir(self, app: &mut App) {
         match self {
             Workspace::Plugins | Workspace::Conflicts => app.note("Only Saves and Downloads sort"),
@@ -267,7 +267,7 @@ impl Workspace {
         }
     }
 
-    /// This workspace's list selection state and its row count, for cursor movement.
+    /// This workspace's list selection state and its row count, for cursor movement
     fn selection(self, app: &mut App) -> (&mut ListState, usize) {
         match self {
             Workspace::Plugins => {
@@ -293,7 +293,7 @@ impl Workspace {
     }
 }
 
-/// Whether a key event should quit the app: `q`, `Esc`, or `Ctrl-C`.
+/// Whether a key event should quit the app: `q`, `Esc`, or `Ctrl-C`
 fn is_quit(key: KeyEvent) -> bool {
     matches!(key.code, KeyCode::Char('q') | KeyCode::Esc)
         || (key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c'))
@@ -318,7 +318,7 @@ fn move_in_list(state: &mut ListState, len: usize, delta: isize) {
     state.select(Some(next));
 }
 
-/// Shared fixtures for the input submodule tests.
+/// Shared fixtures for the input submodule tests
 #[cfg(test)]
 pub(crate) mod test_helpers {
     use crate::app::{App, Modal};
@@ -333,12 +333,12 @@ pub(crate) mod test_helpers {
         }
     }
 
-    /// A key event with no modifiers.
+    /// A key event with no modifiers
     pub(crate) fn key(code: KeyCode) -> KeyEvent {
         KeyEvent::new(code, KeyModifiers::NONE)
     }
 
-    /// Open the profile picker, then the new-profile prompt, then type `name`.
+    /// Open the profile picker, then the new-profile prompt, then type `name`
     pub(crate) fn open_prompt_and_type(app: &mut App, name: &str) {
         app.handle_key(key(KeyCode::Char('p')));
         app.handle_key(key(KeyCode::Char('n')));
@@ -347,7 +347,7 @@ pub(crate) mod test_helpers {
         }
     }
 
-    /// The open Prompt's input + error, or `None` when no prompt is open.
+    /// The open Prompt's input + error, or `None` when no prompt is open
     pub(crate) fn prompt_state(app: &App) -> Option<(&str, Option<&str>)> {
         match &app.modal {
             Some(Modal::Prompt(p)) => Some((p.input.as_str(), p.error.as_deref())),
@@ -432,7 +432,7 @@ mod tests {
         assert_eq!(app.mods_state.selected(), Some(1));
         app.move_main_selection(1); // at bottom (len 2) → clamps
         assert_eq!(app.mods_state.selected(), Some(1));
-        // The plugins pane is independent and untouched while Mods is focused.
+        // The plugins pane is independent and untouched while Mods is focused
         assert_eq!(app.plugins_state.selected(), Some(0));
     }
 
@@ -463,7 +463,7 @@ mod tests {
         assert_eq!(app.workspace, Workspace::Conflicts);
         assert_eq!(app.focus, Focus::Mods, "switching never moves focus");
 
-        // Even with the right pane focused, switching back leaves focus put.
+        // Even with the right pane focused, switching back leaves focus put
         app.focus = Focus::Workspace;
         app.handle_key(KeyEvent::new(KeyCode::Char('1'), KeyModifiers::NONE));
         assert_eq!(app.workspace, Workspace::Plugins);
@@ -497,12 +497,12 @@ mod tests {
         let mut app = App::sample();
         app.focus = Focus::Workspace;
 
-        // Plugins workspace (default): j/k move the plugins list.
+        // Plugins workspace (default): j/k move the plugins list
         assert_eq!(app.plugins_state.selected(), Some(0));
         app.move_main_selection(1);
         assert_eq!(app.plugins_state.selected(), Some(1));
 
-        // Conflicts workspace: j/k move the conflicts list, leaving plugins put.
+        // Conflicts workspace: j/k move the conflicts list, leaving plugins put
         app.workspace = Workspace::Conflicts;
         app.conflicts.status = ConflictsStatus::Ready(vec![conflict("a.dds"), conflict("b.dds")]);
         app.conflicts.list.select(Some(0));
@@ -549,7 +549,7 @@ mod tests {
         match &app.conflicts.status {
             ConflictsStatus::Ready(found) => {
                 assert_eq!(found.len(), 1, "the shared file is the only conflict");
-                // deploy_sources feeds detect_conflicts lowest priority first, so the; higher-priority mod (top of the list) lands last as the winner.
+                // deploy_sources feeds detect_conflicts lowest priority first, so the higher-priority mod (top of the list) lands last as the winner
                 assert_eq!(found[0].providers, ["B", "A"]);
             }
             other => panic!("expected a completed scan, got {other:?}"),
@@ -572,7 +572,7 @@ mod tests {
         );
     }
 
-    // --- Characterization tests: pin today's workspace-dispatch behavior so the; upcoming enum-method refactor can't drift. ---
+    // --- Characterization tests: pin today's workspace-dispatch behavior so the upcoming enum-method refactor can't drift. ---
 
     #[test]
     fn workspace_iter_is_in_switch_order() {
@@ -619,7 +619,7 @@ mod tests {
                     dir: SortDir::Asc,
                 }
             );
-            // Name/Asc reorders A before B, and the cursor resets to the top row.
+            // Name/Asc reorders A before B, and the cursor resets to the top row
             assert_eq!(app.saves.entries[0].file_name, "A.fos");
             assert_eq!(app.saves.list.selected(), Some(0));
             let saved = Settings::load_from(&config).expect("load saved settings");
@@ -662,7 +662,7 @@ mod tests {
                     dir: SortDir::Desc,
                 }
             );
-            // Date/Desc puts the newer A.zip first; the cursor resets to the top row.
+            // Date/Desc puts the newer A.zip first; the cursor resets to the top row
             assert_eq!(app.downloads.entries[0].name, "A.zip");
             assert_eq!(app.downloads.list.selected(), Some(0));
         });
@@ -723,7 +723,7 @@ mod tests {
         app.focus = Focus::Workspace;
         app.workspace = Workspace::Conflicts;
 
-        // Stale ⇒ zero rows: movement can select nothing.
+        // Stale ⇒ zero rows: movement can select nothing
         app.conflicts.list.select(None);
         app.move_main_selection(1);
         assert_eq!(
@@ -732,7 +732,7 @@ mod tests {
             "a stale scan has no rows"
         );
 
-        // Ready(n) ⇒ n rows: movement walks them.
+        // Ready(n) ⇒ n rows: movement walks them
         app.conflicts.status = ConflictsStatus::Ready(vec![conflict("a.dds"), conflict("b.dds")]);
         app.conflicts.list.select(Some(0));
         app.move_main_selection(1);
@@ -773,7 +773,7 @@ mod tests {
     fn after_session_changed_refreshes_only_the_active_lazy_pane() {
         use overseer_core::test_support::{self, temp_instance};
 
-        // On Downloads, a session change re-lists the archives.
+        // On Downloads, a session change re-lists the archives
         let (_tmp_a, instance_a) = temp_instance();
         test_support::write(&instance_a.downloads_dir().join("Small.zip"), "x");
         test_support::write(&instance_a.downloads_dir().join("Large.zip"), "larger");
@@ -794,7 +794,7 @@ mod tests {
             .collect();
         assert_eq!(names, ["Large.zip", "Small.zip"]);
 
-        // On Plugins, the same change leaves the inactive Downloads pane empty.
+        // On Plugins, the same change leaves the inactive Downloads pane empty
         let (_tmp_b, instance_b) = temp_instance();
         test_support::write(&instance_b.downloads_dir().join("Mod.zip"), "fake");
         let mut on_plugins = App::sample();
@@ -847,7 +847,7 @@ mod tests {
         }
     }
 
-    /// A fixture whose file order is PatchA, PatchB, [Gameplay], TextureX, [Visual].
+    /// A fixture whose file order is PatchA, PatchB, [Gameplay], TextureX, [Visual]
     fn app_with_groups() -> App {
         let mut app = App::sample();
         app.session.profile.mods = vec![

@@ -53,7 +53,7 @@ pub fn set_version(path: &Utf8Path, new_version: u32) -> Result<VersionChange, B
         .map_err(|e| IoError::new(path, e))?;
     file.sync_data().map_err(|e| IoError::new(path, e))?;
 
-    // Read the field back to confirm the write actually landed (these can be real game files).
+    // Read the field back to confirm the write actually landed (these can be real game files)
     file.seek(SeekFrom::Start(VERSION_OFFSET))
         .map_err(|e| IoError::new(path, e))?;
     let mut check = [0u8; 4];
@@ -99,7 +99,7 @@ mod tests {
 
         let patched = std::fs::read(&path).unwrap();
         assert_eq!(&patched[4..8], 1u32.to_le_bytes().as_slice());
-        // Restoring just the version field reproduces the original byte-for-byte.
+        // Restoring just the version field reproduces the original byte-for-byte
         let mut restored = patched.clone();
         restored[4..8].copy_from_slice(&8u32.to_le_bytes());
         assert_eq!(restored, original);
@@ -119,7 +119,7 @@ mod tests {
 
     #[test]
     fn sets_any_value_without_judging_it() {
-        // The mechanism is game-agnostic: which versions are valid is the caller's policy.
+        // The mechanism is game-agnostic: which versions are valid is the caller's policy
         let (_tmp, root) = temp();
         let path = write_ba2(&root, 8, b"DX10", b"body");
         assert_eq!(

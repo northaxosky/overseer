@@ -63,7 +63,7 @@ pub fn all() -> Vec<Box<dyn Check>> {
     ]
 }
 
-/// True if `path`'s leading components match `prefix` case-insensitively, shared by loose-file/folder checks.
+/// True if `path`'s leading components match `prefix` case-insensitively, shared by loose-file/folder checks
 fn under(path: &Utf8Path, prefix: &[&str]) -> bool {
     let mut components = path.components();
     prefix.iter().all(|d| {

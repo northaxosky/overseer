@@ -135,7 +135,7 @@ mod tests {
         let (_tmp, root) = temp_root();
         let game_dir = root.join("game");
         let instance = seeded_instance(&root, &game_dir);
-        // Fallout4.exe is deliberately never created.
+        // Fallout4.exe is deliberately never created
 
         let err = resolve(&instance, "game").expect_err("missing program");
         assert!(matches!(

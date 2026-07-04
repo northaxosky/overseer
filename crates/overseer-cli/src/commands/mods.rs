@@ -68,7 +68,7 @@ fn set_status(target: &ProfileArgs, mod_name: &str, enabled: bool) -> Result<()>
 fn move_mod(target: &ProfileArgs, mod_name: &str, to_1based: usize) -> Result<()> {
     let (instance, mut profile) = target.load_context()?;
 
-    // The list is presented 1-based; convert to a 0-based index (move_to clamps the rest).
+    // The list is presented 1-based; convert to a 0-based index (move_to clamps the rest)
     profile
         .move_to(mod_name, to_1based.saturating_sub(1))
         .with_context(|| format!("moving `{mod_name}`"))?;

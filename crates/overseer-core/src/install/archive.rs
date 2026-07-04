@@ -1,3 +1,5 @@
+//! Extracting `.7z` and `.zip` archives
+
 use crate::fs;
 use camino::Utf8Path;
 use strum::{EnumIter, EnumString, IntoEnumIterator, IntoStaticStr};
@@ -34,7 +36,7 @@ impl ArchiveFormat {
 }
 
 /// Extract a supported archive (`.7z` or `.zip`) into `dest`, creating it if needed
-pub fn extract(archive: &Utf8Path, dest: &Utf8Path) -> Result<(), InstallError> {
+pub(super) fn extract(archive: &Utf8Path, dest: &Utf8Path) -> Result<(), InstallError> {
     fs::ensure_dir(dest)?;
 
     let format =
@@ -81,7 +83,7 @@ mod tests {
 
     use crate::test_support::temp;
 
-    /// A normal `.7z` extracts through `extract`, covering the 7z happy path on the backend.
+    /// A normal `.7z` extracts through `extract`, covering the 7z happy path on the backend
     #[test]
     fn extracts_a_normal_7z_archive() {
         let (_t, base) = temp();
@@ -107,11 +109,11 @@ mod tests {
 
     /// A crafted `.7z` whose entry name escapes the destination is rejected, writing nothing
     /// outside `dest`. Regression for the sevenz-rust 0.6 path-traversal CVE (RUSTSEC-2023-0086);
-    /// `sevenz-rust2` confines each entry under `dest`, and `extract` surfaces that as an error.
+    /// `sevenz-rust2` confines each entry under `dest`, and `extract` surfaces that as an error
     #[test]
     fn rejects_a_path_traversal_7z_archive() {
         let (_t, base) = temp();
-        // A real payload the malicious entry points at; its declared name escapes `dest`.
+        // A real payload the malicious entry points at; its declared name escapes `dest`
         let payload = base.join("payload.txt");
         std::fs::write(&payload, b"pwned").expect("write payload");
 
@@ -132,7 +134,7 @@ mod tests {
         let err = extract(&archive, &dest).expect_err("traversal must be rejected");
         assert!(matches!(err, InstallError::SevenZip { .. }), "got {err:?}");
 
-        // The escape target (a sibling of `dest`) must never be created.
+        // The escape target (a sibling of `dest`) must never be created
         assert!(
             !base.join("escape.txt").exists(),
             "a file escaped the destination directory"

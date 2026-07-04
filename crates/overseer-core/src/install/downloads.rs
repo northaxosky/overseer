@@ -80,7 +80,7 @@ mod tests {
     use crate::test_support::temp_instance;
     use std::time::{Duration, SystemTime};
 
-    /// Create a small file at `path`, making parent dirs as needed.
+    /// Create a small file at `path`, making parent dirs as needed
     fn touch(path: &camino::Utf8Path) {
         std::fs::create_dir_all(path.parent().expect("parent")).expect("mkdir");
         std::fs::write(path, b"x").expect("write");
@@ -114,7 +114,7 @@ mod tests {
             .into_iter()
             .map(|e| e.name)
             .collect();
-        // Case-insensitive sort puts `alpha.7z` before `Zeta.zip`; non-archives gone.
+        // Case-insensitive sort puts `alpha.7z` before `Zeta.zip`; non-archives gone
         assert_eq!(names, ["alpha.7z", "Zeta.zip"]);
     }
 
@@ -123,7 +123,7 @@ mod tests {
         let (_tmp, instance) = temp_instance();
         touch(&instance.downloads_dir().join("CoolMod.zip"));
         touch(&instance.downloads_dir().join("Other.zip"));
-        // A mods/<stem>/ folder marks the first archive as already installed.
+        // A mods/<stem>/ folder marks the first archive as already installed
         std::fs::create_dir_all(instance.mods_dir().join("CoolMod")).expect("mkdir");
 
         let entries = list_downloads(&instance).expect("list");

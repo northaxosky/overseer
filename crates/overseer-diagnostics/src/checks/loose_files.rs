@@ -8,7 +8,7 @@ use camino::Utf8Path;
 /// Tool-output folders that aren't game data, so we leave their contents alone
 const IGNORE_FOLDERS: &[&str] = &["bodyslide", "fo4edit", "robco_patcher", "source"];
 
-/// A source/intermediate format Fallout 4 never loads, mapped to the form it should be in.
+/// A source/intermediate format Fallout 4 never loads, mapped to the form it should be in
 fn wrong_format(ext: &str) -> Option<&'static str> {
     match ext {
         "bmp" | "jpeg" | "jpg" | "png" | "psd" | "tga" => Some("dds"),
@@ -131,7 +131,7 @@ mod tests {
         LooseFiles.run(&ctx(files))
     }
 
-    /// Run, asserting exactly one warning came out, and return it.
+    /// Run, asserting exactly one warning came out, and return it
     fn only_warning(files: Vec<DataFile>) -> Finding {
         let mut warnings: Vec<Finding> = run(files)
             .into_iter()
@@ -141,7 +141,7 @@ mod tests {
         warnings.pop().unwrap()
     }
 
-    /// Assert the files produce no warnings (only the clean-bill Info line).
+    /// Assert the files produce no warnings (only the clean-bill Info line)
     fn assert_no_warnings(files: Vec<DataFile>) {
         let findings = run(files);
         assert!(
@@ -207,20 +207,20 @@ mod tests {
 
     #[test]
     fn a_source_format_is_flagged_regardless_of_folder() {
-        // Folder-independent: a `.png` won't load anywhere, so flag it even outside textures/.
+        // Folder-independent: a `.png` won't load anywhere, so flag it even outside textures/
         let warning = only_warning(vec![df("meshes/preview.png")]);
         assert!(warning.title.contains("won't load"));
     }
 
     #[test]
     fn a_valid_format_in_the_wrong_folder_is_left_alone() {
-        // We flag only confident mistakes; a real asset in an odd folder isn't one.
+        // We flag only confident mistakes; a real asset in an odd folder isn't one
         assert_no_warnings(vec![df("textures/model.nif")]);
     }
 
     #[test]
     fn source_and_doc_files_are_left_alone() {
-        // Files the game ignores but that do no harm are not reported.
+        // Files the game ignores but that do no harm are not reported
         assert_no_warnings(vec![df("scripts/quest.psc"), df("readme.txt")]);
     }
 

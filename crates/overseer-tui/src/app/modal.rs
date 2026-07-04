@@ -4,7 +4,7 @@ use camino::Utf8PathBuf;
 use overseer_diagnostics::Report;
 use ratatui::widgets::ListState;
 
-/// A blocking surface: select/prompt/confirm submit or cancel; `Info`/`Doctor` dismiss, with live Doctor details.
+/// A blocking surface: select/prompt/confirm submit or cancel; `Info`/`Doctor` dismiss, with live Doctor details
 #[derive(Debug)]
 pub(crate) enum Modal {
     Select(Select),
@@ -47,12 +47,12 @@ impl PromptKind {
     /// Cap on the prompt's input length: a path needs more room than a name
     pub(crate) fn max_len(&self) -> usize {
         match self {
-            PromptKind::AddExe => 260, // Windows MAX_PATh
+            PromptKind::AddExe => 260, // Windows MAX_PATH
             _ => 64,
         }
     }
 
-    /// Selection modal to reopen when this prompt is cancelled.
+    /// Selection modal to reopen when this prompt is cancelled
     pub(crate) fn cancel_to(&self) -> Option<SelectKind> {
         match self {
             PromptKind::NewProfile | PromptKind::RenameProfile { .. } => Some(SelectKind::Profile),
@@ -79,7 +79,7 @@ pub(crate) enum SelectKind {
 }
 
 impl SelectKind {
-    /// Selection kind opened by a main-view toggle key.
+    /// Selection kind opened by a main-view toggle key
     pub(crate) fn from_toggle_key(c: char) -> Option<Self> {
         match c {
             'l' => Some(SelectKind::Launch),
@@ -127,7 +127,7 @@ impl SelectKind {
 }
 
 impl Modal {
-    /// List selection state for modal variants that own a selectable list.
+    /// List selection state for modal variants that own a selectable list
     pub(crate) fn list_state_mut(&mut self) -> Option<&mut ListState> {
         match self {
             Modal::Select(select) => Some(&mut select.state),
@@ -156,7 +156,7 @@ pub(crate) enum ConfirmAction {
     RemoveExe(String),
 }
 
-/// A dismiss-only reference modal with a title and key/description rows.
+/// A dismiss-only reference modal with a title and key/description rows
 #[derive(Debug)]
 pub(crate) struct Info {
     pub(crate) title: String,
@@ -164,7 +164,7 @@ pub(crate) struct Info {
     pub(crate) state: ListState,
 }
 
-/// A dismiss-only diagnostics modal with a selectable findings list and live detail pane.
+/// A dismiss-only diagnostics modal with a selectable findings list and live detail pane
 #[derive(Debug)]
 pub(crate) struct DoctorReport {
     pub(crate) report: Report,

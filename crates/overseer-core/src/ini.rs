@@ -176,7 +176,7 @@ mod tests {
 
     #[test]
     fn a_leading_utf8_bom_is_ignored() {
-        // Windows editors often save INIs with a BOM; without stripping it the first; `[section]` header is misread and every key under it is lost.
+        // Windows editors often save INIs with a BOM; without stripping it the first; `[section]` header is misread and every key under it is lost
         let ini = Ini::parse("\u{FEFF}[Archive]\nbInvalidateOlderFiles=1\n");
         assert_eq!(ini.get("Archive", "bInvalidateOlderFiles"), Some("1"));
     }
@@ -196,7 +196,7 @@ mod tests {
 
     #[test]
     fn values_keep_their_casing_and_inner_equals() {
-        // split_once('=') splits on the first '=' only, so a value with '=' survives.
+        // split_once('=') splits on the first '=' only, so a value with '=' survives
         let ini = Ini::parse("[General]\nsKey=A=B=C\n");
         assert_eq!(ini.get("general", "skey"), Some("A=B=C"));
     }
@@ -228,7 +228,7 @@ mod tests {
         base.merge(Ini::parse("[Archive]\nsResourceDataDirsFinal=\n"));
         // The shared key is overridden...
         assert_eq!(base.get("archive", "sResourceDataDirsFinal"), Some(""));
-        // ...but a key the other file doesn't mention is left alone.
+        // ...but a key the other file doesn't mention is left alone
         assert_eq!(base.get("archive", "bKeep"), Some("1"));
     }
 
@@ -260,7 +260,7 @@ mod tests {
     #[test]
     fn reads_and_merges_the_game_inis() {
         let (_t, dir) = temp();
-        // The default game is Fallout4, so stem = "Fallout4".
+        // The default game is Fallout4, so stem = "Fallout4"
         std::fs::write(
             dir.join("Fallout4.ini"),
             "[Archive]\nsResourceDataDirsFinal=STRINGS\\\nbInvalidateOlderFiles=0\n",
@@ -274,7 +274,7 @@ mod tests {
         std::fs::write(dir.join("Fallout4Prefs.ini"), "[NVFlex]\nbNVFlexEnable=1\n").unwrap();
 
         let inis = read_game_inis(&instance_with_ini_dir(&dir)).unwrap();
-        // Custom overrides base within `settings`.
+        // Custom overrides base within `settings`
         assert_eq!(
             inis.settings.get("archive", "bInvalidateOlderFiles"),
             Some("1")
@@ -283,7 +283,7 @@ mod tests {
             inis.settings.get("archive", "sResourceDataDirsFinal"),
             Some("")
         );
-        // Prefs is kept separate.
+        // Prefs is kept separate
         assert_eq!(inis.prefs.get("nvflex", "bNVFlexEnable"), Some("1"));
     }
 
@@ -346,19 +346,19 @@ mod tests {
 
     #[test]
     fn set_key_preserves_other_sections_keys_and_comments() {
-        // The regression we care about: injecting a save path must not disturb the; user's archive-invalidation block or their comments.
+        // The regression we care about: injecting a save path must not disturb the; user's archive-invalidation block or their comments
         let original = "; my setup\r\n[General]\r\nuGridsToLoad=5\r\n\r\n[Archive]\r\nbInvalidateOlderFiles=1\r\nsResourceDataDirsFinal=\r\n";
         let out = set_key(original, "General", "SLocalSavePath", "Saves\\P\\");
 
-        // Re-parse: every original setting survives, plus our new key.
+        // Re-parse: every original setting survives, plus our new key
         let ini = Ini::parse(&out);
         assert_eq!(ini.get("general", "SLocalSavePath"), Some("Saves\\P\\"));
         assert_eq!(ini.get("general", "uGridsToLoad"), Some("5"));
         assert_eq!(ini.get("archive", "bInvalidateOlderFiles"), Some("1"));
         assert_eq!(ini.get("archive", "sResourceDataDirsFinal"), Some(""));
-        // The comment line is carried through verbatim.
+        // The comment line is carried through verbatim
         assert!(out.contains("; my setup"), "comment preserved: {out:?}");
-        // Our key lands inside [General] (before the [Archive] header), not leaked into [Archive].
+        // Our key lands inside [General] (before the [Archive] header), not leaked into [Archive]
         let save_at = out.find("SLocalSavePath").expect("key present");
         let archive_at = out.find("[Archive]").expect("archive header present");
         assert!(
@@ -369,7 +369,7 @@ mod tests {
 
     #[test]
     fn section_and_key_matching_is_case_insensitive() {
-        // Existing header/key in a different case is still found and replaced (no duplicate).
+        // Existing header/key in a different case is still found and replaced (no duplicate)
         let out = set_key(
             "[general]\r\nslocalsavepath=old\r\n",
             "General",
@@ -397,7 +397,7 @@ mod tests {
 
     #[test]
     fn unset_key_ignores_a_same_named_key_in_another_section() {
-        // A key with the same name under a different section must not be touched.
+        // A key with the same name under a different section must not be touched
         let out = unset_key(
             "[General]\r\nSLocalSavePath=ours\r\n[Other]\r\nSLocalSavePath=theirs\r\n",
             "General",
@@ -408,7 +408,7 @@ mod tests {
 
     #[test]
     fn set_then_unset_round_trips_to_the_original_content() {
-        // Deploy then purge: the user's settings are back, our key is gone.
+        // Deploy then purge: the user's settings are back, our key is gone
         let original = "[General]\r\nuGridsToLoad=5\r\n[Archive]\r\nbInvalidateOlderFiles=1\r\n";
         let injected = set_key(original, "General", "SLocalSavePath", "Saves\\P\\");
         let restored = unset_key(&injected, "General", "SLocalSavePath");
@@ -421,7 +421,7 @@ mod tests {
 
     #[test]
     fn set_key_preserves_a_pure_lf_files_newlines() {
-        // An LF-only INI must stay LF, not be rewritten to CRLF.
+        // An LF-only INI must stay LF, not be rewritten to CRLF
         let out = set_key(
             "[General]\nuGridsToLoad=5\n",
             "General",

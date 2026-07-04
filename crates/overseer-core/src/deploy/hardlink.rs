@@ -117,7 +117,7 @@ impl Deployer for HardlinkDeployer {
         // Remove directories we created
         for relative in record.created_dirs.iter().rev() {
             let dir = record.target_root.join(relative);
-            // Best-effort: the dir may be non-empty (foreign files) or already gone.
+            // Best-effort: the dir may be non-empty (foreign files) or already gone
             let _ = fs::remove_dir(&dir);
         }
 
@@ -221,7 +221,7 @@ fn sweep_backup_root(backup_root: &Utf8Path, unresolved: &mut Vec<DeployError>) 
 
     // contents_first yields children before parents
     for dir in dirs {
-        // Best-effort: the dir may be non-empty (foreign files) or already gone.
+        // Best-effort: the dir may be non-empty (foreign files) or already gone
         let _ = fs::remove_dir(&dir);
     }
 }
@@ -270,7 +270,7 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn launch_spawns_an_executable() {
-        // cmd.exe is on every Windows runner; `/c exit` returns immediately.
+        // cmd.exe is on every Windows runner; `/c exit` returns immediately
         let (_tmp, base) = temp();
         let cmd =
             std::env::var("COMSPEC").unwrap_or_else(|_| r"C:\Windows\System32\cmd.exe".to_owned());
@@ -284,7 +284,7 @@ mod tests {
             .expect("spawning a real exe should succeed");
     }
 
-    /// A one-file plan: stage `rel` in a mod under `base`, targeting `base/Data`.
+    /// A one-file plan: stage `rel` in a mod under `base`, targeting `base/Data`
     fn plan_one(base: &Utf8Path, rel: &str, contents: &str) -> (DeployPlan, Utf8PathBuf) {
         let m = base.join("mods/M");
         write(&m.join(rel), contents);
@@ -293,7 +293,7 @@ mod tests {
         (plan, data)
     }
 
-    /// A one-file plan turned into a record, with a sibling backup root.
+    /// A one-file plan turned into a record, with a sibling backup root
     fn record_one(base: &Utf8Path, rel: &str, contents: &str) -> (DeployRecord, Utf8PathBuf) {
         let (plan, data) = plan_one(base, rel, contents);
         let record =
@@ -339,7 +339,7 @@ mod tests {
         d.deploy(&record, &NullSink).expect("deploy");
         let dest = data.join("Textures/x.dds");
         assert_eq!(fs::read_to_string(&dest).unwrap(), "original");
-        // Hard-link proof: editing the source is visible through the deployed name.
+        // Hard-link proof: editing the source is visible through the deployed name
         fs::write(&record.entries[0].source, "edited").unwrap();
         assert_eq!(fs::read_to_string(&dest).unwrap(), "edited");
         assert_eq!(record.target_root, data);
@@ -391,7 +391,7 @@ mod tests {
         let d = HardlinkDeployer::new();
         d.deploy(&record, &NullSink).expect("deploy");
         assert!(d.undeploy(&record, &NullSink).is_fully_resolved());
-        // Re-running tolerates already-missing files.
+        // Re-running tolerates already-missing files
         assert!(d.undeploy(&record, &NullSink).is_fully_resolved());
     }
 
@@ -401,7 +401,7 @@ mod tests {
         let (record, data) = record_one(&base, "sub/mine.txt", "mine");
         let d = HardlinkDeployer::new();
         d.deploy(&record, &NullSink).expect("deploy");
-        // A file we did not create, inside a directory we did.
+        // A file we did not create, inside a directory we did
         let foreign = data.join("sub/foreign.txt");
         write(&foreign, "not ours");
         let report = d.undeploy(&record, &NullSink);
@@ -446,7 +446,7 @@ mod tests {
     fn deploy_backs_up_preexisting_file() {
         let (_tmp, base) = temp();
         let (record, data) = record_one(&base, "sub/x.txt", "ours");
-        // A real, pre-existing file occupies the destination before deploy.
+        // A real, pre-existing file occupies the destination before deploy
         let dest = data.join("sub/x.txt");
         write(&dest, "preexisting");
         HardlinkDeployer::new()
@@ -454,7 +454,7 @@ mod tests {
             .expect("deploy");
         // The deployed link wins at the destination...
         assert_eq!(fs::read_to_string(&dest).unwrap(), "ours");
-        // ...and the original is preserved verbatim under the backup root.
+        // ...and the original is preserved verbatim under the backup root
         let backup = record.backup_root.join("sub/x.txt");
         assert_eq!(fs::read_to_string(&backup).unwrap(), "preexisting");
     }
@@ -472,7 +472,7 @@ mod tests {
         assert!(report.is_fully_resolved());
         // The user's original file is back, byte for byte...
         assert_eq!(fs::read_to_string(&dest).unwrap(), "preexisting");
-        // ...and the backup root is swept clean.
+        // ...and the backup root is swept clean
         assert!(
             !record.backup_root.exists(),
             "backup root removed when empty"
@@ -482,7 +482,7 @@ mod tests {
     #[test]
     fn undeploy_is_re_runnable_without_deleting_restored_originals() {
         let (_tmp, base) = temp();
-        // Two entries: one with a pre-existing original, one we create ourselves.
+        // Two entries: one with a pre-existing original, one we create ourselves
         let m = base.join("mods/M");
         write(&m.join("kept.txt"), "ours");
         write(&m.join("made.txt"), "made");
@@ -494,14 +494,14 @@ mod tests {
                 .expect("record");
         let d = HardlinkDeployer::new();
         d.deploy(&record, &NullSink).expect("deploy");
-        // First reversal restores the original and removes the created file.
+        // First reversal restores the original and removes the created file
         assert!(d.undeploy(&record, &NullSink).is_fully_resolved());
         assert_eq!(
             fs::read_to_string(data.join("kept.txt")).unwrap(),
             "preexisting"
         );
         assert!(!data.join("made.txt").exists());
-        // Second reversal (a recovery retry) must be a no-op for the restored; original — it must NOT fall through and delete it.
+        // Second reversal (a recovery retry) must be a no-op for the restored; original — it must NOT fall through and delete it
         assert!(d.undeploy(&record, &NullSink).is_fully_resolved());
         assert_eq!(
             fs::read_to_string(data.join("kept.txt")).unwrap(),
@@ -520,15 +520,15 @@ mod tests {
         fs::create_dir_all(dest.parent().expect("parent")).expect("mk Data");
         fs::hard_link(&source, &dest).expect("hard link");
 
-        // An intact hard link resolves to the same underlying file as its source.
+        // An intact hard link resolves to the same underlying file as its source
         assert!(is_our_link(&dest, &source));
 
-        // Replacing dest in place (remove + recreate) breaks the link: new file, new identity.
+        // Replacing dest in place (remove + recreate) breaks the link: new file, new identity
         fs::remove_file(&dest).expect("remove");
         write(&dest, "replaced");
         assert!(!is_our_link(&dest, &source));
 
-        // A source that no longer exists can't be proven ours.
+        // A source that no longer exists can't be proven ours
         assert!(!is_our_link(&dest, &base.join("mods/M/gone.txt")));
     }
 
@@ -541,13 +541,13 @@ mod tests {
         d.deploy(&record, &NullSink).expect("deploy");
         assert_eq!(fs::read_to_string(&dest).unwrap(), "ours");
 
-        // A tool replaces the deployed file in place, breaking our hard link.
+        // A tool replaces the deployed file in place, breaking our hard link
         fs::remove_file(&dest).expect("remove our link");
         write(&dest, "tool output");
 
         let report = d.undeploy(&record, &NullSink);
         assert!(report.is_fully_resolved());
-        // The replacement is no longer our link, so it is left alone, not deleted.
+        // The replacement is no longer our link, so it is left alone, not deleted
         assert!(dest.exists(), "a file replaced after deploy is preserved");
         assert_eq!(fs::read_to_string(&dest).unwrap(), "tool output");
     }
@@ -556,7 +556,7 @@ mod tests {
     fn undeploy_reports_a_residual_backup_file() {
         let (_tmp, base) = temp();
         let (record, _data) = record_one(&base, "x.txt", "ours");
-        // A stray file under the backup root that no entry will restore.
+        // A stray file under the backup root that no entry will restore
         write(&record.backup_root.join("stray.txt"), "orphan");
         let report = HardlinkDeployer::new().undeploy(&record, &NullSink);
         assert!(!report.is_fully_resolved());

@@ -8,7 +8,7 @@ use overseer_core::deploy::{NullSink, detect_conflicts};
 use overseer_core::instance::{Instance, Profile};
 use overseer_core::test_support::{self, FLAG_MASTER, TestbedSpec};
 
-/// Absolute path of a file as it would land under the game's `Data/` directory.
+/// Absolute path of a file as it would land under the game's `Data/` directory
 fn data_file(instance: &Instance, rel: &str) -> Utf8PathBuf {
     instance.config.game_dir.join("Data").join(rel)
 }
@@ -16,7 +16,7 @@ fn data_file(instance: &Instance, rel: &str) -> Utf8PathBuf {
 #[test]
 fn golden_instance_deploys_resolves_conflicts_and_purges_clean() {
     let (_tmp, root) = test_support::temp();
-    // Winner outranks Loser (added earlier = higher priority) and shares one file with it.
+    // Winner outranks Loser (added earlier = higher priority) and shares one file with it
     let spec = TestbedSpec::new()
         .managed("Base", true, |m| {
             m.plugin("Base.esm", FLAG_MASTER, &[])
@@ -29,7 +29,7 @@ fn golden_instance_deploys_resolves_conflicts_and_purges_clean() {
         .managed("Patch", true, |m| m.plugin("Patch.esp", 0, &["Base.esm"]));
     let instance = test_support::build_testbed(&root, &spec);
 
-    // The two providers of the shared file collapse to one conflict, winner (higher priority) last.
+    // The two providers of the shared file collapse to one conflict, winner (higher priority) last
     let profile = Profile::load(&instance, "Default").expect("load profile");
     let conflicts = detect_conflicts(&profile.deploy_sources(&instance)).expect("detect conflicts");
     assert_eq!(conflicts.len(), 1);
@@ -37,7 +37,7 @@ fn golden_instance_deploys_resolves_conflicts_and_purges_clean() {
 
     deploy_profile(&instance, "Default", &NullSink).expect("deploy");
 
-    // The higher-priority mod's bytes win the shared path; unique files land untouched.
+    // The higher-priority mod's bytes win the shared path; unique files land untouched
     assert_eq!(
         std::fs::read_to_string(data_file(&instance, "Textures/shared.dds")).unwrap(),
         "winner"
@@ -49,7 +49,7 @@ fn golden_instance_deploys_resolves_conflicts_and_purges_clean() {
     let st = status(&instance).expect("status").expect("deployed");
     assert!(st.verified.is_ok(), "all deployed files present");
 
-    // Purge reverses the whole transaction, leaving Data/ as it found it.
+    // Purge reverses the whole transaction, leaving Data/ as it found it
     purge(&instance, &NullSink).expect("purge");
     assert!(!data_file(&instance, "Textures/shared.dds").exists());
     assert!(

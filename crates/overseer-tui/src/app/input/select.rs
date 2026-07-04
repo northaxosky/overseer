@@ -1,4 +1,4 @@
-//! The Select modal: launcher and profile pickers.
+//! The Select modal: launcher, profile, and instance pickers.
 
 use anyhow::Result;
 use camino::Utf8PathBuf;
@@ -47,7 +47,7 @@ impl App {
         Ok(match kind {
             SelectKind::Launch => launch::targets(&self.session.instance),
             SelectKind::Profile => self.session.instance.profiles()?,
-            // The recent instances, minus the one already open (record_opened puts it first).
+            // The recent instances, minus the one already open (record_opened puts it first)
             SelectKind::Instance => self
                 .settings
                 .recent_instances
@@ -115,7 +115,7 @@ impl App {
         }));
     }
 
-    /// remove the launch target named `name`, persist, then reopen the picker
+    /// Remove the launch target named `name`, persist, then reopen the picker
     pub(super) fn remove_exe(&mut self, name: &str) {
         if !self
             .session
@@ -161,7 +161,7 @@ impl App {
         }
     }
 
-    /// Switch to `chosen` with the current profile, re-opening the picker with a fail notice if load fails.
+    /// Switch to `chosen` with the current profile, re-opening the picker with a fail notice if load fails
     fn switch_instance(&mut self, chosen: Option<String>) {
         let Some(path) = chosen else {
             self.note("No other instances to switch to");
@@ -181,7 +181,7 @@ impl App {
                 self.ok("Switched instance");
             }
             Err(e) => {
-                // Leave the picker visible so the failed switch is recoverable.
+                // Leave the picker visible so the failed switch is recoverable
                 self.open_select(SelectKind::Instance);
                 self.fail(format!("Error: {e}"));
             }
@@ -260,7 +260,7 @@ mod tests {
 
     #[test]
     fn n_does_nothing_in_the_launch_picker() {
-        // `n` is a profile-picker side-action only; in the launcher it's inert.
+        // `n` is a profile-picker side-action only; in the launcher it's inert
         let mut app = App::sample();
         app.handle_key(key(KeyCode::Char('l')));
         app.handle_key(key(KeyCode::Char('n')));
@@ -405,7 +405,7 @@ mod tests {
             args: Vec::new(),
         }];
         app.session.instance.save().unwrap();
-        // Delete the instance dir so the next save() fails mid-removal.
+        // Delete the instance dir so the next save() fails mid-removal
         std::fs::remove_dir_all(&app.session.instance.root).unwrap();
 
         app.handle_key(key(KeyCode::Char('l'))); // picker opens on "game"
@@ -481,7 +481,7 @@ mod tests {
     fn switching_to_a_missing_instance_keeps_the_picker_open() {
         let mut app = App::sample();
         app.handle_key(key(KeyCode::Char('s')));
-        // The sample's recents point at directories with no instance, so the load fails.
+        // The sample's recents point at directories with no instance, so the load fails
         app.handle_key(key(KeyCode::Enter));
         assert!(
             matches!(

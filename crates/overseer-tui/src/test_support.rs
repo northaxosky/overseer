@@ -9,7 +9,7 @@ use overseer_core::plugins::{PluginEntry, PluginLoadOrder, PluginMeta};
 use overseer_core::settings::Settings;
 
 impl App {
-    /// A small in-memory fixture for tests (no disk access).
+    /// A small in-memory fixture for tests (no disk access)
     pub(crate) fn sample() -> Self {
         Self {
             should_quit: false,

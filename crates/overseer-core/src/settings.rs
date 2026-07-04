@@ -37,10 +37,8 @@ pub struct Settings {
     /// Instances the user has opened, most recent first
     pub recent_instances: Vec<Utf8PathBuf>,
     /// Sort preference for front ends that show saves
-    #[serde(default)]
     pub saves_sort: SavesSort,
     /// Sort preference for front ends that show downloads
-    #[serde(default)]
     pub downloads_sort: DownloadsSort,
 }
 
@@ -78,7 +76,7 @@ pub enum DownloadsSortKey {
     Installed,
 }
 
-/// Persisted list sort preference.
+/// Persisted list sort preference
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 #[serde(bound(deserialize = "K: FromStr + Default, SortPref<K>: Default"))]
@@ -89,10 +87,10 @@ pub struct SortPref<K> {
     pub dir: SortDir,
 }
 
-/// Persisted saves list sort preference.
+/// Persisted saves list sort preference
 pub type SavesSort = SortPref<SavesSortKey>;
 
-/// Persisted downloads list sort preference.
+/// Persisted downloads list sort preference
 pub type DownloadsSort = SortPref<DownloadsSortKey>;
 
 impl Default for SavesSort {
@@ -129,7 +127,7 @@ impl Settings {
         match Self::load_from(&config_path()) {
             Ok(settings) => settings,
             Err(e) => {
-                // Defaults would overwrite recents on next save; keep a copy first.
+                // Defaults would overwrite recents on next save; keep a copy first
                 if let SettingsError::Parse { path, .. } = &e {
                     let _ = crate::fs::backup_corrupt(path);
                 }
@@ -212,7 +210,7 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
 
-    /// A temp dir plus a config path inside it (the dir guards the file's lifetime).
+    /// A temp dir plus a config path inside it (the dir guards the file's lifetime)
     fn temp_config() -> (TempDir, Utf8PathBuf) {
         let dir = TempDir::new().expect("temp dir");
         let path = Utf8PathBuf::from_path_buf(dir.path().join("config.toml")).expect("utf8 path");
@@ -238,7 +236,7 @@ mod tests {
             s.record_opened(Utf8Path::new(&format!("/i{i}")));
         }
         assert_eq!(s.recent_instances.len(), MAX_RECENT);
-        // The most recent open is at the front.
+        // The most recent open is at the front
         assert_eq!(
             s.last_instance(),
             Some(Utf8Path::new(&format!("/i{}", MAX_RECENT + 4)))

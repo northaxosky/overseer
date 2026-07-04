@@ -8,14 +8,13 @@ use overseer_diagnostics::diagnose;
 use crate::app::{App, DoctorReport, Modal, initial_selection};
 
 impl App {
-    /// Keys for a Doctor modal: scroll the findings list or dismiss. It has no submit.
+    /// Keys for a Doctor modal: scroll the findings list or dismiss. It has no submit
     pub(super) fn handle_doctor_key(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('d') => self.modal = None,
             KeyCode::Down | KeyCode::Char('j') => self.move_in_modal_list(1),
             KeyCode::Up | KeyCode::Char('k') => self.move_in_modal_list(-1),
-            // Dismiss-only: Enter does nothing.
-            KeyCode::Enter => {}
+            // Dismiss-only: Enter and any other key are inert
             _ => {}
         }
     }
@@ -38,7 +37,7 @@ mod tests {
     use crate::app::input::test_helpers::{key, modal_selection};
     use overseer_diagnostics::{Finding, Report, Severity};
 
-    /// Seed an open Doctor modal with `titles` findings, selecting the first.
+    /// Seed an open Doctor modal with `titles` findings, selecting the first
     fn open_with(app: &mut App, titles: &[&str]) {
         let report = Report::new(
             titles

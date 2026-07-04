@@ -41,17 +41,17 @@ pub struct SaveMeta {
 
 /// Why a `.fos` save header could not be parsed
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
-pub enum SaveParseError {
-    /// The file did not begin with the `FO4_SAVEGAME` magic.
+enum SaveParseError {
+    /// The file did not begin with the `FO4_SAVEGAME` magic
     #[error("not a Fallout 4 save: bad magic")]
     BadMagic,
-    /// The header ended before a field we needed was fully read.
+    /// The header ended before a field we needed was fully read
     #[error("save header ended unexpectedly")]
     UnexpectedEof,
-    /// A header string was not valid UTF-8.
+    /// A header string was not valid UTF-8
     #[error("save header string was not valid UTF-8")]
     BadString,
-    /// The declared header size was implausibly large.
+    /// The declared header size was implausibly large
     #[error("save header size {0} is implausibly large")]
     HeaderTooLarge(usize),
 }
@@ -290,14 +290,14 @@ mod tests {
     #[test]
     fn a_header_truncated_mid_string_is_eof() {
         let bytes = fos_bytes(1, "Nate", 3, "Concord", "Day 2");
-        // Cut into the trailing game-date wstring's content bytes.
+        // Cut into the trailing game-date wstring's content bytes
         let truncated = &bytes[..bytes.len() - 3];
         assert_eq!(parse_header(truncated), Err(SaveParseError::UnexpectedEof));
     }
 
     #[test]
     fn a_bogus_huge_string_length_is_eof_not_a_huge_alloc() {
-        // The player-name length prefix sits at magic(12)+headerSize(4)+version(4)+saveNumber(4).
+        // The player-name length prefix sits at magic(12)+headerSize(4)+version(4)+saveNumber(4)
         let mut bytes = fos_bytes(1, "Nate", 3, "Concord", "Day 2");
         bytes[24] = 0xFF;
         bytes[25] = 0xFF; // claims a 65535-byte name in a tiny buffer
@@ -306,7 +306,7 @@ mod tests {
 
     #[test]
     fn a_non_utf8_string_is_a_bad_string() {
-        // Hand-build a header whose player-name bytes are not valid UTF-8.
+        // Hand-build a header whose player-name bytes are not valid UTF-8
         let mut body = Vec::new();
         body.extend_from_slice(&14u32.to_le_bytes()); // version
         body.extend_from_slice(&1u32.to_le_bytes()); // saveNumber
@@ -325,7 +325,7 @@ mod tests {
     #[test]
     fn an_absurd_header_size_is_rejected() {
         let mut bytes = fos_bytes(1, "Nate", 3, "Concord", "Day 2");
-        // headerSize is the u32 immediately after the 12-byte magic.
+        // headerSize is the u32 immediately after the 12-byte magic
         bytes[12..16].copy_from_slice(&u32::MAX.to_le_bytes());
         assert!(matches!(
             parse_header(&bytes),
@@ -335,7 +335,7 @@ mod tests {
 
     // --- list_saves ---
 
-    /// Open `path` and stamp its modified time so ordering tests are deterministic.
+    /// Open `path` and stamp its modified time so ordering tests are deterministic
     fn set_mtime(path: &Utf8Path, when: SystemTime) {
         let file = std::fs::File::options()
             .write(true)
@@ -359,7 +359,7 @@ mod tests {
         let (_t, dir) = temp();
         write_fos(&dir.join("Old.fos"), 1, "Nora", 5, "Vault 111", "Day 1");
         write_fos(&dir.join("New.fos"), 2, "Nora", 9, "Concord", "Day 3");
-        // A co-save, junk, and a subdirectory that must all be ignored.
+        // A co-save, junk, and a subdirectory that must all be ignored
         std::fs::write(dir.join("New.f4se"), b"cosave").expect("cosave");
         std::fs::write(dir.join("notes.txt"), b"x").expect("junk");
         std::fs::create_dir_all(dir.join("Backups")).expect("subdir");

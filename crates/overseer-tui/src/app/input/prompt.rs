@@ -1,4 +1,4 @@
-//! The Prompt modal: the new-profile name entry.
+//! The Prompt modal: single-line text entry for new-profile, new-separator, rename-mod, rename-profile, and add-exe.
 
 use camino::Utf8Path;
 use overseer_core::apply;
@@ -150,7 +150,7 @@ impl App {
         Ok(())
     }
 
-    /// Validate then create a profile, mapping any failure to a user-facing message.
+    /// Validate then create a profile, mapping any failure to a user-facing message
     fn create_named_profile(&self, name: &str) -> Result<(), String> {
         validate_name(name)?;
         match self.session.instance.create_profile(name) {
@@ -188,7 +188,7 @@ impl App {
         if path.is_empty() {
             return Err("Path cannot be empty".to_owned());
         }
-        // Store an absolute path so the target doesn't depend on the process cwd (matches `exe add`).
+        // Store an absolute path so the target doesn't depend on the process cwd (matches `exe add`)
         let path = overseer_frontend::absolutize(Utf8Path::new(path))
             .map_err(|e| format!("Invalid path: {e}"))?;
         let name = path
@@ -219,6 +219,7 @@ impl App {
         Ok(name)
     }
 
+    /// Rename the selected mod to the name in the open prompt; stay open on any error
     fn submit_rename_mod(&mut self, old: String) {
         let Some(Modal::Prompt(prompt)) = self.modal.as_ref() else {
             return;
@@ -234,7 +235,7 @@ impl App {
         }
     }
 
-    /// Validate then rename a mod, mapping any failure to a user-facing message.
+    /// Validate then rename a mod, mapping any failure to a user-facing message
     fn rename_selected_mod(&mut self, old: &str, new: &str) -> Result<(), String> {
         validate_name(new)?;
         apply::rename_mod(&self.session.instance, old, new).map_err(rename_error_message)?;
@@ -271,6 +272,7 @@ impl App {
         }));
     }
 
+    /// Rename the profile to the name in the open prompt; stay open on any error
     fn submit_rename_profile(&mut self, old: String) {
         let Some(Modal::Prompt(prompt)) = self.modal.as_ref() else {
             return;
@@ -281,7 +283,7 @@ impl App {
             return;
         }
 
-        // Distinguish "rename didnt happen" from "rename stuck"
+        // Distinguish "rename didn't happen" from "rename stuck"
         let warning = match apply::rename_profile(&mut self.session.instance, &old, &new) {
             Ok(()) => None,
             Err(apply::ApplyError::DefaultProfileNotUpdated(e)) => Some(format!(
@@ -325,7 +327,7 @@ impl App {
         }
     }
 
-    /// Show an inline error on the open prompt (no-op if no prompt is open).
+    /// Show an inline error on the open prompt (no-op if no prompt is open)
     fn set_prompt_error(&mut self, msg: String) {
         if let Some(Modal::Prompt(prompt)) = self.modal.as_mut() {
             prompt.error = Some(msg);
@@ -368,7 +370,7 @@ fn rename_profile_error_message(error: apply::ApplyError) -> String {
 
 fn validate_name(name: &str) -> Result<(), String> {
     const BAD: &[char] = &['/', '\\', ':', '*', '?', '"', '<', '>', '|'];
-    // Windows device names are reserved as a whole component, case-insensitively.
+    // Windows device names are reserved as a whole component, case-insensitively
     const RESERVED: &[&str] = &[
         "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8",
         "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
@@ -380,7 +382,7 @@ fn validate_name(name: &str) -> Result<(), String> {
     } else if name.contains("..") || name.contains(BAD) || name.contains(char::is_control) {
         Err("Name cannot contain .. or any of / \\ : * ? \" < > |".to_owned())
     } else if name.ends_with('.') || name.ends_with(' ') {
-        // Windows trims these, so "Foo." would create "Foo" and desync silently.
+        // Windows trims these, so "Foo." would create "Foo" and desync silently
         Err("Name cannot end with a space or '.'".to_owned())
     } else if RESERVED.iter().any(|r| r.eq_ignore_ascii_case(name)) {
         Err("That name is reserved by Windows".to_owned())
@@ -598,7 +600,7 @@ mod tests {
 
     #[test]
     fn submitting_a_valid_name_creates_the_profile_and_returns_to_the_picker() {
-        // create_profile writes to disk, so back the session with a temp instance.
+        // create_profile writes to disk, so back the session with a temp instance
         let (_tmp, instance) = overseer_core::test_support::temp_instance();
         let mut app = App::sample();
         app.session.instance = instance;
@@ -641,10 +643,10 @@ mod tests {
 
     #[test]
     fn validate_name_rejects_windows_unsafe_names() {
-        // Windows strips a trailing dot/space, so these would create a different; directory than requested and silently desync from Profile.name.
+        // Windows strips a trailing dot/space, so these would create a different directory than requested and silently desync from Profile.name
         assert!(validate_name("Foo.").is_err(), "trailing dot");
         assert!(validate_name("Foo ").is_err(), "trailing space");
-        // Reserved device names are rejected as a whole, case-insensitively.
+        // Reserved device names are rejected as a whole, case-insensitively
         assert!(validate_name("nul").is_err(), "reserved, lowercase");
         assert!(validate_name("COM1").is_err(), "reserved, uppercase");
     }
@@ -782,7 +784,7 @@ mod tests {
         app.handle_key(key(KeyCode::Enter));
 
         assert!(app.modal.is_none(), "success closes the prompt");
-        // The new separator becomes the selection and heads the previously-selected row.
+        // The new separator becomes the selection and heads the previously-selected row
         let sel = app.selected_mod().expect("a row is selected");
         assert_eq!(app.session.profile.mods[sel].kind, ModKind::Separator);
         assert_eq!(app.session.profile.mods[sel].name, "Gameplay_separator");
@@ -821,7 +823,7 @@ mod tests {
         }
         app.handle_key(key(KeyCode::Enter));
 
-        // The name is derived from the file stem and selected in the reopened picker.
+        // The name is derived from the file stem and selected in the reopened picker
         match &app.modal {
             Some(Modal::Select(s)) => {
                 let i = s
@@ -903,7 +905,7 @@ mod tests {
         }
         app.handle_key(key(KeyCode::Enter));
 
-        // A relative path is resolved against cwd, so config never stores a cwd-dependent path.
+        // A relative path is resolved against cwd, so config never stores a cwd-dependent path
         let exe = app
             .session
             .instance

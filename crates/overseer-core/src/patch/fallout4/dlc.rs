@@ -231,7 +231,7 @@ mod tests {
 
     #[test]
     fn recover_install_restores_a_crashed_dlc_sentinel() {
-        // A crashed sentinel in its backup slot makes the group look unowned; recovery must still restore it.
+        // A crashed sentinel in its backup slot makes the group look unowned; recovery must still restore it
         let (_tmp, root) = temp();
         std::fs::create_dir_all(root.join("Data")).unwrap();
         std::fs::write(

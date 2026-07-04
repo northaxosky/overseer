@@ -1,3 +1,5 @@
+//! The mod installer: extract an archive, find its content root, and stage it under `mods/`
+
 use super::archive::extract;
 use super::error::{InstallError, io_err};
 use super::root::find_content_root;
@@ -97,7 +99,7 @@ fn move_dir(from: &Utf8Path, to: &Utf8Path) -> Result<(), InstallError> {
     Ok(())
 }
 
-/// Recursively copy `from`'s tree into `to` — the cross-volume fallback for a move.
+/// Recursively copy `from`'s tree into `to` — the cross-volume fallback for a move
 fn copy_dir(from: &Utf8Path, to: &Utf8Path) -> Result<(), InstallError> {
     for entry in WalkDir::new(from) {
         let entry = entry.map_err(|e| io_err(from, e.into()))?;
@@ -132,7 +134,7 @@ mod tests {
         Instance::new(base.join("instance"), base.join("game"))
     }
 
-    /// Build a `.zip` at `path` from `(entry path, contents)` pairs, preserving nested entry paths.
+    /// Build a `.zip` at `path` from `(entry path, contents)` pairs, preserving nested entry paths
     fn make_zip(path: &Utf8Path, entries: &[(&str, &[u8])]) {
         let file = std::fs::File::create(path).expect("create zip");
         let mut zip = zip::ZipWriter::new(file);
@@ -180,7 +182,7 @@ mod tests {
 
         install(&instance, &archive, "Wrapped").expect("install");
         let mod_dir = instance.mods_dir().join("Wrapped");
-        // The Data/ wrapper is gone; its contents sit directly under the mod dir.
+        // The Data/ wrapper is gone; its contents sit directly under the mod dir
         assert!(mod_dir.join("Textures/a.dds").exists());
         assert!(mod_dir.join("Wrapped.esp").exists());
         assert!(!mod_dir.join("Data").exists());
@@ -244,7 +246,7 @@ mod tests {
         let (_t, base) = temp();
         let instance = instance_in(&base);
         let archive = base.join("Scripted.zip");
-        // A `fomod/ModuleConfig.xml` at the content root marks a scripted installer; the sibling Textures/ keeps find_content_root from descending past it.
+        // A `fomod/ModuleConfig.xml` at the content root marks a scripted installer; the sibling Textures/ keeps find_content_root from descending past it
         make_zip(
             &archive,
             &[
@@ -280,7 +282,7 @@ mod tests {
 
     #[test]
     fn refuses_a_fomod_wrapped_beside_a_data_folder() {
-        // find_content_root descends into Data/, stepping past the fomod/ marker; the refusal must still fire by scanning the whole wrapper chain.
+        // find_content_root descends into Data/, stepping past the fomod/ marker; the refusal must still fire by scanning the whole wrapper chain
         let (_t, base) = temp();
         let instance = instance_in(&base);
         let archive = base.join("Wrapped.zip");
@@ -302,7 +304,7 @@ mod tests {
 
     #[test]
     fn a_fomod_folder_without_module_config_still_installs() {
-        // Only a `fomod/ModuleConfig.xml` triggers the refusal; a stray fomod/ folder; without it is just data and installs normally.
+        // Only a `fomod/ModuleConfig.xml` triggers the refusal; a stray fomod/ folder without it is just data and installs normally
         let (_t, base) = temp();
         let instance = instance_in(&base);
         let archive = base.join("Plain.zip");

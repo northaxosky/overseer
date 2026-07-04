@@ -62,7 +62,7 @@ pub fn detect(game: GameKind, game_dir: &Utf8Path) -> GameInstall {
 pub fn edition(install: &GameInstall, game_dir: &Utf8Path) -> Edition {
     match install.game {
         GameKind::Fallout4 => fallout4::classify_edition(install.version, game_dir),
-        // Edition detection isn't implemented for these yet; degrade rather than panic in a library.
+        // Edition detection isn't implemented for these yet; degrade rather than panic in a library
         GameKind::SkyrimSE | GameKind::Starfield => Edition::Undetermined,
     }
 }
@@ -99,7 +99,7 @@ fn probe_store_markers(game: GameKind, game_dir: &Utf8Path) -> StoreMarkers {
     }
 }
 
-/// `.../steamapps/common/<Game>` => `.../steampps/appmanifest_<id>.acf` two levels up
+/// `.../steamapps/common/<Game>` => `.../steamapps/appmanifest_<id>.acf` two levels up
 fn steam_appmanifest_exists(game_dir: &Utf8Path, appid: u32) -> bool {
     game_dir
         .parent()
@@ -171,7 +171,7 @@ mod tests {
 
     #[test]
     fn steam_or_gog_win_over_ms_and_epic() {
-        // An authoritative Steam/GOG manifest wins even when other markers are present.
+        // An authoritative Steam/GOG manifest wins even when other markers are present
         assert_eq!(
             classify_store(markers(true, false, true, true)),
             Store::Steam
@@ -189,7 +189,7 @@ mod tests {
             classify_store(markers(false, false, false, true)),
             Store::Epic
         );
-        // Microsoft Store is checked before Epic.
+        // Microsoft Store is checked before Epic
         assert_eq!(
             classify_store(markers(false, false, true, true)),
             Store::MicrosoftStore

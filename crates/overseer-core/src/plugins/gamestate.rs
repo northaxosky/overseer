@@ -89,7 +89,7 @@ mod tests {
     use crate::test_support::{FLAG_MASTER, write_plugin};
     use tempfile::TempDir;
 
-    /// A temp game dir (with `Data/`) + a temp local dir for `Plugins.txt`.
+    /// A temp game dir (with `Data/`) + a temp local dir for `Plugins.txt`
     fn setup() -> (TempDir, Utf8PathBuf, Utf8PathBuf) {
         let tmp = TempDir::new().expect("temp dir");
         let root = Utf8PathBuf::from_path_buf(tmp.path().to_path_buf()).expect("utf8 path");
@@ -127,7 +127,7 @@ mod tests {
         )
         .expect("write");
 
-        // Order preserved; `*` marks active; inactive listed without a prefix.
+        // Order preserved; `*` marks active; inactive listed without a prefix
         let txt = std::fs::read_to_string(local.join("Plugins.txt")).expect("read");
         assert_eq!(txt, "*Aaa.esp\nBbb.esp\n*Ccc.esp\n");
     }
@@ -154,10 +154,10 @@ mod tests {
     #[test]
     fn backup_round_trips_raw_bytes() {
         let (_tmp, _game, local) = setup();
-        // Nothing written yet.
+        // Nothing written yet
         assert_eq!(read_plugins_txt(&local).expect("read"), None);
 
-        // A Windows-1252 byte (0xE9 = 'é') makes this invalid UTF-8 on purpose.
+        // A Windows-1252 byte (0xE9 = 'é') makes this invalid UTF-8 on purpose
         let original = b"*Caf\xE9.esp\n".to_vec();
         std::fs::write(local.join("Plugins.txt"), &original).expect("seed");
 
@@ -172,7 +172,7 @@ mod tests {
             original
         );
 
-        // ...and restoring `None` removes the file (there was none originally).
+        // ...and restoring `None` removes the file (there was none originally)
         restore_plugins_txt(&local, None).expect("restore none");
         assert!(!local.join("Plugins.txt").exists());
     }
@@ -198,7 +198,7 @@ mod tests {
     #[test]
     fn restore_if_ours_restores_when_the_file_is_untouched() {
         let (_tmp, _game, local) = setup();
-        // The live file is still exactly what we wrote.
+        // The live file is still exactly what we wrote
         std::fs::write(local.join("Plugins.txt"), b"*Cool.esp\n").expect("seed current");
         let outcome =
             restore_plugins_txt_if_ours(&local, Some(b"*Original.esp\n"), Some(b"*Cool.esp\n"))
@@ -213,13 +213,13 @@ mod tests {
     #[test]
     fn restore_if_ours_keeps_a_diverged_file() {
         let (_tmp, _game, local) = setup();
-        // The live file no longer matches what we wrote.
+        // The live file no longer matches what we wrote
         std::fs::write(local.join("Plugins.txt"), b"*Edited.esp\n").expect("seed current");
         let outcome =
             restore_plugins_txt_if_ours(&local, Some(b"*Original.esp\n"), Some(b"*Cool.esp\n"))
                 .expect("restore");
         assert_eq!(outcome, Restore::Conflict);
-        // Left untouched, not rolled back to the original.
+        // Left untouched, not rolled back to the original
         assert_eq!(
             std::fs::read(local.join("Plugins.txt")).expect("read"),
             b"*Edited.esp\n"
@@ -230,7 +230,7 @@ mod tests {
     fn restore_if_ours_restores_unconditionally_when_nothing_was_written() {
         let (_tmp, _game, local) = setup();
         std::fs::write(local.join("Plugins.txt"), b"*Whatever.esp\n").expect("seed current");
-        // intended == None: we never reached the write phase, so fully undo to the original.
+        // intended == None: we never reached the write phase, so fully undo to the original
         let outcome =
             restore_plugins_txt_if_ours(&local, Some(b"*Original.esp\n"), None).expect("restore");
         assert_eq!(outcome, Restore::Restored);
@@ -243,7 +243,7 @@ mod tests {
     #[test]
     fn implicit_actives_include_hardcoded_masters_and_ccc_entries() {
         let (_tmp, game, local) = setup();
-        // A real install ships its Creation Club manifest in the game root.
+        // A real install ships its Creation Club manifest in the game root
         std::fs::write(
             game.join("Fallout4.ccc"),
             "ccBGSFO4001-PipBoy(Black).esl\nccBGSFO4003-PipBoy(Camo01).esl\n",
@@ -253,10 +253,10 @@ mod tests {
         let implicit =
             implicit_active_plugins(GameId::Fallout4, &game, &local).expect("implicit actives");
 
-        // The hardcoded base master and a DLC ESM are always candidates, even; though no files exist on disk: the set is deliberately not presence-filtered.
+        // The hardcoded base master and a DLC ESM are always candidates, even though no files exist on disk: the set is deliberately not presence-filtered
         assert!(implicit.iter().any(|p| p == "Fallout4.esm"));
         assert!(implicit.iter().any(|p| p == "DLCCoast.esm"));
-        // The Creation Club plugins from the manifest are folded in.
+        // The Creation Club plugins from the manifest are folded in
         assert!(
             implicit
                 .iter()

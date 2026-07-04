@@ -15,7 +15,7 @@ impl Check for MissingMasters {
     }
 
     fn run(&self, ctx: &GameContext) -> Vec<Finding> {
-        // A master is satisfied only if its provider is actually loaded: the active; mod plugins plus the base/DLC/CC the engine force-loads (not merely on disk).
+        // A master is satisfied only if its provider is actually loaded: the active; mod plugins plus the base/DLC/CC the engine force-loads (not merely on disk)
         let loaded: BTreeSet<String> = ctx
             .loaded_plugins
             .iter()
@@ -100,7 +100,7 @@ mod tests {
         assert_eq!(findings[0].severity, Severity::Error);
         assert!(findings[0].title.contains("Patch.esp"));
         assert!(findings[0].title.contains("Gone.esm"));
-        // Plugins are activated/deactivated, not enabled/disabled (glossary).
+        // Plugins are activated/deactivated, not enabled/disabled (glossary)
         let detail = findings[0].detail.as_deref().expect("detail");
         assert!(detail.contains("deactivate") && !detail.contains("disable"));
     }

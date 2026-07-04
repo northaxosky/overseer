@@ -149,7 +149,7 @@ mod tests {
             name: rel.file_name().unwrap_or_default().to_owned(),
             mod_name: mod_name.to_owned(),
             relative: rel.to_owned(),
-            // This check ignores the header scan entirely.
+            // This check ignores the header scan entirely
             scan: ArchiveScan::Invalid,
         }
     }
@@ -186,13 +186,13 @@ mod tests {
     fn bad_or_missing_suffixes_do_not_auto_load() {
         assert!(!name_auto_loads("mymod - extra.ba2"));
         assert!(!name_auto_loads("randomthing.ba2"));
-        // An empty language after `voices_` is not a valid suffix.
+        // An empty language after `voices_` is not a valid suffix
         assert!(!name_auto_loads("mymod - voices_.ba2"));
     }
 
     #[test]
     fn the_last_separator_decides_the_suffix() {
-        // Split on the final " - ": the trailing token is what the engine keys on.
+        // Split on the final " - ": the trailing token is what the engine keys on
         assert!(name_auto_loads("my - cool - mod - main.ba2"));
         assert!(!name_auto_loads("my - main - mod.ba2"));
     }
@@ -240,7 +240,7 @@ mod tests {
 
     #[test]
     fn a_name_just_past_the_whitelist_range_warns() {
-        // `textures16` is whitelisted; `textures17` is not a real base archive.
+        // `textures16` is whitelisted; `textures17` is not a real base archive
         let findings = run(vec![archive(
             "Data/DLCUltraHighResolution - Textures17.ba2",
             "M",
@@ -253,9 +253,9 @@ mod tests {
     fn nested_and_root_archives_are_out_of_scope() {
         assert!(
             run(vec![
-                // Nested under Data/ never auto-loads regardless of name.
+                // Nested under Data/ never auto-loads regardless of name
                 archive("Data/textures/bad.ba2", "M"),
-                // Not under Data/ at all.
+                // Not under Data/ at all
                 archive("Root/bad.ba2", "M"),
             ])
             .is_empty()

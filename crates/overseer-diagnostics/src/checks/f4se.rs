@@ -17,7 +17,7 @@ impl Check for F4se {
     fn run(&self, ctx: &GameContext) -> Vec<Finding> {
         let mut findings = Vec::new();
 
-        // A loader for the wrong runtime fails to launch the game; only flag when both the game and loader families are known and disagree.
+        // A loader for the wrong runtime fails to launch the game; only flag when both the game and loader families are known and disagree
         if let (Some(game), Some(loader)) = (ctx.runtime_family, ctx.loader_family)
             && game != loader
         {
@@ -36,7 +36,7 @@ impl Check for F4se {
             ));
         }
 
-        // A deployed F4SE plugin that doesn't advertise the installed runtime won't load.
+        // A deployed F4SE plugin that doesn't advertise the installed runtime won't load
         if let (Some(packed), Some(game)) = (ctx.runtime_packed, ctx.runtime_family) {
             for p in &ctx.f4se_plugins {
                 let advertises = if p.plugin.supports_ngae {
@@ -217,7 +217,7 @@ mod tests {
 
     #[test]
     fn a_version_independent_plugin_is_silent_without_an_exact_match() {
-        // AE-band address + structure independence, so F4SE loads it on AE despite compat listing only OG.
+        // AE-band address + structure independence, so F4SE loads it on AE despite compat listing only OG
         let mut s = scan("indep.dll", true, &[0x010A_3D80]);
         s.plugin.address_independence = 0x4; // Address Library 1.11.137
         s.plugin.structure_independence = 0x4; // 1.11.137 struct layout
@@ -226,7 +226,7 @@ mod tests {
 
     #[test]
     fn a_nextgen_only_independent_plugin_still_warns_on_anniversary() {
-        // NG-band independence (1.10.980) doesn't cover AE, and compat omits it → warn.
+        // NG-band independence (1.10.980) doesn't cover AE, and compat omits it → warn
         let mut s = scan("ng.dll", true, &[]);
         s.plugin.address_independence = 0x2;
         s.plugin.structure_independence = 0x2;
@@ -237,7 +237,7 @@ mod tests {
 
     #[test]
     fn a_plugin_with_no_og_entry_point_warns_on_old_gen() {
-        // Exports F4SEPlugin_Load but neither Query nor Version: no valid entry point on OG.
+        // Exports F4SEPlugin_Load but neither Query nor Version: no valid entry point on OG
         let ctx = GameContext {
             runtime_family: Some(Generation::OldGen),
             runtime_packed: Some(0x010A_3D80),
@@ -256,7 +256,7 @@ mod tests {
 
     #[test]
     fn a_real_og_plugin_is_silent_on_old_gen() {
-        // supports_og = true (exports Query); it advertises OG and must not be flagged.
+        // supports_og = true (exports Query); it advertises OG and must not be flagged
         let ctx = GameContext {
             runtime_family: Some(Generation::OldGen),
             runtime_packed: Some(0x010A_3D80),

@@ -1,10 +1,14 @@
 //! Applying binary deltas (xdelta3 / VCDIFF) behind a swappable [`DeltaDecoder`] backend
 
-use crate::error::{IoError, io_err};
+use crate::error::IoError;
 use camino::{Utf8Path, Utf8PathBuf};
-use std::io::Read;
 use std::process::Command;
 use thiserror::Error;
+
+#[cfg(test)]
+use crate::error::io_err;
+#[cfg(test)]
+use std::io::Read;
 
 /// Applies a VCDIFF `delta` to `source`, writing the reconstructed file to `dest`
 pub trait DeltaDecoder {
@@ -79,7 +83,8 @@ impl DeltaDecoder for Xdelta3CliDecoder {
 }
 
 /// CRC32 of a file, read in a streaming fashion (for verifying multi-MB game files)
-pub fn crc32_file(path: &Utf8Path) -> Result<u32, IoError> {
+#[cfg(test)]
+fn crc32_file(path: &Utf8Path) -> Result<u32, IoError> {
     let mut file = std::fs::File::open(path).map_err(|e| io_err(path, e))?;
     let mut hasher = crc32fast::Hasher::new();
     let mut buf = [0u8; 64 * 1024];
@@ -125,11 +130,11 @@ mod tests {
         let (_tmp, root) = temp();
         let path = root.join("check.bin");
         std::fs::write(&path, b"123456789").unwrap();
-        // The canonical CRC-32/ISO-HDLC check value for "123456789".
+        // The canonical CRC-32/ISO-HDLC check value for "123456789"
         assert_eq!(crc32_file(&path).unwrap(), 0xCBF4_3926);
     }
 
-    // A real xdelta3 round-trip, gated on `OVERSEER_XDELTA3` (CI has no xdelta3):; encode with the binary, decode through the trait, assert byte-exact.
+    // A real xdelta3 round-trip, gated on `OVERSEER_XDELTA3` (CI has no xdelta3):; encode with the binary, decode through the trait, assert byte-exact
     #[test]
     fn xdelta3_round_trip_is_byte_exact() {
         let Ok(exe) = std::env::var("OVERSEER_XDELTA3") else {

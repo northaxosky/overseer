@@ -3,5 +3,5 @@
 mod info;
 mod redirect;
 
-pub use info::{SaveInfo, SaveMeta, SaveParseError, delete_save, list_saves};
+pub use info::{SaveInfo, SaveMeta, delete_save, list_saves};
 pub use redirect::{apply_save_redirect, restore_save_redirect, save_redirect_value};

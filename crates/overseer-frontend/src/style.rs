@@ -22,16 +22,22 @@ pub enum Role {
 /// A backend neutral terminal color
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Color {
+    /// Positive: success and additions
     Green,
+    /// Negative: errors and failures
     Red,
+    /// Caution: warnings and removals
     Yellow,
 }
 
 /// The canonical styling for a role: an optional colour plus emphasis flags
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct RoleStyle {
+    /// Optional colour; `None` inherits the terminal default
     pub color: Option<Color>,
+    /// Bold emphasis
     pub bold: bool,
+    /// Dim emphasis
     pub dim: bool,
 }
 
@@ -68,7 +74,7 @@ mod tests {
         assert_eq!(Role::Success.palette().color, Some(Color::Green));
         assert_eq!(Role::Failure.palette().color, Some(Color::Red));
         assert_eq!(Role::Warning.palette().color, Some(Color::Yellow));
-        // Heading and Muted carry emphasis, not colour.
+        // Heading and Muted carry emphasis, not colour
         assert_eq!(Role::Heading.palette().color, None);
         assert!(Role::Heading.palette().bold);
         assert!(Role::Muted.palette().dim);
@@ -76,7 +82,7 @@ mod tests {
 
     #[test]
     fn added_and_removed_share_their_base_role_styling() {
-        // The aliases must track their primary role so the front ends stay in sync.
+        // The aliases must track their primary role so the front ends stay in sync
         assert_eq!(Role::Added.palette(), Role::Success.palette());
         assert_eq!(Role::Removed.palette(), Role::Warning.palette());
     }

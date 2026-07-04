@@ -9,29 +9,29 @@ use crate::instance::{Instance, ModKind, ModListEntry, Profile};
 use camino::{Utf8Path, Utf8PathBuf};
 use tempfile::TempDir;
 
-/// TES4 header flag: master file.
+/// TES4 header flag: master file
 pub const FLAG_MASTER: u32 = 0x1;
-/// TES4 header flag: light (ESL) plugin (Fallout 4 / Skyrim SE).
+/// TES4 header flag: light (ESL) plugin (Fallout 4 / Skyrim SE)
 pub const FLAG_LIGHT: u32 = 0x200;
 
-/// Build minimal Fallout 4 plugin bytes with a `TES4` header and enough data for esplugin's header parse.
+/// Build minimal Fallout 4 plugin bytes with a `TES4` header and enough data for esplugin's header parse
 pub fn tes4_bytes(flags: u32, masters: &[&str]) -> Vec<u8> {
     tes4_bytes_versioned(flags, masters, 1.0)
 }
 
-/// Like [`tes4_bytes`], but writes a chosen `HEDR` module version so header-version fixtures can be built.
+/// Like [`tes4_bytes`], but writes a chosen `HEDR` module version so header-version fixtures can be built
 pub fn tes4_bytes_versioned(flags: u32, masters: &[&str], header_version: f32) -> Vec<u8> {
-    // Subrecord data block first, so we can compute the record's data size.
+    // Subrecord data block first, so we can compute the record's data size
     let mut data = Vec::new();
 
-    // HEDR: version (f32) + num records (i32) + next object id (u32) = 12 bytes.
+    // HEDR: version (f32) + num records (i32) + next object id (u32) = 12 bytes
     data.extend_from_slice(b"HEDR");
     data.extend_from_slice(&12u16.to_le_bytes());
     data.extend_from_slice(&header_version.to_le_bytes());
     data.extend_from_slice(&0i32.to_le_bytes());
     data.extend_from_slice(&1u32.to_le_bytes());
 
-    // One MAST (null-terminated name) + DATA (u64) per master.
+    // One MAST (null-terminated name) + DATA (u64) per master
     for m in masters {
         let mut name = m.as_bytes().to_vec();
         name.push(0);
@@ -43,7 +43,7 @@ pub fn tes4_bytes_versioned(flags: u32, masters: &[&str], header_version: f32) -
         data.extend_from_slice(&0u64.to_le_bytes());
     }
 
-    // 24-byte TES4 record header: sig, data size, flags, form id, vcs, version, unknown.
+    // 24-byte TES4 record header: sig, data size, flags, form id, vcs, version, unknown
     let mut out = Vec::new();
     out.extend_from_slice(b"TES4");
     out.extend_from_slice(&(data.len() as u32).to_le_bytes());
@@ -56,12 +56,12 @@ pub fn tes4_bytes_versioned(flags: u32, masters: &[&str], header_version: f32) -
     out
 }
 
-/// Write a generated plugin file into `dir` (creating it if needed) and return its path.
+/// Write a generated plugin file into `dir` (creating it if needed) and return its path
 pub fn write_plugin(dir: &Utf8Path, name: &str, flags: u32, masters: &[&str]) -> Utf8PathBuf {
     write_plugin_versioned(dir, name, flags, masters, 1.0)
 }
 
-/// Like [`write_plugin`], but stamps a chosen `HEDR` module version into the plugin.
+/// Like [`write_plugin`], but stamps a chosen `HEDR` module version into the plugin
 pub fn write_plugin_versioned(
     dir: &Utf8Path,
     name: &str,
@@ -76,14 +76,14 @@ pub fn write_plugin_versioned(
     path
 }
 
-/// A throwaway temp directory and its UTF-8 root path.
+/// A throwaway temp directory and its UTF-8 root path
 pub fn temp() -> (TempDir, Utf8PathBuf) {
     let dir = TempDir::new().expect("temp dir");
     let root = Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).expect("utf8 path");
     (dir, root)
 }
 
-/// A throwaway same-volume instance with temp local/INI dirs, never real `%LOCALAPPDATA%` or `Documents\My Games`.
+/// A throwaway same-volume instance with temp local/INI dirs, never real `%LOCALAPPDATA%` or `Documents\My Games`
 pub fn temp_instance() -> (TempDir, Instance) {
     let (dir, root) = temp();
     let mut instance = Instance::new(root.join("instance"), root.join("game"));
@@ -92,7 +92,7 @@ pub fn temp_instance() -> (TempDir, Instance) {
     (dir, instance)
 }
 
-/// Write `contents` to `path`, creating parent directories first.
+/// Write `contents` to `path`, creating parent directories first
 pub fn write(path: &Utf8Path, contents: &str) {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).expect("create parents");
@@ -100,7 +100,7 @@ pub fn write(path: &Utf8Path, contents: &str) {
     std::fs::write(path, contents).expect("write file");
 }
 
-/// Build a throwaway `.zip` at `path` from `(entry path, bytes)` pairs for install/download tests.
+/// Build a throwaway `.zip` at `path` from `(entry path, bytes)` pairs for install/download tests
 pub fn write_zip(path: &Utf8Path, entries: &[(&str, &[u8])]) {
     use std::io::Write;
     if let Some(parent) = path.parent() {
@@ -116,7 +116,7 @@ pub fn write_zip(path: &Utf8Path, entries: &[(&str, &[u8])]) {
     zip.finish().expect("finish zip");
 }
 
-/// Build bytes for a valid, uncompressed Fallout 4 `.fos` header with the fields `parse_header` reads.
+/// Build bytes for a valid, uncompressed Fallout 4 `.fos` header with the fields `parse_header` reads
 pub fn fos_bytes(
     save_number: u32,
     name: &str,
@@ -124,13 +124,13 @@ pub fn fos_bytes(
     location: &str,
     game_date: &str,
 ) -> Vec<u8> {
-    // A Bethesda wstring: a u16 LE *byte length*, then that many UTF-8 bytes.
+    // A Bethesda wstring: a u16 LE *byte length*, then that many UTF-8 bytes
     fn wstring(out: &mut Vec<u8>, s: &str) {
         out.extend_from_slice(&(s.len() as u16).to_le_bytes());
         out.extend_from_slice(s.as_bytes());
     }
 
-    // Fields the header-size count covers: version onward, up to the game date.
+    // Fields the header-size count covers: version onward, up to the game date
     let mut header = Vec::new();
     header.extend_from_slice(&14u32.to_le_bytes()); // version, within FO4's 11..=15
     header.extend_from_slice(&save_number.to_le_bytes());
@@ -146,7 +146,7 @@ pub fn fos_bytes(
     out
 }
 
-/// Write a synthetic `.fos` save (see [`fos_bytes`]) to `path`, creating parents.
+/// Write a synthetic `.fos` save (see [`fos_bytes`]) to `path`, creating parents
 pub fn write_fos(
     path: &Utf8Path,
     save_number: u32,
@@ -162,7 +162,7 @@ pub fn write_fos(
     std::fs::write(path, bytes).expect("write fos");
 }
 
-/// Create a mod folder under `mods/` holding the given relative files and contents.
+/// Create a mod folder under `mods/` holding the given relative files and contents
 pub fn install_mod(instance: &Instance, name: &str, files: &[(&str, &str)]) {
     for (rel, contents) in files {
         let path = instance.mods_dir().join(name).join(rel);
@@ -171,12 +171,12 @@ pub fn install_mod(instance: &Instance, name: &str, files: &[(&str, &str)]) {
     }
 }
 
-/// Stage a single valid Fallout 4 plugin (no flags) inside a mod's folder.
+/// Stage a single valid Fallout 4 plugin (no flags) inside a mod's folder
 pub fn install_plugin(instance: &Instance, mod_name: &str, plugin: &str) {
     write_plugin(&instance.mods_dir().join(mod_name), plugin, 0, &[]);
 }
 
-/// Save a profile (highest priority first) so loaders can read it from disk.
+/// Save a profile (highest priority first) so loaders can read it from disk
 pub fn save_profile(instance: &Instance, name: &str, mods: &[(&str, bool)]) {
     let profile = Profile {
         name: name.to_owned(),
@@ -193,7 +193,7 @@ pub fn save_profile(instance: &Instance, name: &str, mods: &[(&str, bool)]) {
     profile.save(instance).expect("save profile");
 }
 
-/// A 24-byte BA2 header (`BTDX` + version + tag + file_count 0 + name-table 0) then `body`.
+/// A 24-byte BA2 header (`BTDX` + version + tag + file_count 0 + name-table 0) then `body`
 pub fn ba2_bytes(version: u32, tag: &[u8; 4], body: &[u8]) -> Vec<u8> {
     let mut b = Vec::with_capacity(24 + body.len());
     b.extend_from_slice(b"BTDX");
@@ -205,7 +205,7 @@ pub fn ba2_bytes(version: u32, tag: &[u8; 4], body: &[u8]) -> Vec<u8> {
     b
 }
 
-/// An in-memory `PluginMeta`, defaulting non-master/non-light with the given masters.
+/// An in-memory `PluginMeta`, defaulting non-master/non-light with the given masters
 pub fn plugin_meta(
     name: &str,
     is_master: bool,
@@ -223,7 +223,7 @@ pub fn plugin_meta(
 
 // Testbed: a declarative synthetic instance
 
-/// One synthetic plugin: its filename, header flags, masters, and HEDR version.
+/// One synthetic plugin: its filename, header flags, masters, and HEDR version
 struct PluginSpec {
     name: String,
     flags: u32,
@@ -231,7 +231,7 @@ struct PluginSpec {
     header_version: f32,
 }
 
-/// A synthetic mod's staged content: plugins plus files (loose assets or archives).
+/// A synthetic mod's staged content: plugins plus files (loose assets or archives)
 #[derive(Default)]
 pub struct ModSpec {
     plugins: Vec<PluginSpec>,
@@ -239,12 +239,12 @@ pub struct ModSpec {
 }
 
 impl ModSpec {
-    /// Add a plugin with the given flags and masters (HEDR version 1.0).
+    /// Add a plugin with the given flags and masters (HEDR version 1.0)
     pub fn plugin(self, name: &str, flags: u32, masters: &[&str]) -> Self {
         self.plugin_versioned(name, flags, masters, 1.0)
     }
 
-    /// Add a plugin with a chosen HEDR module version, for header-version fixtures.
+    /// Add a plugin with a chosen HEDR module version, for header-version fixtures
     pub fn plugin_versioned(
         mut self,
         name: &str,
@@ -261,13 +261,13 @@ impl ModSpec {
         self
     }
 
-    /// Add a loose file at a mod-relative path with exact bytes.
+    /// Add a loose file at a mod-relative path with exact bytes
     pub fn loose(mut self, rel: &str, bytes: &[u8]) -> Self {
         self.files.push((rel.to_owned(), bytes.to_vec()));
         self
     }
 
-    /// Add a stub BA2 archive (24-byte `BTDX` header) at the mod root.
+    /// Add a stub BA2 archive (24-byte `BTDX` header) at the mod root
     pub fn archive(mut self, name: &str, version: u32, tag: &[u8; 4]) -> Self {
         self.files
             .push((name.to_owned(), ba2_bytes(version, tag, &[])));
@@ -275,7 +275,7 @@ impl ModSpec {
     }
 }
 
-/// A declarative synthetic instance: managed mods in priority order (first is highest) and a profile.
+/// A declarative synthetic instance: managed mods in priority order (first is highest) and a profile
 #[derive(Default)]
 pub struct TestbedSpec {
     profile: String,
@@ -283,7 +283,7 @@ pub struct TestbedSpec {
 }
 
 impl TestbedSpec {
-    /// An empty spec whose single profile is named `Default`.
+    /// An empty spec whose single profile is named `Default`
     pub fn new() -> Self {
         Self {
             profile: "Default".to_owned(),
@@ -291,7 +291,7 @@ impl TestbedSpec {
         }
     }
 
-    /// Append a managed mod (built by `build`) at the next-lower priority, enabled or not.
+    /// Append a managed mod (built by `build`) at the next-lower priority, enabled or not
     pub fn managed(
         mut self,
         name: &str,
@@ -304,7 +304,7 @@ impl TestbedSpec {
     }
 }
 
-/// Generate the instance described by `spec` under `dir`, with temp local/INI dirs, and return it.
+/// Generate the instance described by `spec` under `dir`, with temp local/INI dirs, and return it
 pub fn build_testbed(dir: &Utf8Path, spec: &TestbedSpec) -> Instance {
     let mut instance = Instance::new(dir.join("instance"), dir.join("game"));
     instance.config.local_dir = Some(dir.join("local"));

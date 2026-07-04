@@ -56,7 +56,7 @@ const BASE_SCRIPT_NAMES: &[&str] = &[
 pub struct GameContext {
     /// The active mod plugins to inspect (with their masters)
     pub active_plugins: Vec<PluginMeta>,
-    /// The real load-order budget: active mod plugins plus force-loaded base/DLC/Creation Club plugins.
+    /// The real load-order budget: active mod plugins plus force-loaded base/DLC/Creation Club plugins
     pub loaded_plugins: Vec<PluginMeta>,
     /// The files this profile would deploy under the game's `Data/` folder
     pub data_files: Vec<DataFile>,
@@ -337,7 +337,7 @@ fn scan_f4se_plugins(plan: &DeployPlan) -> Vec<F4sePluginScan> {
         .collect()
 }
 
-/// Gate the Address Library on deployed F4SE plugins: any `F4SE/Plugins/*.dll` requires the matching `version-*.bin`.
+/// Gate the Address Library on deployed F4SE plugins: any `F4SE/Plugins/*.dll` requires the matching `version-*.bin`
 fn address_library_status(
     data_files: &[DataFile],
     version: Option<overseer_core::detect::ExeVersion>,
@@ -368,7 +368,7 @@ fn address_library_status(
     }
 }
 
-/// Read the game's Creation Club manifest without failing the whole diagnostic run.
+/// Read the game's Creation Club manifest without failing the whole diagnostic run
 fn read_ccc(instance: &Instance) -> CccStatus {
     let Some(file) = instance.config.game.ccc_file() else {
         return CccStatus::NotApplicable;
@@ -440,7 +440,7 @@ fn scan_archives(plan: &DeployPlan) -> Vec<ArchiveInfo> {
         .collect()
 }
 
-/// Base `Data/Scripts/*.pex` whose winner isn't the F4SE package (the mod providing the most base scripts); provenance-based, so robust to F4SE version changes (no CRCs).
+/// Base `Data/Scripts/*.pex` whose winner isn't the F4SE package (the mod providing the most base scripts); provenance-based, so robust to F4SE version changes (no CRCs)
 fn scan_script_overrides(plan: &DeployPlan) -> Vec<ScriptOverrideScan> {
     let candidates: Vec<(&str, &str)> = plan
         .files()
@@ -461,7 +461,7 @@ fn scan_script_overrides(plan: &DeployPlan) -> Vec<ScriptOverrideScan> {
         .collect()
 }
 
-/// The mod providing the most base scripts (the F4SE package); `None` on no candidates or a tie, so an ambiguous set never flags an arbitrary override.
+/// The mod providing the most base scripts (the F4SE package); `None` on no candidates or a tie, so an ambiguous set never flags an arbitrary override
 fn dominant_provider<'a>(candidates: &[(&str, &'a str)]) -> Option<&'a str> {
     let mut counts: BTreeMap<&'a str, usize> = BTreeMap::new();
     for &(_, winner) in candidates {
@@ -674,7 +674,7 @@ mod tests {
         let (_tmp, root) = temp_base();
         let data = root.join("Data");
         std::fs::create_dir_all(&data).unwrap();
-        // The sentinel makes DLCworkshop02 owned; neither file is the revision identity.
+        // The sentinel makes DLCworkshop02 owned; neither file is the revision identity
         std::fs::write(data.join("DLCworkshop02.esm"), b"not the corrected master").unwrap();
         std::fs::write(data.join("DLCworkshop02 - Textures.ba2"), b"tiny").unwrap();
 
@@ -683,7 +683,7 @@ mod tests {
             .iter()
             .find(|g| g.group == "DLCworkshop02")
             .expect("owned group surveyed");
-        // The master fails the fingerprint check; the archive fails the size check.
+        // The master fails the fingerprint check; the archive fails the size check
         assert!(group.off_revision.contains(&"Data/DLCworkshop02.esm"));
         assert!(
             group
@@ -696,7 +696,7 @@ mod tests {
     fn dlc_survey_skips_a_group_whose_sentinel_is_absent() {
         let (_tmp, root) = temp_base();
         std::fs::create_dir_all(root.join("Data")).unwrap();
-        // No DLCworkshop02.esm → the group isn't owned → not surveyed.
+        // No DLCworkshop02.esm → the group isn't owned → not surveyed
         assert!(
             scan_dlc_consistency(&root)
                 .iter()
@@ -709,7 +709,7 @@ mod tests {
         let (_tmp, root) = temp_base();
         let data = root.join("Data");
         std::fs::create_dir_all(&data).unwrap();
-        // Sentinel present (group owned), but the textures archive is absent.
+        // Sentinel present (group owned), but the textures archive is absent
         std::fs::write(data.join("DLCworkshop02.esm"), b"present but off-revision").unwrap();
         let survey = scan_dlc_consistency(&root);
         let group = survey
@@ -733,17 +733,17 @@ mod tests {
     #[test]
     fn rejects_inactive_nested_and_non_data_paths() {
         let active = active_set(&["foo.esp"]);
-        // Not in the active set.
+        // Not in the active set
         assert_eq!(
             active_plugins_name(Utf8Path::new("Data/Bar.esp"), &active),
             None
         );
-        // Deeper than Data/<plugin>.
+        // Deeper than Data/<plugin>
         assert_eq!(
             active_plugins_name(Utf8Path::new("Data/meshes/Foo.esp"), &active),
             None
         );
-        // Not under Data/.
+        // Not under Data/
         assert_eq!(active_plugins_name(Utf8Path::new("Foo.esp"), &active), None);
     }
 
@@ -763,7 +763,7 @@ mod tests {
         let (_tmp, base) = temp_base();
         let mod_dir = base.join("mods/A");
         std::fs::create_dir_all(mod_dir.join("meshes")).unwrap();
-        // Two markers in the active plugin; markers elsewhere must be ignored.
+        // Two markers in the active plugin; markers elsewhere must be ignored
         std::fs::write(mod_dir.join("Active.esp"), b"--\x00SADD--\x00SADD--").unwrap();
         std::fs::write(mod_dir.join("Inactive.esp"), b"\x00SADD").unwrap();
         std::fs::write(mod_dir.join("meshes/anim.nif"), b"\x00SADD").unwrap();
@@ -798,13 +798,13 @@ mod tests {
     fn base_script_pex_name_accepts_only_top_level_base_scripts() {
         let ok = |p| base_script_pex_name(Utf8Path::new(p));
         assert_eq!(ok("Data/Scripts/Actor.pex"), Some("Actor.pex"));
-        // Folder + extension match case-insensitively; the returned name keeps its casing.
+        // Folder + extension match case-insensitively; the returned name keeps its casing
         assert_eq!(ok("Data/scripts/ACTOR.PEX"), Some("ACTOR.PEX"));
-        // Not one of the base script names.
+        // Not one of the base script names
         assert_eq!(ok("Data/Scripts/MyCustom.pex"), None);
-        // Nested below Scripts/ — the engine path differs, out of scope.
+        // Nested below Scripts/ — the engine path differs, out of scope
         assert_eq!(ok("Data/Scripts/source/Actor.pex"), None);
-        // A base name but not under Scripts/, or not under Data/ at all.
+        // A base name but not under Scripts/, or not under Data/ at all
         assert_eq!(ok("Data/Actor.pex"), None);
         assert_eq!(ok("Root/Actor.pex"), None);
     }
@@ -826,7 +826,7 @@ mod tests {
             ]),
             Some("F4SE")
         );
-        // A tie has no clear F4SE package, so no mod is treated as the provider.
+        // A tie has no clear F4SE package, so no mod is treated as the provider
         assert_eq!(
             dominant_provider(&[("actor.pex", "A"), ("game.pex", "B")]),
             None
@@ -840,7 +840,7 @@ mod tests {
 
     #[test]
     fn the_f4se_package_alone_reports_no_overrides() {
-        // The mod that ships the base scripts is the F4SE package — its own scripts are not; overrides, whatever their bytes (this is the AE / newer-F4SE case that must stay silent).
+        // The mod that ships the base scripts is the F4SE package — its own scripts are not; overrides, whatever their bytes (this is the AE / newer-F4SE case that must stay silent)
         let (_tmp, base) = temp_base();
         let f4se = base.join("mods/F4SE");
         write_file(&f4se.join("Scripts/Actor.pex"), b"ae bytes");
@@ -860,7 +860,7 @@ mod tests {
         write_file(&f4se.join("Scripts/Actor.pex"), b"f4se");
         write_file(&f4se.join("Scripts/Game.pex"), b"f4se");
         write_file(&f4se.join("Scripts/Form.pex"), b"f4se");
-        // A different mod ships a base script — an override the F4SE package doesn't own.
+        // A different mod ships a base script — an override the F4SE package doesn't own
         let other = base.join("mods/Other");
         write_file(&other.join("Scripts/Weapon.pex"), b"override");
 
@@ -885,7 +885,7 @@ mod tests {
 
     // --- gather: installed implicit (base/DLC/CC) plugins (real temp-dir install) ---
 
-    /// A fake Fallout 4 install with temp local/INI dirs away from real `%LOCALAPPDATA%`/Documents, plus empty `Data/`.
+    /// A fake Fallout 4 install with temp local/INI dirs away from real `%LOCALAPPDATA%`/Documents, plus empty `Data/`
     fn fake_install() -> (TempDir, Instance) {
         let (tmp, base) = temp_base();
         let mut instance = Instance::new(base.join("instance"), base.join("game"));
@@ -911,7 +911,7 @@ mod tests {
     #[test]
     fn gather_loads_only_installed_implicit_plugins() {
         let (_tmp, instance) = fake_install();
-        // The base master, one owned DLC, and a Creation Club plugin are installed.
+        // The base master, one owned DLC, and a Creation Club plugin are installed
         install_game_plugin(&instance, "Fallout4.esm", FLAG_MASTER);
         install_game_plugin(&instance, "DLCCoast.esm", FLAG_MASTER);
         install_game_plugin(&instance, "ccBGSFO4001-PipBoy.esl", 0);
@@ -930,13 +930,13 @@ mod tests {
             names.contains(&"ccBGSFO4001-PipBoy.esl"),
             "CC plugin from Fallout4.ccc force-loads"
         );
-        // An implicit candidate that isn't installed must not be counted.
+        // An implicit candidate that isn't installed must not be counted
         assert!(
             !names.contains(&"DLCNukaWorld.esm"),
             "an uninstalled DLC does not load"
         );
 
-        // The budget the engine actually sees: 2 full ESMs + 1 light ESL.
+        // The budget the engine actually sees: 2 full ESMs + 1 light ESL
         let full = ctx.loaded_plugins.iter().filter(|p| !p.is_light).count();
         let light = ctx.loaded_plugins.iter().filter(|p| p.is_light).count();
         assert_eq!(full, 2, "Fallout4.esm + DLCCoast.esm");
@@ -962,7 +962,7 @@ mod tests {
             7,
             b"GNRL",
         );
-        // A nested archive is not top-level in Data/, so the engine won't auto-load it — even though its basename matches the active plugin. Must not be counted.
+        // A nested archive is not top-level in Data/, so the engine won't auto-load it — even though its basename matches the active plugin. Must not be counted
         write_ba2(
             &instance
                 .mods_dir()
@@ -1017,7 +1017,7 @@ mod tests {
 
     #[test]
     fn address_library_outside_f4se_plugins_does_not_count_as_present() {
-        // A stray version-*.bin loose in Data/ must not satisfy the check; it belongs under F4SE/Plugins/.
+        // A stray version-*.bin loose in Data/ must not satisfy the check; it belongs under F4SE/Plugins/
         let version = overseer_core::detect::ExeVersion {
             major: 1,
             minor: 10,

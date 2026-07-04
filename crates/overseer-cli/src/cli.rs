@@ -124,7 +124,7 @@ pub enum Command {
     },
 }
 
-/// Arguments shared by every profile-scoped subcommand.
+/// Arguments shared by every profile-scoped subcommand
 #[derive(Args)]
 pub struct ProfileArgs {
     /// Instance directory (contains mods/ and profiles/)
@@ -236,7 +236,7 @@ pub enum SaveCommand {
     },
 }
 
-/// An on/off switch for a boolean setting.
+/// An on/off switch for a boolean setting
 #[derive(Clone, Copy, clap::ValueEnum)]
 pub enum Toggle {
     On,
@@ -319,7 +319,7 @@ pub enum PatchCommand {
         /// Show what would change without writing
         #[arg(long)]
         dry_run: bool,
-        /// Patch a while directory without the preview confirmation
+        /// Patch a whole directory without the preview confirmation
         #[arg(long)]
         yes: bool,
     },
@@ -385,7 +385,7 @@ pub enum PatchCommand {
     },
 }
 
-/// A Fallout 4 generation as a CLI argument (`og` / `ng` / `ae`), mapping to core's [`Generation`].
+/// A Fallout 4 generation as a CLI argument (`og` / `ng` / `ae`), mapping to core's [`Generation`]
 #[derive(Clone, Copy, clap::ValueEnum)]
 pub enum GenerationArg {
     Og,
@@ -394,7 +394,7 @@ pub enum GenerationArg {
 }
 
 impl GenerationArg {
-    /// The core [`Generation`] this argument denotes.
+    /// The core [`Generation`] this argument denotes
     pub fn into_core(self) -> Generation {
         match self {
             GenerationArg::Og => Generation::OldGen,

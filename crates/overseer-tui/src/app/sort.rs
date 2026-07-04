@@ -12,7 +12,7 @@ use strum::IntoEnumIterator;
 
 use crate::app::App;
 
-/// Re-order saves in place for `sort`, tie-broken by file name for a stable order.
+/// Re-order saves in place for `sort`, tie-broken by file name for a stable order
 pub(crate) fn sort_saves(entries: &mut [SaveInfo], sort: SavesSort) {
     entries.sort_by(|a, b| {
         let base = match sort.key {
@@ -33,7 +33,7 @@ pub(crate) fn sort_saves(entries: &mut [SaveInfo], sort: SavesSort) {
     });
 }
 
-/// Re-order downloads in place for `sort`, tie-broken by name for a stable order.
+/// Re-order downloads in place for `sort`, tie-broken by name for a stable order
 pub(crate) fn sort_downloads(entries: &mut [DownloadEntry], sort: DownloadsSort) {
     entries.sort_by(|a, b| {
         let base = match sort.key {
@@ -46,7 +46,7 @@ pub(crate) fn sort_downloads(entries: &mut [DownloadEntry], sort: DownloadsSort)
     });
 }
 
-/// A compact `key ↑`/`key ↓` tag for the pane title (the key name is `strum::Display`).
+/// A compact `key ↑`/`key ↓` tag for the pane title (the key name is `strum::Display`)
 pub(crate) fn saves_sort_label(sort: SavesSort) -> String {
     format!("{} {}", sort.key, dir_arrow(sort.dir))
 }
@@ -55,7 +55,7 @@ pub(crate) fn downloads_sort_label(sort: DownloadsSort) -> String {
     format!("{} {}", sort.key, dir_arrow(sort.dir))
 }
 
-/// A view list (Saves or Downloads) sortable by a persisted key + direction.
+/// A view list (Saves or Downloads) sortable by a persisted key + direction
 pub(super) trait SortablePane {
     type Key: IntoEnumIterator + PartialEq + Copy + std::fmt::Display;
 
@@ -159,7 +159,7 @@ impl App {
         self.save_sort_preferences();
     }
 
-    /// Persist the sort preferences best-effort — a failed write is logged, not fatal.
+    /// Persist the sort preferences best-effort — a failed write is logged, not fatal
     fn save_sort_preferences(&self) {
         if let Err(e) = self.settings.save() {
             tracing::warn!(error = %e, "could not save sort preference");
@@ -167,14 +167,14 @@ impl App {
     }
 }
 
-/// The next variant after `current` in declaration order, wrapping at the end.
+/// The next variant after `current` in declaration order, wrapping at the end
 fn next_variant<T: IntoEnumIterator + PartialEq + Copy>(current: T) -> T {
     let all: Vec<T> = T::iter().collect();
     let idx = all.iter().position(|&v| v == current).unwrap_or(0);
     all[(idx + 1) % all.len()]
 }
 
-/// Flip an ascending ordering when the preference is descending.
+/// Flip an ascending ordering when the preference is descending
 fn apply_dir(ord: Ordering, dir: SortDir) -> Ordering {
     match dir {
         SortDir::Asc => ord,
@@ -182,7 +182,7 @@ fn apply_dir(ord: Ordering, dir: SortDir) -> Ordering {
     }
 }
 
-/// Compare optional keys, sinking `None` last — direction flips only the `Some`/`Some` case.
+/// Compare optional keys, sinking `None` last — direction flips only the `Some`/`Some` case
 fn cmp_optional<T: Ord>(a: Option<T>, b: Option<T>, dir: SortDir) -> Ordering {
     match (a, b) {
         (Some(a), Some(b)) => apply_dir(a.cmp(&b), dir),
@@ -192,7 +192,7 @@ fn cmp_optional<T: Ord>(a: Option<T>, b: Option<T>, dir: SortDir) -> Ordering {
     }
 }
 
-/// Case-insensitive name order (matching the core default); exact bytes break ties.
+/// Case-insensitive name order (matching the core default); exact bytes break ties
 fn cmp_download_name(a: &DownloadEntry, b: &DownloadEntry) -> Ordering {
     a.name
         .to_ascii_lowercase()
@@ -207,7 +207,7 @@ fn toggle_dir(dir: SortDir) -> SortDir {
     }
 }
 
-/// Each key has a sensible default direction — newest/highest first, names A→Z.
+/// Each key has a sensible default direction — newest/highest first, names A→Z
 fn default_saves_dir(key: SavesSortKey) -> SortDir {
     match key {
         SavesSortKey::Date | SavesSortKey::Level => SortDir::Desc,
@@ -215,7 +215,7 @@ fn default_saves_dir(key: SavesSortKey) -> SortDir {
     }
 }
 
-/// Newest/biggest first for date and size; names and install-state ascending.
+/// Newest/biggest first for date and size; names and install-state ascending
 fn default_downloads_dir(key: DownloadsSortKey) -> SortDir {
     match key {
         DownloadsSortKey::Date | DownloadsSortKey::Size => SortDir::Desc,

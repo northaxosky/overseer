@@ -30,7 +30,7 @@ pub enum Edition {
 }
 
 impl Edition {
-    /// The [`Generation`] this edition belongs to, or `None` for obsolete/unknown/undetermined builds.
+    /// The [`Generation`] this edition belongs to, or `None` for obsolete/unknown/undetermined builds
     pub fn generation(self) -> Option<Generation> {
         match self {
             Edition::OldGen | Edition::Downgraded => Some(Generation::OldGen),
@@ -41,7 +41,7 @@ impl Edition {
     }
 }
 
-/// A Fallout 4 "generation" — the canonical OG / NG / AE vocabulary shared across detection, patching, and diagnostics.
+/// A Fallout 4 "generation" — the canonical OG / NG / AE vocabulary shared across detection, patching, and diagnostics
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Generation {
     OldGen,
@@ -50,7 +50,7 @@ pub enum Generation {
 }
 
 impl Generation {
-    /// A short lower-case tag (`og` / `ng` / `ae`), for CLI args and terse output.
+    /// A short lower-case tag (`og` / `ng` / `ae`), for CLI args and terse output
     pub fn tag(self) -> &'static str {
         match self {
             Generation::OldGen => "og",
@@ -59,7 +59,7 @@ impl Generation {
         }
     }
 
-    /// A label (`Old-Gen` / `Next-Gen` / `Anniversary`).
+    /// A label (`Old-Gen` / `Next-Gen` / `Anniversary`)
     pub fn label(self) -> &'static str {
         match self {
             Generation::OldGen => "Old-Gen",
@@ -75,7 +75,7 @@ impl std::fmt::Display for Generation {
     }
 }
 
-/// The runtime generation of `v`, derived from its [`Edition`] so it can't drift from classification.
+/// The runtime generation of `v`, derived from its [`Edition`] so it can't drift from classification
 pub fn runtime_family(v: ExeVersion) -> Option<Generation> {
     edition_by_version(v).generation()
 }
@@ -103,7 +103,7 @@ pub fn packed_runtime(v: ExeVersion) -> u32 {
     (u32::from(v.major) << 24) | (u32::from(v.minor) << 16) | (u32::from(v.patch) << 4)
 }
 
-/// How confident we are that the base-game `Startup.ba2` is the NG one.
+/// How confident we are that the base-game `Startup.ba2` is the NG one
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum StartupBa2Signature {
     NextGen,
@@ -130,7 +130,7 @@ pub fn classify_edition(version: Option<ExeVersion>, game_dir: &Utf8Path) -> Edi
     edition_from(version, startup_signature(game_dir))
 }
 
-/// The single version→[`Edition`] table; `edition_from` layers the down-grade tripwire on top.
+/// The single version→[`Edition`] table; `edition_from` layers the down-grade tripwire on top
 fn edition_by_version(v: ExeVersion) -> Edition {
     match (v.major, v.minor, v.patch) {
         (1, 10, 163) => Edition::OldGen,
@@ -141,7 +141,7 @@ fn edition_by_version(v: ExeVersion) -> Edition {
     }
 }
 
-/// Map version + the down-grade signal to an [`Edition`]: an OG exe with the NG `Startup.ba2` is `Downgraded`.
+/// Map version + the down-grade signal to an [`Edition`]: an OG exe with the NG `Startup.ba2` is `Downgraded`
 fn edition_from(version: Option<ExeVersion>, startup: StartupBa2Signature) -> Edition {
     let Some(v) = version else {
         return Edition::Undetermined;
@@ -194,7 +194,7 @@ mod tests {
             runtime_family(v(1, 10, 163).unwrap()),
             Some(Generation::OldGen)
         );
-        // 1.10.980 is the obsolete initial NG build (superseded by 984), so it has no supported generation.
+        // 1.10.980 is the obsolete initial NG build (superseded by 984), so it has no supported generation
         assert_eq!(runtime_family(v(1, 10, 980).unwrap()), None);
         assert_eq!(
             runtime_family(v(1, 10, 984).unwrap()),
@@ -213,7 +213,7 @@ mod tests {
 
     #[test]
     fn runtime_family_agrees_with_edition_on_obsolete_builds() {
-        // Regression: runtime_family and edition once disagreed on 1.10.980 (NextGen vs Obsolete); they now share one table, so an obsolete build is None here and Obsolete there.
+        // Regression: runtime_family and edition once disagreed on 1.10.980 (NextGen vs Obsolete); they now share one table, so an obsolete build is None here and Obsolete there
         assert_eq!(runtime_family(v(1, 10, 980).unwrap()), None);
         assert_eq!(
             edition_from(v(1, 10, 980), StartupBa2Signature::Other),
@@ -277,7 +277,7 @@ mod tests {
 
     #[test]
     fn an_unconfirmed_startup_does_not_force_a_downgrade() {
-        // Missing/short/unreadable Startup.ba2 must not be mistaken for the Next-Gen file.
+        // Missing/short/unreadable Startup.ba2 must not be mistaken for the Next-Gen file
         for s in [
             StartupBa2Signature::Missing,
             StartupBa2Signature::TooShort,
@@ -301,7 +301,7 @@ mod tests {
 
     #[test]
     fn a_newer_unknown_1_11_build_is_still_anniversary() {
-        // CMT's table stops at 1.11.191; 1.11.221 is current per F4SE — keep it in the family.
+        // CMT's table stops at 1.11.191; 1.11.221 is current per F4SE — keep it in the family
         assert_eq!(
             edition_from(v(1, 11, 221), StartupBa2Signature::Other),
             Edition::Anniversary

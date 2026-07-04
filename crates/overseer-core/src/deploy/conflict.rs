@@ -60,7 +60,7 @@ mod tests {
             detect_conflicts(&[ModSource::new("A", &a), ModSource::new("B", &b)]).expect("detect");
 
         assert_eq!(conflicts.len(), 1);
-        // Providers in priority order, the higher-priority mod last.
+        // Providers in priority order, the higher-priority mod last
         assert_eq!(conflicts[0].providers, ["A", "B"]);
         assert_eq!(
             conflicts[0].relative,
@@ -102,7 +102,7 @@ mod tests {
 
         assert_eq!(conflicts.len(), 1);
         assert_eq!(conflicts[0].providers, ["A", "B"]);
-        // The winner's casing is retained for display.
+        // The winner's casing is retained for display
         assert_eq!(
             conflicts[0].relative,
             Utf8Path::new("textures").join("Foo.dds")
@@ -118,7 +118,7 @@ mod tests {
         write(&a.join("shared.dds"), "a");
         write(&a.join("only_a.dds"), "a");
         write(&b.join("shared.dds"), "b");
-        // C overlaps nothing and must contribute no conflicts.
+        // C overlaps nothing and must contribute no conflicts
         write(&c.join("only_c.dds"), "c");
 
         let conflicts = detect_conflicts(&[
@@ -144,7 +144,7 @@ mod tests {
         let conflicts =
             detect_conflicts(&[ModSource::new("A", &a), ModSource::new("B", &b)]).expect("detect");
 
-        // Only the file collides; the shared `Meshes` and `Meshes/armor` dirs are skipped.
+        // Only the file collides; the shared `Meshes` and `Meshes/armor` dirs are skipped
         assert_eq!(conflicts.len(), 1);
         assert_eq!(
             conflicts[0].relative,
@@ -170,7 +170,7 @@ mod tests {
         assert!(conflicts.is_empty());
     }
 
-    // Two files differing only by case are distinct on a case-sensitive FS but; collapse to one key; a single mod must never be reported as conflicting with; itself. Can't be staged on Windows's case-insensitive FS, hence `cfg(unix)`.
+    // Two files differing only by case are distinct on a case-sensitive FS but collapse to one key on a case-insensitive one, so a mod must never be reported as conflicting with itself. This can't be staged on Windows's case-insensitive FS, hence cfg(unix)
     #[cfg(unix)]
     #[test]
     fn case_collision_within_one_mod_is_not_a_self_conflict() {
@@ -203,7 +203,7 @@ mod tests {
         let (_tmp, base) = temp();
         let a = base.join("mods/A");
         let b = base.join("mods/B");
-        // Stage shared files out of order to prove the output is sorted.
+        // Stage shared files out of order to prove the output is sorted
         write(&a.join("zeta.txt"), "a");
         write(&a.join("alpha.txt"), "a");
         write(&a.join("mid/beta.txt"), "a");
@@ -232,7 +232,7 @@ mod tests {
         let (_tmp, base) = temp();
         let a = base.join("mods/A");
         let b = base.join("mods/B");
-        // MO2 writes a meta.ini into every mod root; it must not register as a conflict.
+        // MO2 writes a meta.ini into every mod root; it must not register as a conflict
         write(&a.join("meta.ini"), "[General]");
         write(&b.join("meta.ini"), "[General]");
         write(&a.join("Textures/shared.dds"), "a");
@@ -241,7 +241,7 @@ mod tests {
         let conflicts =
             detect_conflicts(&[ModSource::new("A", &a), ModSource::new("B", &b)]).expect("detect");
 
-        // Only the real shared asset conflicts; the two meta.ini files are ignored.
+        // Only the real shared asset conflicts; the two meta.ini files are ignored
         assert_eq!(conflicts.len(), 1);
         assert_eq!(
             conflicts[0].relative,

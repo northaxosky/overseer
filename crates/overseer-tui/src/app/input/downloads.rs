@@ -163,7 +163,7 @@ mod tests {
 
     #[test]
     fn confirming_installs_the_mod_and_preserves_location() {
-        // A real on-disk instance so the post-install reload (Session::load) works.
+        // A real on-disk instance so the post-install reload (Session::load) works
         let (_tmp, scaffold) = temp_instance();
         let instance =
             Instance::init(scaffold.root.clone(), scaffold.config.clone()).expect("init");
@@ -175,7 +175,7 @@ mod tests {
 
         let mut app = App::sample();
         app.session = Session::load(&instance.root, "Default").expect("session");
-        // A prior ready scan we expect the install to invalidate.
+        // A prior ready scan we expect the install to invalidate
         app.conflicts.status = ConflictsStatus::Ready(Vec::new());
 
         app.handle_key(key(KeyCode::Char('3')));

@@ -60,5 +60,5 @@ pub enum ApplyError {
     Plugin(#[from] PluginError),
 }
 
-/// Build an [`ApplyError::Io`] tagged with the path that failed
+/// Attach the offending path to an [`std::io::Error`]
 pub(crate) use crate::error::io_err;

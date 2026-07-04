@@ -16,7 +16,7 @@ pub enum Status {
     InProgress,
     /// Deployment completed & is live
     Committed,
-    /// A reversal could not resolve every path - gg
+    /// A reversal could not resolve every path - manual recovery may be needed
     RecoveryFailed,
 }
 

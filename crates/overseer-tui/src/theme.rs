@@ -3,7 +3,7 @@
 use overseer_frontend::style::{Color, Role};
 use ratatui::style::{Color as TuiColor, Modifier, Style};
 
-/// The ratatui style for a semantic role, derived from the shared palette.
+/// The ratatui style for a semantic role, derived from the shared palette
 pub(crate) fn style(role: Role) -> Style {
     let p = role.palette();
     let mut style = Style::new();

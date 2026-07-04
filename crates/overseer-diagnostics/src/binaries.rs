@@ -165,7 +165,7 @@ mod tests {
 
     #[test]
     fn the_launcher_ignores_the_version_and_uses_crc() {
-        // Even with a version present, the launcher only trusts its CRC32.
+        // Even with a version present, the launcher only trusts its CRC32
         assert_eq!(
             classify(LAUNCHER, Some(version(7, 40, 51, 27)), 0x0244_5570),
             Some(BinaryEdition::OldGen)
@@ -199,7 +199,7 @@ mod tests {
             classify(STEAM_API, None, 0xE36E_7B4D),
             Some(BinaryEdition::NgAe)
         );
-        // An unrecognised version must not block the CRC fallback.
+        // An unrecognised version must not block the CRC fallback
         assert_eq!(
             classify(STEAM_API, Some(version(9, 9, 9, 9)), 0xBBD9_12FC),
             Some(BinaryEdition::OldGen)
@@ -223,7 +223,7 @@ mod tests {
     #[test]
     fn scan_reports_presence_and_recognition_per_binary() {
         let (_guard, dir) = overseer_core::test_support::temp();
-        // Only the launcher exists, with bytes that match no known CRC.
+        // Only the launcher exists, with bytes that match no known CRC
         std::fs::write(dir.join(LAUNCHER), b"not a real launcher").unwrap();
 
         let scans = scan(&dir);

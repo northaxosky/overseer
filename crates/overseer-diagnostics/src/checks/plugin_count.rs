@@ -91,7 +91,7 @@ mod tests {
 
     #[test]
     fn approaching_the_full_limit_warns() {
-        // 254 - 254/20 = 242 is the warning threshold.
+        // 254 - 254/20 = 242 is the warning threshold
         let findings = PluginCount.run(&ctx(245, 0));
         assert_eq!(findings[0].severity, Severity::Warning);
     }

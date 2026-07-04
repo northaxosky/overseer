@@ -1,3 +1,5 @@
+//! Errors for instance, profile, and mod-list operations
+
 use camino::Utf8PathBuf;
 use thiserror::Error;
 
@@ -70,4 +72,5 @@ pub enum InstanceError {
     ProfileNotFound(String),
 }
 
+/// Attach the offending path to an [`std::io::Error`]
 pub(crate) use crate::error::io_err;

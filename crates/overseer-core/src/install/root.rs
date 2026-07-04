@@ -1,7 +1,9 @@
+//! Locating the content root inside an extracted archive
+
 use super::error::{InstallError, io_err};
 use camino::{Utf8Path, Utf8PathBuf};
 
-/// Top-level directory names that mark a valid Bethesda game data root.
+/// Top-level directory names that mark a valid Bethesda game data root
 const DATA_DIRS: &[&str] = &[
     "textures",
     "meshes",
@@ -23,11 +25,10 @@ const DATA_DIRS: &[&str] = &[
     "shadersfx",
 ];
 
-/// File extensions that mark a valid data root (plugins and archives).
+/// File extensions that mark a valid data root (plugins and archives)
 const DATA_EXTS: &[&str] = &["esp", "esm", "esl", "ba2", "bsa"];
 
 /// A top-level entry, reduced to what is really needed
-#[derive(Debug, Clone)]
 struct Entry {
     name: String,
     is_dir: bool,
@@ -54,7 +55,7 @@ pub fn find_content_root(extracted: &Utf8Path) -> Result<Utf8PathBuf, InstallErr
     }
 }
 
-/// Decide whether a directory's entries already data root or we should descend
+/// Decide whether a directory's entries are already the data root or we should descend
 fn classify(entries: &[Entry]) -> Step {
     if entries.iter().any(is_indicator) {
         return Step::Here;
@@ -73,7 +74,7 @@ fn classify(entries: &[Entry]) -> Step {
     Step::Here
 }
 
-/// Determines if this entry signal a valid content root
+/// Determines if this entry signals a valid content root
 fn is_indicator(entry: &Entry) -> bool {
     if entry.is_dir {
         entry.name.eq_ignore_ascii_case("root")
@@ -122,14 +123,14 @@ mod tests {
 
     #[test]
     fn recognized_folder_means_here() {
-        // Case A: already a valid data layout.
+        // Case A: already a valid data layout
         let entries = [dir("Textures"), dir("Meshes"), file("MyMod.esp")];
         assert_eq!(classify(&entries), Step::Here);
     }
 
     #[test]
     fn recognized_plugin_file_means_here() {
-        // A lone plugin with no recognized folder is still a data root.
+        // A lone plugin with no recognized folder is still a data root
         assert_eq!(classify(&[file("MyMod.esp")]), Step::Here);
         assert_eq!(classify(&[file("Textures.ba2")]), Step::Here);
     }
@@ -142,33 +143,33 @@ mod tests {
 
     #[test]
     fn single_wrapper_directory_descends() {
-        // Case B: one wrapper folder (the mod name).
+        // Case B: one wrapper folder (the mod name)
         assert_eq!(classify(&[dir("MyMod")]), Step::Into("MyMod".to_owned()));
     }
 
     #[test]
     fn single_data_directory_descends() {
-        // Case C arrives via the single-dir rule.
+        // Case C arrives via the single-dir rule
         assert_eq!(classify(&[dir("Data")]), Step::Into("Data".to_owned()));
     }
 
     #[test]
     fn data_folder_among_several_descends_into_data() {
-        // Step 3: multiple dirs, but one is Data/.
+        // Step 3: multiple dirs, but one is Data/
         let entries = [dir("docs"), dir("Data"), file("readme.txt")];
         assert_eq!(classify(&entries), Step::Into("Data".to_owned()));
     }
 
     #[test]
     fn a_lone_wrapper_with_loose_junk_files_still_descends() {
-        // Only one *directory*; the loose file isn't counted as a wrapper.
+        // Only one *directory*; the loose file isn't counted as a wrapper
         let entries = [dir("MyMod"), file("readme.txt")];
         assert_eq!(classify(&entries), Step::Into("MyMod".to_owned()));
     }
 
     #[test]
     fn ambiguous_variant_folders_fall_back_to_here() {
-        // The "2K vs 4K" case: no confident root, so don't guess.
+        // The "2K vs 4K" case: no confident root, so don't guess
         let entries = [dir("2K Textures"), dir("4K Textures"), file("readme.txt")];
         assert_eq!(classify(&entries), Step::Here);
     }
@@ -225,7 +226,7 @@ mod tests {
 
     #[test]
     fn texture_only_mod_keeps_its_data_folder() {
-        // The case the naive "strip one wrapper" rule would break.
+        // The case the naive "strip one wrapper" rule would break
         let (_t, base) = temp();
         touch(&base.join("Textures/armor/a.dds"));
         assert_eq!(find_content_root(&base).unwrap(), base);
@@ -240,7 +241,7 @@ mod tests {
 
     #[test]
     fn top_level_root_folder_is_a_content_root() {
-        // A `Root/` deploy folder marks the content root, so it is never stripped.
+        // A `Root/` deploy folder marks the content root, so it is never stripped
         assert_eq!(classify(&[dir("Root")]), Step::Here);
         assert_eq!(classify(&[dir("ROOT")]), Step::Here);
     }

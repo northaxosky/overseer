@@ -1,3 +1,5 @@
+//! The instance model: on-disk `overseer.toml` config, installed mods, and executables
+
 use super::error::{InstanceError, io_err};
 use super::profile::{ModKind, Profile};
 use crate::deploy::DeployerKind;
@@ -48,7 +50,7 @@ pub struct Instance {
     pub config: InstanceConfig,
 }
 
-/// An installed mod: a named staging folder under the instance's `mods/` directory.
+/// An installed mod: a named staging folder under the instance's `mods/` directory
 #[derive(Debug, Clone)]
 pub struct InstalledMod {
     pub name: String,
@@ -160,7 +162,7 @@ impl Instance {
         std::fs::write(&path, text).map_err(|e| io_err(&path, e).into())
     }
 
-    /// The directory holding the game's real `Plugins.txt`: configured `local_dir` or `%LOCALAPPDATA%\<game>`.
+    /// The directory holding the game's real `Plugins.txt`: configured `local_dir` or `%LOCALAPPDATA%\<game>`
     pub fn local_dir(&self) -> Result<Utf8PathBuf, InstanceError> {
         if let Some(dir) = &self.config.local_dir {
             return Ok(dir.clone());
@@ -251,7 +253,7 @@ impl Instance {
         Ok(profile)
     }
 
-    /// Rename an installed mod folder and every profile entry that references it.
+    /// Rename an installed mod folder and every profile entry that references it
     pub(crate) fn rename_mod(&self, old: &str, new: &str) -> Result<(), InstanceError> {
         validate_mod_name(new)?;
         if new == old {
@@ -301,7 +303,7 @@ impl Instance {
                     entry.name = new.to_owned();
                 }
             }
-            // A rename only changes the mod name, which lives in modlist.txt;
+            // A rename only changes the mod name, which lives in modlist.txt
             profile.save_modlist(self)?;
         }
 
@@ -381,7 +383,7 @@ fn check_fs_name(name: &str) -> Result<(), &'static str> {
     }
 }
 
-/// Validate a managed mod folder name.
+/// Validate a managed mod folder name
 pub(crate) fn validate_mod_name(name: &str) -> Result<(), InstanceError> {
     check_fs_name(name).map_err(|m| InstanceError::InvalidModName(m.to_owned()))?;
     if name.ends_with("_separator") {
@@ -400,7 +402,7 @@ pub(crate) fn validate_mod_name(name: &str) -> Result<(), InstanceError> {
     Ok(())
 }
 
-/// Validate a profile directory name.
+/// Validate a profile directory name
 pub(crate) fn validate_profile_name(name: &str) -> Result<(), InstanceError> {
     check_fs_name(name).map_err(|m| InstanceError::InvalidProfileName(m.to_owned()))
 }
@@ -465,7 +467,7 @@ mod tests {
 
     #[test]
     fn discovery_is_empty_on_a_fresh_instance() {
-        // Nothing created yet: missing mods/ and profiles/ are a normal empty state.
+        // Nothing created yet: missing mods/ and profiles/ are a normal empty state
         let (_tmp, instance) = temp_instance();
         assert!(instance.installed_mods().expect("mods").is_empty());
         assert!(instance.profiles().expect("profiles").is_empty());
@@ -477,7 +479,7 @@ mod tests {
         for name in ["Zebra", "Alpha", "Mango"] {
             std::fs::create_dir_all(instance.mods_dir().join(name)).expect("mkdir");
         }
-        // A stray file in mods/ must not be reported as a mod.
+        // A stray file in mods/ must not be reported as a mod
         std::fs::write(instance.mods_dir().join("loose.txt"), "x").expect("write");
 
         let names: Vec<String> = instance
@@ -586,7 +588,7 @@ mod tests {
 
     #[test]
     fn legacy_config_without_game_key_defaults_to_fallout4() {
-        // A pre-multi-game overseer.toml only had `game_dir`; serde defaults fill; in the rest, and `game` must resolve to Fallout 4 so existing instances; keep working untouched.
+        // A pre-multi-game overseer.toml only had `game_dir`; serde defaults fill; in the rest, and `game` must resolve to Fallout 4 so existing instances; keep working untouched
         let cfg: InstanceConfig = toml::from_str("game_dir = \"D:/FO4\"\n").expect("legacy load");
         assert_eq!(cfg.game, GameKind::Fallout4);
         assert_eq!(cfg.default_profile, "Default");
@@ -624,7 +626,7 @@ mod tests {
 
     #[test]
     fn minimal_toml_uses_default_profile() {
-        // A hand-written config with only game_dir must load with the default profile.
+        // A hand-written config with only game_dir must load with the default profile
         let (_tmp, root) = temp_root();
         std::fs::create_dir_all(&root).expect("mkdir");
         std::fs::write(Instance::config_path(&root), "game_dir = \"C:/FO4\"\n").expect("write");
@@ -650,7 +652,7 @@ mod tests {
                 .join("modlist.txt")
                 .exists()
         );
-        // ...and the profile now shows up in the listing.
+        // ...and the profile now shows up in the listing
         assert_eq!(instance.profiles().expect("profiles"), ["Survival"]);
     }
 
@@ -678,7 +680,7 @@ mod tests {
     fn rename_profile_moves_the_directory_and_its_contents() {
         let (_tmp, instance) = temp_instance();
         save_profile(&instance, "Old", &[]);
-        // A file living inside the profile dir must travel with the rename.
+        // A file living inside the profile dir must travel with the rename
         std::fs::write(instance.profile_dir("Old").join("plugins.txt"), "*A.esp\n").expect("seed");
 
         instance.rename_profile("Old", "New").expect("rename");

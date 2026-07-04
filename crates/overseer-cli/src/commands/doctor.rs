@@ -20,7 +20,7 @@ pub fn run(target: &ProfileArgs) -> Result<()> {
     Ok(())
 }
 
-/// A finding: a severity-coloured marker, the title, and the detail (warnings/errors only).
+/// A finding: a severity-coloured marker, the title, and the detail (warnings/errors only)
 fn print_finding(finding: &Finding) {
     let (role, glyph) = match finding.severity {
         Severity::Info => (Role::Success, "✓"),

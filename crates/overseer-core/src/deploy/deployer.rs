@@ -17,7 +17,7 @@ pub struct LaunchTarget {
 
 /// A mod deployment backend
 pub trait Deployer {
-    /// Which backend this is (used for journaling and display).
+    /// Which backend this is (used for journaling and display)
     fn kind(&self) -> DeployerKind;
 
     /// Check whether this deployer can satisfy the plan
@@ -43,9 +43,9 @@ pub enum DeployerKind {
     /// NTFS hard links
     #[default]
     HardLink,
-    /// TODO: User space virtual filesystem (MO2)
+    /// User-space virtual filesystem backend (planned)
     Usvfs,
-    /// TODO: ProjFS
+    /// Windows Projected File System backend (planned)
     ProjFs,
 }
 
@@ -60,7 +60,7 @@ impl std::fmt::Display for DeployerKind {
     }
 }
 
-/// Construct the deployment backend for a [`DeployerKind`].
+/// Construct the deployment backend for a [`DeployerKind`]
 pub fn deployer_for(kind: DeployerKind) -> Box<dyn Deployer> {
     match kind {
         DeployerKind::HardLink => Box::new(HardlinkDeployer::new()),
@@ -68,7 +68,7 @@ pub fn deployer_for(kind: DeployerKind) -> Box<dyn Deployer> {
     }
 }
 
-/// Unimplemented backend: operations report [`DeployError::Unsupported`]; `verify` treats every entry as missing.
+/// Unimplemented backend: operations report [`DeployError::Unsupported`]; `verify` treats every entry as missing
 #[derive(Debug, Clone)]
 pub(crate) struct StubDeployer {
     kind: DeployerKind,

@@ -1,3 +1,5 @@
+//! A profile's mod list: `modlist.txt` ordering, separators, and reconciliation
+
 use super::error::InstanceError;
 use super::model::Instance;
 use crate::deploy::ModSource;
@@ -24,7 +26,7 @@ pub struct ModListEntry {
     pub kind: ModKind,
 }
 
-/// Profile: a named, ordered mod list.
+/// Profile: a named, ordered mod list
 #[derive(Debug, Clone)]
 pub struct Profile {
     pub name: String,
@@ -33,7 +35,7 @@ pub struct Profile {
 }
 
 impl Profile {
-    /// Read a profile's `modlist.txt` + `settings.ini`. A missing modlist = empty profile.
+    /// Read a profile's `modlist.txt` + `settings.ini`. A missing modlist = empty profile
     pub fn load(instance: &Instance, name: &str) -> Result<Self, InstanceError> {
         let dir = instance.profile_dir(name);
         let text = fs::read_to_string_opt(&dir.join("modlist.txt"))?.unwrap_or_default();
@@ -44,7 +46,7 @@ impl Profile {
         })
     }
 
-    /// Read an existing profile directory; a missing `modlist.txt` still means an empty profile.
+    /// Read an existing profile directory; a missing `modlist.txt` still means an empty profile
     pub fn load_existing(instance: &Instance, name: &str) -> Result<Self, InstanceError> {
         if !instance.profile_dir(name).is_dir() {
             return Err(InstanceError::ProfileNotFound(name.to_owned()));
@@ -60,7 +62,7 @@ impl Profile {
         Ok(())
     }
 
-    /// Write only `modlist.txt` (a single atomic write), leaving `settings.ini` untouched.
+    /// Write only `modlist.txt` (a single atomic write), leaving `settings.ini` untouched
     pub(crate) fn save_modlist(&self, instance: &Instance) -> Result<(), InstanceError> {
         let dir = instance.profile_dir(&self.name);
         fs::write_atomic(
@@ -85,7 +87,7 @@ impl Profile {
         out
     }
 
-    /// Enabled *managed* mods as deploy sources, lowest priority first (foreign/separator entries have no `mods/` dir).
+    /// Enabled *managed* mods as deploy sources, lowest priority first (foreign/separator entries have no `mods/` dir)
     pub fn deploy_sources(&self, instance: &Instance) -> Vec<ModSource> {
         self.mods
             .iter()
@@ -147,13 +149,13 @@ impl Profile {
         Ok(entry)
     }
 
-    /// Mark a mod enabled in this profile's mod list.
+    /// Mark a mod enabled in this profile's mod list
     pub fn enable(&mut self, name: &str) -> Result<(), InstanceError> {
         self.managed_entry_mut(name)?.enabled = true;
         Ok(())
     }
 
-    /// Mark a mod disabled in this profile's mod list.
+    /// Mark a mod disabled in this profile's mod list
     pub fn disable(&mut self, name: &str) -> Result<(), InstanceError> {
         self.managed_entry_mut(name)?.enabled = false;
         Ok(())
@@ -192,7 +194,7 @@ impl Profile {
         Ok(())
     }
 
-    /// Insert a seperator (`_seperator` divider) at `index`
+    /// Insert a separator (`_separator` divider) at `index`
     pub fn insert_separator(
         &mut self,
         index: usize,
@@ -266,7 +268,7 @@ impl Profile {
         Ok(format!("{name}_separator"))
     }
 
-    /// Reconcile this profile's mod list with whats actually installed under `mods/`
+    /// Reconcile this profile's mod list with what's actually installed under `mods/`
     pub fn reconcile(&mut self, instance: &Instance) -> Result<bool, InstanceError> {
         let installed = instance.installed_mods()?;
         let before = self.mods.len();
@@ -296,7 +298,7 @@ impl Profile {
         Ok(removed + added > 0)
     }
 
-    /// Discover this profile's plugins, reconcile its load order, and persist changes.
+    /// Discover this profile's plugins, reconcile its load order, and persist changes
     pub fn sync_plugins(
         &self,
         instance: &Instance,
@@ -310,12 +312,12 @@ impl Profile {
     }
 }
 
-/// `profiles/<p>/settings.ini` — the MO2-compatible per-profile settings file.
+/// `profiles/<p>/settings.ini` — the MO2-compatible per-profile settings file
 fn settings_path(profile_dir: &Utf8Path) -> Utf8PathBuf {
     profile_dir.join("settings.ini")
 }
 
-/// Read `[General] LocalSaves` (MO2-compatible). Missing file or key means false.
+/// Read `[General] LocalSaves` (MO2-compatible). Missing file or key means false
 fn read_local_saves(profile_dir: &Utf8Path) -> Result<bool, InstanceError> {
     let Some(text) = fs::read_to_string_opt(&settings_path(profile_dir))? else {
         return Ok(false);
@@ -325,7 +327,7 @@ fn read_local_saves(profile_dir: &Utf8Path) -> Result<bool, InstanceError> {
         .is_some_and(|v| v.eq_ignore_ascii_case("true")))
 }
 
-/// Set `[General] LocalSaves`, preserving any other MO2 keys already in the file.
+/// Set `[General] LocalSaves`, preserving any other MO2 keys already in the file
 fn write_local_saves(profile_dir: &Utf8Path, local_saves: bool) -> Result<(), InstanceError> {
     let path = settings_path(profile_dir);
     let text = fs::read_to_string_opt(&path)?.unwrap_or_default();
@@ -402,7 +404,7 @@ mod tests {
 
     use crate::test_support::{temp_instance, write_plugin};
 
-    /// A profile with the given mods, all enabled and managed, in priority order.
+    /// A profile with the given mods, all enabled and managed, in priority order
     fn profile_of(names: &[&str]) -> Profile {
         Profile {
             name: "P".to_owned(),
@@ -431,7 +433,7 @@ mod tests {
 
     #[test]
     fn parses_a_separator_as_an_inert_entry() {
-        // A real MO2 separator line: preserved verbatim, never a deployable mod.
+        // A real MO2 separator line: preserved verbatim, never a deployable mod
         let mods = parse_modlist("-Gameplay_separator\n");
         assert_eq!(mods, vec![separator_entry("Gameplay_separator")]);
         assert!(!mods[0].enabled, "a separator is never enabled/deployed");
@@ -439,7 +441,7 @@ mod tests {
 
     #[test]
     fn skips_blank_comment_and_unmarked_lines() {
-        // Blank lines, comments, and lines without a +/-/* marker are not entries.
+        // Blank lines, comments, and lines without a +/-/* marker are not entries
         let text = "+A\n\n# a comment\nno marker here\n-B\n";
         let mods = parse_modlist(text);
         assert_eq!(mods, vec![entry("A", true), entry("B", false)]);
@@ -499,7 +501,7 @@ mod tests {
     #[test]
     fn deploy_sources_reverses_to_lowest_priority_first() {
         let (_tmp, instance) = temp_instance();
-        // Stored highest-priority-first; the engine wants lowest-priority-first.
+        // Stored highest-priority-first; the engine wants lowest-priority-first
         let profile = profile_of(&["High", "Mid", "Low"]);
         let sources = profile.deploy_sources(&instance);
         let names: Vec<&str> = sources.iter().map(|s| s.name.as_str()).collect();
@@ -520,13 +522,13 @@ mod tests {
         };
         let sources = profile.deploy_sources(&instance);
         let names: Vec<&str> = sources.iter().map(|s| s.name.as_str()).collect();
-        // Only the managed mods, lowest-priority first; the separator never deploys.
+        // Only the managed mods, lowest-priority first; the separator never deploys
         assert_eq!(names, ["Low", "High"]);
     }
 
     #[test]
     fn deploy_sources_excludes_foreign_mods() {
-        // Foreign (game-shipped DLC/CC) entries have no `mods/` dir; including them would crash the; deploy/diagnose plan with MissingStaging on any real MO2 profile that lists DLC.
+        // Foreign (game-shipped DLC/CC) entries have no `mods/` dir; including them would crash the; deploy/diagnose plan with MissingStaging on any real MO2 profile that lists DLC
         let (_tmp, instance) = temp_instance();
         let profile = Profile {
             name: "P".to_owned(),
@@ -638,7 +640,7 @@ mod tests {
     #[test]
     fn local_saves_defaults_to_false_without_a_settings_ini() {
         let (_tmp, instance) = temp_instance();
-        // An MO2 profile (or one saved before this flag existed) has only modlist.txt.
+        // An MO2 profile (or one saved before this flag existed) has only modlist.txt
         let dir = instance.profile_dir("Legacy");
         std::fs::create_dir_all(&dir).expect("mkdir");
         std::fs::write(dir.join("modlist.txt"), "+A\n").expect("seed modlist");
@@ -676,7 +678,7 @@ mod tests {
         let (_tmp, instance) = temp_instance();
         let dir = instance.profile_dir("P");
         std::fs::create_dir_all(&dir).expect("mkdir");
-        // MO2 writes sibling keys into the same [General] block; they must survive.
+        // MO2 writes sibling keys into the same [General] block; they must survive
         std::fs::write(
             dir.join("settings.ini"),
             "[General]\r\nLocalSettings=true\r\nAutomaticArchiveInvalidation=false\r\n",
@@ -771,7 +773,7 @@ mod tests {
             mods: vec![foreign_entry("DLCRobot")],
             local_saves: false,
         };
-        // Foreign entries always serialize as `*`, so a flip would be a lie; reject it.
+        // Foreign entries always serialize as `*`, so a flip would be a lie; reject it
         assert!(matches!(
             profile.disable("DLCRobot").expect_err("err"),
             InstanceError::NotManaged(_)
@@ -833,7 +835,7 @@ mod tests {
     #[test]
     fn move_to_clamps_target_to_the_end() {
         let mut profile = profile_of(&["A", "B", "C"]);
-        // usize::MAX means "send to the bottom".
+        // usize::MAX means "send to the bottom"
         profile.move_to("A", usize::MAX).expect("move_to");
         assert_eq!(names_of(&profile), ["B", "C", "A"]);
     }
@@ -856,7 +858,7 @@ mod tests {
 
     // --- reconcile ---
 
-    /// Create empty `mods/<name>/` folders so `installed_mods()` discovers them.
+    /// Create empty `mods/<name>/` folders so `installed_mods()` discovers them
     fn install_dirs(instance: &Instance, names: &[&str]) {
         for name in names {
             std::fs::create_dir_all(instance.mods_dir().join(name)).expect("mkdir");
@@ -871,7 +873,7 @@ mod tests {
 
         let changed = profile.reconcile(&instance).expect("reconcile");
         assert!(changed);
-        // New mod is appended at the back (lowest priority), existing order kept.
+        // New mod is appended at the back (lowest priority), existing order kept
         assert_eq!(names_of(&profile), ["Existing", "BrandNew"]);
         assert!(profile.mods[1].enabled);
     }
@@ -893,7 +895,7 @@ mod tests {
         install_dirs(&instance, &["A", "B", "C"]);
         let mut profile = Profile {
             name: "P".to_owned(),
-            // Deliberately not alphabetical, with B disabled.
+            // Deliberately not alphabetical, with B disabled
             mods: vec![entry("C", true), entry("B", false), entry("A", true)],
             local_saves: false,
         };
@@ -915,7 +917,7 @@ mod tests {
         };
 
         let changed = profile.reconcile(&instance).expect("reconcile");
-        // DLCRobot has no mods/ folder but must not be dropped.
+        // DLCRobot has no mods/ folder but must not be dropped
         assert!(!changed);
         assert!(profile.contains("DLCRobot"));
     }
@@ -934,7 +936,7 @@ mod tests {
         };
 
         let changed = profile.reconcile(&instance).expect("reconcile");
-        // A separator has no mods/ folder but must survive reconcile (and the save that follows), so importing an MO2 profile and running `mod list` can't silently destroy it.
+        // A separator has no mods/ folder but must survive reconcile (and the save that follows), so importing an MO2 profile and running `mod list` can't silently destroy it
         assert!(!changed, "a separator is not a change to reconcile away");
         assert!(
             profile.mods.iter().any(|e| e.kind == ModKind::Separator),

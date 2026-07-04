@@ -17,7 +17,7 @@ use ratatui::crossterm::event::{self, Event, KeyEventKind};
 use app::App;
 
 fn main() -> Result<()> {
-    // A TUI owns the terminal, so logging is silent on failure (stderr would corrupt the display).
+    // A TUI owns the terminal, so logging is silent on failure (stderr would corrupt the display)
     overseer_frontend::logging::init(overseer_frontend::logging::Config {
         default_filter: "warn,overseer_tui=info,overseer_core=info",
         warn_on_error: false,
@@ -45,12 +45,12 @@ fn main() -> Result<()> {
     result
 }
 
-/// The draw → input → update loop, running until the user quits.
+/// The draw → input → update loop, running until the user quits
 fn run(app: &mut App, terminal: &mut DefaultTerminal) -> Result<()> {
     while !app.should_quit {
         terminal.draw(|frame| ui::draw(app, frame))?;
 
-        // Windows reports key release events too; act on presses only.
+        // Windows reports key release events too; act on presses only
         if let Event::Key(key) = event::read()?
             && key.kind == KeyEventKind::Press
         {

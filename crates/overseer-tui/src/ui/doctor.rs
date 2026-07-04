@@ -14,10 +14,10 @@ use super::{centered_rect, render_overlay_list, wrap_text};
 use crate::app::DoctorReport;
 use crate::theme;
 
-/// The title on the Doctor modal's frame.
+/// The title on the Doctor modal's frame
 const DOCTOR_TITLE: &str = "  Doctor — setup health  ";
 
-/// Draw the Doctor modal as a larger centered box with severity summary, findings list, and live detail pane.
+/// Draw the Doctor modal as a larger centered box with severity summary, findings list, and live detail pane
 pub(super) fn render_doctor_modal(doctor: &mut DoctorReport, profile: &str, frame: &mut Frame) {
     let area = centered_rect(75, 75, frame.area());
     frame.render_widget(Clear, area);
@@ -39,7 +39,7 @@ pub(super) fn render_doctor_modal(doctor: &mut DoctorReport, profile: &str, fram
         rows[0],
     );
 
-    // Wrap long titles to the findings pane so nothing clips horizontally; (`render_overlay_list` reserves 2 cols for the selection marker).
+    // Wrap long titles to the findings pane so nothing clips horizontally (`render_overlay_list` reserves 2 cols for the selection marker)
     let text_width = (rows[1].width as usize).saturating_sub(2);
     let items: Vec<ListItem<'static>> = doctor
         .report
@@ -81,7 +81,7 @@ fn doctor_summary_line(report: &Report, profile: &str) -> Line<'static> {
     )
 }
 
-/// One finding as a styled, width-wrapped row with a severity-coloured glyph and full title.
+/// One finding as a styled, width-wrapped row with a severity-coloured glyph and full title
 fn finding_item(finding: &Finding, width: usize) -> ListItem<'static> {
     let (role, glyph) = severity_style(finding.severity);
     let prefix = format!(" {glyph} ");
@@ -96,7 +96,7 @@ fn finding_item(finding: &Finding, width: usize) -> ListItem<'static> {
                     Span::raw(chunk),
                 ])
             } else {
-                // Align continuation lines under the title.
+                // Align continuation lines under the title
                 Line::from(format!("{}{chunk}", " ".repeat(indent)))
             }
         })

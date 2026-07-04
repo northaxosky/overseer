@@ -7,7 +7,7 @@ use atomicwrites::{AtomicFile, OverwriteBehavior};
 use camino::Utf8Path;
 use std::io::{ErrorKind, Write};
 
-/// Read a file to a `String`, returning `Ok(None)` when it doesn't exist so callers choose their default.
+/// Read a file to a `String`, returning `Ok(None)` when it doesn't exist so callers choose their default
 pub(crate) fn read_to_string_opt(path: &Utf8Path) -> Result<Option<String>, IoError> {
     match std::fs::read_to_string(path) {
         Ok(t) => Ok(Some(t)),
@@ -16,7 +16,7 @@ pub(crate) fn read_to_string_opt(path: &Utf8Path) -> Result<Option<String>, IoEr
     }
 }
 
-/// Read a file to bytes; `Ok(None)` when it doesn't exist.
+/// Read a file to bytes; `Ok(None)` when it doesn't exist
 pub(crate) fn read_opt(path: &Utf8Path) -> Result<Option<Vec<u8>>, IoError> {
     match std::fs::read(path) {
         Ok(b) => Ok(Some(b)),
@@ -25,7 +25,7 @@ pub(crate) fn read_opt(path: &Utf8Path) -> Result<Option<Vec<u8>>, IoError> {
     }
 }
 
-/// The size in bytes of a file; `Ok(None)` when it doesn't exist.
+/// The size in bytes of a file; `Ok(None)` when it doesn't exist
 pub(crate) fn size_opt(path: &Utf8Path) -> Result<Option<u64>, IoError> {
     match std::fs::metadata(path) {
         Ok(m) => Ok(Some(m.len())),
@@ -34,12 +34,12 @@ pub(crate) fn size_opt(path: &Utf8Path) -> Result<Option<u64>, IoError> {
     }
 }
 
-/// `create_dir_all`, binding `path` on error.
+/// `create_dir_all`, binding `path` on error
 pub(crate) fn ensure_dir(path: &Utf8Path) -> Result<(), IoError> {
     std::fs::create_dir_all(path).map_err(|e| io_err(path, e))
 }
 
-/// Write bytes, creating parent dirs first; binds `path` on error.
+/// Write bytes, creating parent dirs first; binds `path` on error
 pub(crate) fn write(path: &Utf8Path, contents: impl AsRef<[u8]>) -> Result<(), IoError> {
     if let Some(parent) = path.parent() {
         ensure_dir(parent)?;
@@ -47,7 +47,7 @@ pub(crate) fn write(path: &Utf8Path, contents: impl AsRef<[u8]>) -> Result<(), I
     std::fs::write(path, contents).map_err(|e| io_err(path, e))
 }
 
-/// Crash-safe write (temp + rename), creating parent dirs first.
+/// Crash-safe write (temp + rename), creating parent dirs first
 pub(crate) fn write_atomic(path: &Utf8Path, contents: &[u8]) -> Result<(), IoError> {
     if let Some(parent) = path.parent() {
         ensure_dir(parent)?;
@@ -59,12 +59,12 @@ pub(crate) fn write_atomic(path: &Utf8Path, contents: &[u8]) -> Result<(), IoErr
         })
 }
 
-/// Rename `from` to `to` (atomic); binds the source path on error.
+/// Rename `from` to `to` (atomic); binds the source path on error
 pub(crate) fn rename(from: &Utf8Path, to: &Utf8Path) -> Result<(), IoError> {
     std::fs::rename(from, to).map_err(|e| io_err(from, e))
 }
 
-/// Flush a file to stable storage before an atomic rename; opens with write access (Windows `FlushFileBuffers` needs it).
+/// Flush a file to stable storage before an atomic rename; opens with write access (Windows `FlushFileBuffers` needs it)
 pub(crate) fn fsync(path: &Utf8Path) -> Result<(), IoError> {
     let file = std::fs::OpenOptions::new()
         .write(true)
@@ -73,7 +73,7 @@ pub(crate) fn fsync(path: &Utf8Path) -> Result<(), IoError> {
     file.sync_all().map_err(|e| io_err(path, e))
 }
 
-/// Remove a file; `Ok(())` if it's already gone.
+/// Remove a file; `Ok(())` if it's already gone
 pub(crate) fn remove_file_opt(path: &Utf8Path) -> Result<(), IoError> {
     match std::fs::remove_file(path) {
         Ok(()) => Ok(()),
@@ -82,7 +82,7 @@ pub(crate) fn remove_file_opt(path: &Utf8Path) -> Result<(), IoError> {
     }
 }
 
-/// Open a directory for iteration: `Ok(None)` when it doesn't exist.
+/// Open a directory for iteration: `Ok(None)` when it doesn't exist
 pub(crate) fn read_dir_opt(dir: &Utf8Path) -> Result<Option<std::fs::ReadDir>, IoError> {
     match std::fs::read_dir(dir) {
         Ok(entries) => Ok(Some(entries)),
@@ -91,7 +91,7 @@ pub(crate) fn read_dir_opt(dir: &Utf8Path) -> Result<Option<std::fs::ReadDir>, I
     }
 }
 
-/// Move a corrupt file aside to `<path>.bak` so a later write won't clobber it. No-op if absent.
+/// Move a corrupt file aside to `<path>.bak` so a later write won't clobber it. No-op if absent
 pub(crate) fn backup_corrupt(path: &Utf8Path) -> Result<(), IoError> {
     let bak = format!("{path}.bak");
     match std::fs::rename(path, &bak) {

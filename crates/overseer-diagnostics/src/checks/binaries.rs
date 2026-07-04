@@ -179,7 +179,7 @@ mod tests {
             ],
         );
         assert_eq!(warnings(&findings), 1);
-        // No clean-bill Info once a warning is present.
+        // No clean-bill Info once a warning is present
         assert!(findings.iter().all(|f| f.severity == Severity::Warning));
         let warn = &findings[0];
         assert!(warn.title.contains("steam_api64.dll"));
@@ -244,7 +244,7 @@ mod tests {
 
     #[test]
     fn a_fresh_instance_with_no_binaries_present_is_silent() {
-        // `Undetermined` + nothing on disk (a fresh/empty game folder) is not a problem.
+        // `Undetermined` + nothing on disk (a fresh/empty game folder) is not a problem
         let findings = run(
             Some(Edition::Undetermined),
             vec![
@@ -257,7 +257,7 @@ mod tests {
 
     #[test]
     fn a_broken_install_with_a_present_binary_warns_once() {
-        // `Undetermined` but the folder is populated: `Fallout4.exe` is missing/unreadable.
+        // `Undetermined` but the folder is populated: `Fallout4.exe` is missing/unreadable
         let findings = run(
             Some(Edition::Undetermined),
             vec![

@@ -13,9 +13,9 @@ use overseer_core::game::GameKind;
 use overseer_core::patch::fallout4::{self, Ba2Edition, PatchOutcome};
 use overseer_core::test_support;
 
-/// The real Fallout 4 dir from `OVERSEER_FO4_DIR`, or `None` with a skip note when unset/invalid.
+/// The real Fallout 4 dir from `OVERSEER_FO4_DIR`, or `None` with a skip note when unset/invalid
 fn fo4_dir_or_skip() -> Option<Utf8PathBuf> {
-    // Load `.env` (machine-specific harness paths) if present; real shell env vars still win.
+    // Load `.env` (machine-specific harness paths) if present; real shell env vars still win
     let _ = dotenvy::dotenv();
     let Ok(dir) = std::env::var("OVERSEER_FO4_DIR") else {
         eprintln!("skipping: set OVERSEER_FO4_DIR to a real Fallout 4 install to run");
@@ -36,7 +36,7 @@ fn detects_a_real_fallout4_install() {
     };
 
     let install = detect::detect(GameKind::Fallout4, &dir);
-    // A real Fallout4.exe must parse to a version, which makes the edition determinable.
+    // A real Fallout4.exe must parse to a version, which makes the edition determinable
     let version = install
         .version
         .expect("Fallout4.exe should yield a PE file version");
@@ -56,7 +56,7 @@ fn the_store_is_not_contradictory() {
     };
 
     let install = detect::detect(GameKind::Fallout4, &dir);
-    // A hand-copied install may be `Unknown`, but a real one must never look like both Steam *and*; GOG at once.
+    // A hand-copied install may be `Unknown`, but a real one must never look like both Steam *and*; GOG at once
     assert_ne!(install.store, detect::Store::Conflicting);
     eprintln!("store {:?}", install.store);
 }
@@ -97,7 +97,7 @@ fn patching_a_real_base_archive_changes_only_the_version_field() {
     };
     let data = dir.join("Data");
 
-    // Find a base archive that parses as a patchable FO4 archive (v1/7/8, GNRL/DX10).
+    // Find a base archive that parses as a patchable FO4 archive (v1/7/8, GNRL/DX10)
     let candidates = [
         "Fallout4 - Startup.ba2",
         "Fallout4 - Shaders.ba2",
@@ -116,13 +116,13 @@ fn patching_a_real_base_archive_changes_only_the_version_field() {
         return;
     };
 
-    // Work on a COPY in a temp dir — the real install is never written.
+    // Work on a COPY in a temp dir — the real install is never written
     let (_tmp, root) = test_support::temp();
     let copy = root.join(name);
     std::fs::copy(&src, &copy).expect("copy archive to temp");
     let original = std::fs::read(&copy).expect("read copy");
 
-    // Flip to the opposite edition and prove the body survived untouched.
+    // Flip to the opposite edition and prove the body survived untouched
     let opposite = match current {
         Ba2Edition::OldGen => Ba2Edition::NextGen,
         Ba2Edition::NextGen => Ba2Edition::OldGen,
@@ -151,7 +151,7 @@ fn patching_a_real_base_archive_changes_only_the_version_field() {
         "the entire archive body must be byte-for-byte preserved"
     );
 
-    // Flip back. The body is always preserved; a canonical archive (v1/v8, not v7) returns; byte-identical, since patching back to its own edition rewrites the same version.
+    // Flip back. The body is always preserved; a canonical archive (v1/v8, not v7) returns; byte-identical, since patching back to its own edition rewrites the same version
     fallout4::set_edition(&copy, current).expect("patch back to original edition");
     let restored = std::fs::read(&copy).expect("read restored");
     assert_eq!(

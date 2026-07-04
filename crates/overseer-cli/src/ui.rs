@@ -23,7 +23,7 @@ fn role_style(role: Role) -> Style {
     style
 }
 
-/// Paint `value` in `role`, honouring the active colour choice (`--color` / `NO_COLOR`).
+/// Paint `value` in `role`, honouring the active colour choice (`--color` / `NO_COLOR`)
 pub fn styled(role: Role, value: impl Display) -> String {
     format!(
         "{}",
@@ -31,19 +31,19 @@ pub fn styled(role: Role, value: impl Display) -> String {
     )
 }
 
-/// When to emit ANSI colour.
+/// When to emit ANSI colour
 #[derive(Debug, Clone, Copy, Default, clap::ValueEnum)]
 pub enum ColorChoice {
-    /// Colour when stdout is a terminal and `NO_COLOR` is unset.
+    /// Colour when stdout is a terminal and `NO_COLOR` is unset
     #[default]
     Auto,
-    /// Always colour.
+    /// Always colour
     Always,
-    /// Never colour.
+    /// Never colour
     Never,
 }
 
-/// Apply a [`ColorChoice`] globally for the rest of the process.
+/// Apply a [`ColorChoice`] globally for the rest of the process
 pub fn apply_color_choice(choice: ColorChoice) {
     match choice {
         ColorChoice::Auto => owo_colors::unset_override(),
@@ -52,17 +52,17 @@ pub fn apply_color_choice(choice: ColorChoice) {
     }
 }
 
-/// A bold section heading.
+/// A bold section heading
 pub fn heading(msg: impl Display) {
     println!("{}", styled(Role::Heading, msg));
 }
 
-/// A success line prefixed with a green check mark.
+/// A success line prefixed with a green check mark
 pub fn success(msg: impl Display) {
     println!("{} {msg}", styled(Role::Success, "✓"));
 }
 
-/// A numbered, checkbox-prefixed list item: success-coloured when `on`, muted when off.
+/// A numbered, checkbox-prefixed list item: success-coloured when `on`, muted when off
 pub fn list_item(index: usize, on: bool, text: impl Display, suffix: &str) {
     let role = if on { Role::Success } else { Role::Muted };
     let mark = if on { "[x]" } else { "[ ]" };
@@ -72,18 +72,17 @@ pub fn list_item(index: usize, on: bool, text: impl Display, suffix: &str) {
     );
 }
 
-/// Print a labelled check result with a green PASS or red FAIL; returns `ok` for chaining.
-pub fn check(label: &str, ok: bool) -> bool {
+/// Print a labelled check result with a green PASS or red FAIL
+pub fn check(label: &str, ok: bool) {
     let (role, mark) = if ok {
         (Role::Success, "PASS")
     } else {
         (Role::Failure, "FAIL")
     };
     println!("  {label:<54} [{}]", styled(role, mark));
-    ok
 }
 
-/// Prints CLI-friendly progress lines for deploy/undeploy.
+/// Prints CLI-friendly progress lines for deploy/undeploy
 pub struct CliProgress;
 
 impl ProgressSink for CliProgress {

@@ -1,9 +1,11 @@
+//! A profile's managed plugin load order: names and active flags
+
 use super::error::PluginError;
 use super::metadata::PluginMeta;
 use crate::fs;
 use crate::instance::Instance;
 
-/// One line of a profiles's plugin load order: plugin name and whether it's active
+/// One line of a profile's plugin load order: plugin name and whether it's active
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PluginEntry {
     pub name: String,
@@ -37,7 +39,7 @@ impl PluginLoadOrder {
     }
 
     /// Serialize to `plugins.txt` text: `*name` for active, `name` for inactive
-    pub(crate) fn to_plugins_string(&self) -> String {
+    fn to_plugins_string(&self) -> String {
         let mut out = String::new();
         for entry in &self.plugins {
             if entry.active {
@@ -71,11 +73,11 @@ impl PluginLoadOrder {
         Ok(())
     }
 
-    /// Mark a plugin active in the load order.
+    /// Mark a plugin active in the load order
     pub fn activate(&mut self, name: &str) -> Result<(), PluginError> {
         self.set_active(name, true)
     }
-    /// Mark a plugin inactive in the load order.
+    /// Mark a plugin inactive in the load order
     pub fn deactivate(&mut self, name: &str) -> Result<(), PluginError> {
         self.set_active(name, false)
     }
@@ -281,7 +283,7 @@ mod tests {
 
     #[test]
     fn reconcile_sorts_masters_before_normal_plugins() {
-        // Stored in a load-order-invalid arrangement (a normal plugin before a master).
+        // Stored in a load-order-invalid arrangement (a normal plugin before a master)
         let mut order = lo("P", vec![active("Patch.esp"), active("Core.esm")]);
         let discovered = [meta("Patch.esp", false), meta("Core.esm", true)];
         let changed = order.reconcile(&discovered);
@@ -292,7 +294,7 @@ mod tests {
     #[test]
     fn reconcile_is_stable_within_master_and_normal_groups() {
         let mut order = lo("P", vec![]);
-        // Discovery order: m1(normal), A(master), m2(normal), B(master).
+        // Discovery order: m1(normal), A(master), m2(normal), B(master)
         let discovered = [
             meta("m1.esp", false),
             meta("A.esm", true),
@@ -300,7 +302,7 @@ mod tests {
             meta("B.esm", true),
         ];
         order.reconcile(&discovered);
-        // Masters first (A, B in their relative order), then normals (m1, m2).
+        // Masters first (A, B in their relative order), then normals (m1, m2)
         assert_eq!(order_of(&order), ["A.esm", "B.esm", "m1.esp", "m2.esp"]);
     }
 

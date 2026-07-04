@@ -228,11 +228,11 @@ mod tests {
             DeployPlan::from_mods(&data, &[ModSource::new("A", &a), ModSource::new("B", &b)])
                 .expect("plan");
 
-        // Different casing, same logical path on a case-insensitive filesystem.
+        // Different casing, same logical path on a case-insensitive filesystem
         assert_eq!(plan.len(), 1);
         let winner = &plan.files()[0];
         assert_eq!(winner.winner, "B");
-        // The winner keeps its own casing.
+        // The winner keeps its own casing
         assert_eq!(winner.relative.file_name(), Some("armor.dds"));
     }
 
@@ -311,7 +311,7 @@ mod tests {
 
         let plan = DeployPlan::from_mods(&data, &[ModSource::new("A", &m)]).expect("plan");
         assert_eq!(plan.len(), 1);
-        // Build the expectation with join() so the path separator matches the platform.
+        // Build the expectation with join() so the path separator matches the platform
         let expected = Utf8Path::new("a").join("b").join("c.txt");
         assert_eq!(plan.files()[0].relative, expected);
     }
@@ -381,7 +381,7 @@ mod tests {
         let relatives: Vec<&Utf8Path> = plan.files().iter().map(|f| f.relative.as_path()).collect();
         // The loose loader lands directly in the game root...
         assert!(relatives.contains(&Utf8Path::new("f4se_loader.exe")));
-        // ...and subfolders under Root/ are preserved verbatim.
+        // ...and subfolders under Root/ are preserved verbatim
         assert!(relatives.contains(&Utf8Path::new("enbseries").join("enb.ini").as_path()));
     }
 

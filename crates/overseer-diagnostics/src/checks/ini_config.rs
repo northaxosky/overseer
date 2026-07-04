@@ -82,7 +82,7 @@ impl Check for IniConfig {
             }
         }
 
-        // `sTestFile*` entries make FO4 drive load order from plugin timestamps instead; of `Plugins.txt`, which Overseer's deploy/purge doesn't manage.
+        // `sTestFile*` entries make FO4 drive load order from plugin timestamps instead; of `Plugins.txt`, which Overseer's deploy/purge doesn't manage
         if (1..=10).any(|n| {
             settings
                 .get("General", &format!("sTestFile{n}"))
@@ -129,7 +129,7 @@ mod tests {
 
     #[test]
     fn no_inis_is_silent() {
-        // The default context has `inis: None`.
+        // The default context has `inis: None`
         assert!(IniConfig.run(&GameContext::default()).is_empty());
     }
 
@@ -170,7 +170,7 @@ mod tests {
 
     #[test]
     fn absent_invalidation_keys_flag_both() {
-        // Empty INIs: invalidation absent (Error) and DataDirsFinal not explicitly empty (Warning).
+        // Empty INIs: invalidation absent (Error) and DataDirsFinal not explicitly empty (Warning)
         let sev = severities(&IniConfig.run(&ctx("")));
         assert!(sev.contains(&Severity::Error));
         assert!(sev.contains(&Severity::Warning));
@@ -181,7 +181,7 @@ mod tests {
         let findings = IniConfig.run(&ctx(
             "[Archive]\nbInvalidateOlderFiles=1\nsResourceDataDirsFinal=STRINGS\\\n",
         ));
-        // Invalidation on, but DataDirsFinal not empty: one Warning, no Info/Error.
+        // Invalidation on, but DataDirsFinal not empty: one Warning, no Info/Error
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].severity, Severity::Warning);
         assert!(findings[0].title.contains("sResourceDataDirsFinal"));
@@ -189,7 +189,7 @@ mod tests {
 
     #[test]
     fn use_my_games_directory_zero_gates_everything() {
-        // Even with broken invalidation present, the gate is the only finding.
+        // Even with broken invalidation present, the gate is the only finding
         let findings = IniConfig.run(&ctx(
             "[General]\nbUseMyGamesDirectory=0\n[Archive]\nbInvalidateOlderFiles=0\n",
         ));
@@ -203,7 +203,7 @@ mod tests {
         let findings = IniConfig.run(&ctx(
             "[General]\nsLanguage=DE\n[Archive]\nbInvalidateOlderFiles=1\nsResourceDataDirsFinal=\n",
         ));
-        // Case-insensitive: `DE` is non-English.
+        // Case-insensitive: `DE` is non-English
         assert!(
             findings
                 .iter()
@@ -216,7 +216,7 @@ mod tests {
         let findings = IniConfig.run(&ctx(
             "[General]\nsLanguage=en\n[Archive]\nbInvalidateOlderFiles=1\nsResourceDataDirsFinal=\n",
         ));
-        // Only the invalidation Info; English needs no note.
+        // Only the invalidation Info; English needs no note
         assert_eq!(findings.len(), 1);
         assert!(findings[0].title.contains("enabled"));
     }
@@ -235,7 +235,7 @@ mod tests {
 
     #[test]
     fn an_empty_stestfile_does_not_warn() {
-        // A blank value isn't a valid test file, so it shouldn't trip the warning.
+        // A blank value isn't a valid test file, so it shouldn't trip the warning
         let findings = IniConfig.run(&ctx(
             "[General]\nsTestFile1=\n[Archive]\nbInvalidateOlderFiles=1\nsResourceDataDirsFinal=\n",
         ));

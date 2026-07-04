@@ -12,9 +12,9 @@ use overseer_core::deploy::{ModSource, detect_conflicts};
 use overseer_core::game::GameKind;
 use overseer_core::instance::{Instance, ModKind, Profile};
 
-/// The MO2 instance root from `OVERSEER_MO2_INSTANCE`, or `None` with a skip note when unset/invalid.
+/// The MO2 instance root from `OVERSEER_MO2_INSTANCE`, or `None` with a skip note when unset/invalid
 fn mo2_instance_or_skip() -> Option<Utf8PathBuf> {
-    // Load `.env` (machine-specific harness paths) if present; real shell env vars still win.
+    // Load `.env` (machine-specific harness paths) if present; real shell env vars still win
     let _ = dotenvy::dotenv();
     let Ok(dir) = std::env::var("OVERSEER_MO2_INSTANCE") else {
         eprintln!("skipping: set OVERSEER_MO2_INSTANCE to a real MO2 instance root to run");
@@ -28,7 +28,7 @@ fn mo2_instance_or_skip() -> Option<Utf8PathBuf> {
     Some(dir)
 }
 
-/// Parse `gamePath=@ByteArray(...)` out of `ModOrganizer.ini`, unescaping MO2's doubled backslashes.
+/// Parse `gamePath=@ByteArray(...)` out of `ModOrganizer.ini`, unescaping MO2's doubled backslashes
 fn game_dir_from_ini(instance_root: &Utf8Path) -> Option<Utf8PathBuf> {
     let ini = std::fs::read_to_string(instance_root.join("ModOrganizer.ini")).ok()?;
     let line = ini
@@ -42,7 +42,7 @@ fn game_dir_from_ini(instance_root: &Utf8Path) -> Option<Utf8PathBuf> {
     Some(Utf8PathBuf::from(inner.replace("\\\\", "\\")))
 }
 
-/// A read-only `Instance` over the MO2 layout (shared `mods/`+`profiles/`, per-profile `plugins.txt`/inis, game dir from `ModOrganizer.ini`).
+/// A read-only `Instance` over the MO2 layout (shared `mods/`+`profiles/`, per-profile `plugins.txt`/inis, game dir from `ModOrganizer.ini`)
 fn mo2_instance(root: &Utf8Path) -> Instance {
     let game_dir = game_dir_from_ini(root).unwrap_or_else(|| root.join("__no_game__"));
     let mut instance = Instance::new(root, game_dir);
@@ -50,7 +50,7 @@ fn mo2_instance(root: &Utf8Path) -> Instance {
     instance
 }
 
-/// Point the instance's `local_dir`/`ini_dir` at a profile's dir (where MO2 keeps `plugins.txt`).
+/// Point the instance's `local_dir`/`ini_dir` at a profile's dir (where MO2 keeps `plugins.txt`)
 fn with_profile_dirs(mut instance: Instance, profile: &str) -> Instance {
     let profile_dir = instance.profile_dir(profile);
     instance.config.local_dir = Some(profile_dir.clone());
@@ -58,7 +58,7 @@ fn with_profile_dirs(mut instance: Instance, profile: &str) -> Instance {
     instance
 }
 
-/// The first profile under `profiles/`.
+/// The first profile under `profiles/`
 fn first_profile(instance: &Instance) -> String {
     instance
         .profiles()
@@ -68,7 +68,7 @@ fn first_profile(instance: &Instance) -> String {
         .expect("the MO2 instance has at least one profile")
 }
 
-/// Enabled, managed mods whose staging dir exists (skips separators, foreign, and orphaned entries).
+/// Enabled, managed mods whose staging dir exists (skips separators, foreign, and orphaned entries)
 fn deployable_sources(instance: &Instance, profile: &Profile) -> Vec<ModSource> {
     profile
         .mods
@@ -109,7 +109,7 @@ fn loads_a_real_mo2_profile() {
         "a real MO2 profile should list many mods, got {}",
         profile.mods.len()
     );
-    // Every enabled managed mod resolves to a real dir under mods/.
+    // Every enabled managed mod resolves to a real dir under mods/
     for entry in profile
         .mods
         .iter()
@@ -135,7 +135,7 @@ fn detects_conflicts_across_real_mods() {
     let sources = deployable_sources(&instance, &profile);
     assert!(!sources.is_empty(), "expected some deployable mods");
 
-    // The planning-layer conflict detector must run cleanly over a real, many-mod load order.
+    // The planning-layer conflict detector must run cleanly over a real, many-mod load order
     let conflicts = detect_conflicts(&sources).expect("conflict detection runs on real mods");
     eprintln!(
         "{} conflicting file path(s) across {} deployable mods",
@@ -152,7 +152,7 @@ fn diagnoses_a_real_mo2_instance() {
     let profile_name = first_profile(&mo2_instance(&root));
     let instance = with_profile_dirs(mo2_instance(&root), &profile_name);
 
-    // The full doctor pipeline must run end-to-end on a real instance without panicking.
+    // The full doctor pipeline must run end-to-end on a real instance without panicking
     let report = overseer_diagnostics::diagnose(&instance, &profile_name)
         .expect("diagnose the MO2 instance");
     assert!(

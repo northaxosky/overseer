@@ -4,7 +4,7 @@ use super::DeployerKind;
 use camino::Utf8PathBuf;
 use thiserror::Error;
 
-/// Errors produced by the deployment engine
+/// Something went wrong while deploying or purging a mod's files
 #[derive(Debug, Error)]
 pub enum DeployError {
     #[error("mod `{mod_name}` has no staging directory @ `{path}`")]
@@ -50,7 +50,7 @@ pub enum DeployError {
     RootDataConflict { name: String, path: Utf8PathBuf },
 }
 
-/// Attach the offending path to an [`std::io::Error`].
+/// Attach the offending path to an [`std::io::Error`]
 pub(crate) use crate::error::io_err;
 
 // ────────────────────────────────────────────────────────────────────────

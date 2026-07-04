@@ -23,7 +23,7 @@ use ratatui::widgets::ListState;
 use std::collections::HashSet;
 use strum::{EnumIter, IntoEnumIterator, IntoStaticStr};
 
-/// Key bindings shown (and selectable) in the help modal: (keys, description).
+/// Key bindings shown (and selectable) in the help modal: (keys, description)
 pub(crate) const HELP_ENTRIES: &[(&str, &str)] = &[
     ("j / k   ↓ / ↑", "move selection"),
     ("Tab", "switch pane"),
@@ -49,14 +49,14 @@ pub(crate) const HELP_ENTRIES: &[(&str, &str)] = &[
     ("q / Esc", "quit"),
 ];
 
-/// A transient footer message with a severity for coloring.
+/// A transient footer message with a severity for coloring
 #[derive(Debug)]
 pub(crate) struct Notice {
     pub(crate) text: String,
     pub(crate) role: Role,
 }
 
-/// Which pane has keyboard focus.
+/// Which pane has keyboard focus
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Focus {
     #[default]
@@ -75,7 +75,7 @@ pub(crate) enum Workspace {
 }
 
 impl Workspace {
-    /// The workspace `delta` steps away in `Workspace::iter()` order, wrapping at the ends.
+    /// The workspace `delta` steps away in `Workspace::iter()` order, wrapping at the ends
     pub(crate) fn cycle(self, delta: isize) -> Workspace {
         let all: Vec<Workspace> = Workspace::iter().collect();
         let i = all.iter().position(|&w| w == self).unwrap_or(0) as isize;
@@ -83,7 +83,7 @@ impl Workspace {
         all[(i + delta).rem_euclid(n) as usize]
     }
 
-    /// The digit key that switches to this workspace (`1`..`4`).
+    /// The digit key that switches to this workspace (`1`..`4`)
     pub(crate) fn key(self) -> char {
         match self {
             Workspace::Plugins => '1',
@@ -93,12 +93,12 @@ impl Workspace {
         }
     }
 
-    /// The workspace a digit key selects, if any.
+    /// The workspace a digit key selects, if any
     pub(crate) fn from_key(c: char) -> Option<Workspace> {
         Workspace::iter().find(|w| w.key() == c)
     }
 
-    /// The switcher label for this workspace.
+    /// The switcher label for this workspace
     pub(crate) fn label(self) -> &'static str {
         self.into()
     }
@@ -134,7 +134,7 @@ pub(crate) struct SavesState {
     pub(crate) list: ListState,
 }
 
-/// The loaded domain data for one instance — replaced wholesale on a switch.
+/// The loaded domain data for one instance — replaced wholesale on a switch
 #[derive(Debug)]
 pub(crate) struct Session {
     pub(crate) instance: Instance,
@@ -145,7 +145,7 @@ pub(crate) struct Session {
 }
 
 impl Session {
-    /// Load an instance's domain data. Reconciles in memory but never saves.
+    /// Load an instance's domain data. Reconciles in memory but never saves
     pub(crate) fn load(instance_dir: &Utf8Path, profile_name: &str) -> Result<Self> {
         let instance = Instance::load(instance_dir.to_owned())?;
 
@@ -168,7 +168,7 @@ impl Session {
     }
 }
 
-/// Snapshot the UI renders: persistent UI state plus the current instance's [`Session`].
+/// Snapshot the UI renders: persistent UI state plus the current instance's [`Session`]
 #[derive(Debug)]
 pub(crate) struct App {
     pub(crate) should_quit: bool,
@@ -187,7 +187,7 @@ pub(crate) struct App {
 }
 
 impl App {
-    /// Load an instance and remember it in settings.
+    /// Load an instance and remember it in settings
     pub(crate) fn load(
         instance_dir: &Utf8Path,
         profile_name: &str,
@@ -195,7 +195,7 @@ impl App {
     ) -> Result<Self> {
         let session = Session::load(instance_dir, profile_name)?;
 
-        // Only a successful load is worth remembering.
+        // Only a successful load is worth remembering
         settings.record_opened(instance_dir);
         if let Err(e) = settings.save() {
             tracing::warn!(error = %e, "could not save settings");
@@ -218,7 +218,7 @@ impl App {
         })
     }
 
-    /// Footer message: success (green).
+    /// Footer message: success (green)
     pub(crate) fn ok(&mut self, text: impl Into<String>) {
         self.message = Some(Notice {
             text: text.into(),
@@ -226,7 +226,7 @@ impl App {
         });
     }
 
-    /// Footer message: failure (red).
+    /// Footer message: failure (red)
     pub(crate) fn fail(&mut self, text: impl Into<String>) {
         self.message = Some(Notice {
             text: text.into(),
@@ -234,7 +234,7 @@ impl App {
         });
     }
 
-    /// Footer message: neutral notice (muted).
+    /// Footer message: neutral notice (muted)
     pub(crate) fn note(&mut self, text: impl Into<String>) {
         self.message = Some(Notice {
             text: text.into(),
@@ -243,7 +243,7 @@ impl App {
     }
 }
 
-/// A `ListState` selecting the first row when the list is non-empty.
+/// A `ListState` selecting the first row when the list is non-empty
 pub(crate) fn initial_selection(len: usize) -> ListState {
     let mut state = ListState::default();
     if len > 0 {
@@ -252,7 +252,7 @@ pub(crate) fn initial_selection(len: usize) -> ListState {
     state
 }
 
-/// A seperator entry's display name: its stored name with the `_separator` suffix stripped
+/// A separator entry's display name: its stored name with the `_separator` suffix stripped
 pub(crate) fn separator_display(name: &str) -> &str {
     name.strip_suffix("_separator").unwrap_or(name)
 }

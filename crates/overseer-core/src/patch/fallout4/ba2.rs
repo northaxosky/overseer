@@ -25,7 +25,7 @@ impl Ba2Edition {
         }
     }
 
-    /// The BA2 edition for a [`Generation`]; Anniversary uses Next-Gen archives, so `Ae` maps to `None`.
+    /// The BA2 edition for a [`Generation`]; `Anniversary` uses Next-Gen archives, so it maps to `None`
     pub fn from_generation(generation: Generation) -> Option<Self> {
         match generation {
             Generation::OldGen => Some(Self::OldGen),
@@ -146,7 +146,7 @@ mod tests {
 
     #[test]
     fn plan_leaves_v7_alone_when_targeting_next_gen() {
-        // v7 is already Next-Gen — we never silently canonicalise it to v8.
+        // v7 is already Next-Gen — we never silently canonicalise it to v8
         assert_eq!(
             plan(&header(7, Ba2Kind::General), Ba2Edition::NextGen),
             PatchOutcome::AlreadyTarget { version: 7 }

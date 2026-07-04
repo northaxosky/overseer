@@ -11,12 +11,12 @@ use overseer_core::test_support::{
     FLAG_MASTER, install_mod, install_plugin, save_profile, temp_instance, write_plugin,
 };
 
-/// Absolute path of a file as it would land under the game's `Data/` directory.
+/// Absolute path of a file as it would land under the game's `Data/` directory
 fn data_file(instance: &Instance, rel: &str) -> Utf8PathBuf {
     instance.config.game_dir.join("Data").join(rel)
 }
 
-/// Path of the redirected real `Plugins.txt` for this test instance.
+/// Path of the redirected real `Plugins.txt` for this test instance
 fn plugins_txt(instance: &Instance) -> Utf8PathBuf {
     instance
         .config
@@ -34,7 +34,7 @@ fn deploy_status_purge_round_trip() {
         "Base",
         &[("Textures/base.dds", "base"), ("Meshes/m.nif", "mesh")],
     );
-    // Two mods provide the same file; the higher-priority one (top of the list) wins.
+    // Two mods provide the same file; the higher-priority one (top of the list) wins
     install_mod(&instance, "Winner", &[("Textures/shared.dds", "winner")]);
     install_mod(&instance, "Loser", &[("Textures/shared.dds", "loser")]);
     save_profile(
@@ -45,7 +45,7 @@ fn deploy_status_purge_round_trip() {
 
     deploy_profile(&instance, "Default", &NullSink).expect("deploy");
 
-    // Files landed under Data/, and the conflict resolved to the higher-priority mod.
+    // Files landed under Data/, and the conflict resolved to the higher-priority mod
     assert_eq!(
         std::fs::read_to_string(data_file(&instance, "Textures/base.dds")).unwrap(),
         "base"
@@ -59,13 +59,13 @@ fn deploy_status_purge_round_trip() {
         "winner"
     );
 
-    // status reports the live deployment (one entry per distinct destination path).
+    // status reports the live deployment (one entry per distinct destination path)
     let st = status(&instance).expect("status").expect("deployed");
     assert_eq!(st.deployment.profile, "Default");
     assert!(st.verified.is_ok(), "all deployed files present");
     assert_eq!(st.deployment.record.entries.len(), 3);
 
-    // purge removes every deployed file, the dirs it created, and clears the journal.
+    // purge removes every deployed file, the dirs it created, and clears the journal
     purge(&instance, &NullSink).expect("purge");
     assert!(!data_file(&instance, "Textures/shared.dds").exists());
     assert!(
@@ -81,7 +81,7 @@ fn deploy_status_purge_round_trip() {
 #[test]
 fn purge_restores_a_pre_existing_vanilla_file() {
     let (_tmp, instance) = temp_instance();
-    // A vanilla file already living in Data/.
+    // A vanilla file already living in Data/
     let vanilla = data_file(&instance, "Textures/vanilla.dds");
     std::fs::create_dir_all(vanilla.parent().unwrap()).unwrap();
     std::fs::write(&vanilla, "vanilla").unwrap();
@@ -126,14 +126,14 @@ fn plugins_txt_is_written_with_masters_first() {
 
     deploy_profile(&instance, "Default", &NullSink).expect("deploy");
 
-    // libloadorder writes the real Plugins.txt: masters sort first, '*' marks active.
+    // libloadorder writes the real Plugins.txt: masters sort first, '*' marks active
     let txt = std::fs::read_to_string(plugins_txt(&instance)).expect("read Plugins.txt");
     assert_eq!(txt, "*Master.esm\n*Patch.esp\n");
 }
 
 #[test]
 fn deploys_a_skyrim_se_instance() {
-    // The multi-game seam: a non-Fallout 4 instance deploys and writes its load order.
+    // The multi-game seam: a non-Fallout 4 instance deploys and writes its load order
     let (_tmp, mut instance) = temp_instance();
     instance.config.game = GameKind::SkyrimSE;
     assert_eq!(

@@ -104,6 +104,7 @@ impl App {
         Ok(())
     }
 
+    /// Deploy the active profile & report the outcome
     pub(super) fn deploy(&mut self) {
         match apply::deploy_profile(
             &self.session.instance,
@@ -116,6 +117,7 @@ impl App {
         self.refresh_status();
     }
 
+    /// Purge the live deployment & report the outcome
     pub(super) fn purge(&mut self) {
         match apply::purge(&self.session.instance, &NullSink) {
             Ok(()) => self.ok("Purged the live deployment"),
@@ -124,7 +126,7 @@ impl App {
         self.refresh_status();
     }
 
-    /// Refresh cached deployment status after deploy/purge without surfacing probe failures.
+    /// Refresh cached deployment status after deploy/purge without surfacing probe failures
     fn refresh_status(&mut self) {
         self.session.status = apply::status(&self.session.instance).unwrap_or_else(|e| {
             tracing::warn!(error = %e, "could not read deployment status");
@@ -134,7 +136,7 @@ impl App {
 }
 
 impl Workspace {
-    /// The Enter/Space primary action; returns `true` when persistent state changed and should be saved.
+    /// The Enter/Space primary action; returns `true` when persistent state changed and should be saved
     fn primary(self, app: &mut App) -> bool {
         match self {
             Workspace::Plugins => {
@@ -289,7 +291,7 @@ mod tests {
 
     #[test]
     fn j_moves_a_mod_down_the_ui_which_raises_its_priority() {
-        // model [CoolMod(0), OffMod(1)]; display [OffMod, CoolMod] (highest priority at the bottom).
+        // model [CoolMod(0), OffMod(1)]; display [OffMod, CoolMod] (highest priority at the bottom)
         let mut app = App::sample();
         app.mods_state.select(Some(0)); // OffMod: lowest priority, top of the UI
         assert!(app.shift_selected_mod(1)); // J: move down the UI

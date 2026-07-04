@@ -1,3 +1,5 @@
+//! Reading a plugin's header metadata via `esplugin`
+
 use super::error::PluginError;
 use camino::Utf8Path;
 use esplugin::{GameId, ParseOptions, Plugin};
@@ -110,7 +112,7 @@ mod tests {
 
     #[test]
     fn light_flag_marks_light_but_not_master() {
-        // The 0x200 light flag does not imply master.
+        // The 0x200 light flag does not imply master
         let (_t, base) = temp();
         let path = write_plugin(&base, "Patch.esp", FLAG_LIGHT, &[]);
         let meta = read_metadata(GameId::Fallout4, "Patch.esp", &path).expect("parse");
@@ -120,7 +122,7 @@ mod tests {
 
     #[test]
     fn esm_extension_implies_master() {
-        // No flags set; the .esm extension alone marks it a master.
+        // No flags set; the .esm extension alone marks it a master
         let (_t, base) = temp();
         let path = write_plugin(&base, "Big.esm", 0, &[]);
         let meta = read_metadata(GameId::Fallout4, "Big.esm", &path).expect("parse");
@@ -130,7 +132,7 @@ mod tests {
 
     #[test]
     fn esl_extension_implies_master_and_light() {
-        // The .esl extension implies both the master and light flags.
+        // The .esl extension implies both the master and light flags
         let (_t, base) = temp();
         let path = write_plugin(&base, "Small.esl", 0, &[]);
         let meta = read_metadata(GameId::Fallout4, "Small.esl", &path).expect("parse");
@@ -148,7 +150,7 @@ mod tests {
 
     #[test]
     fn reads_the_header_version_from_the_hedr_field() {
-        // The default builder stamps 1.0; a versioned fixture round-trips its own value.
+        // The default builder stamps 1.0; a versioned fixture round-trips its own value
         let (_t, base) = temp();
         let default_path = write_plugin(&base, "Default.esp", 0, &[]);
         let default_meta = read_metadata(GameId::Fallout4, "Default.esp", &default_path).unwrap();

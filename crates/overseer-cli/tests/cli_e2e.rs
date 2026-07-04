@@ -5,7 +5,7 @@ use assert_cmd::Command;
 use predicates::prelude::*;
 use tempfile::TempDir;
 
-/// Run `overseer` with `args`; `--color never` keeps output plain for stable assertions.
+/// Run `overseer` with `args`; `--color never` keeps output plain for stable assertions
 fn overseer(args: &[&str]) -> assert_cmd::assert::Assert {
     Command::cargo_bin("overseer")
         .unwrap()
@@ -24,7 +24,7 @@ fn full_workflow_init_enable_deploy_status_purge() {
     let local = root.join("local");
     let inst_s = inst.to_str().unwrap();
 
-    // 1. Create the instance (Plugins.txt redirected to a temp dir via --local).
+    // 1. Create the instance (Plugins.txt redirected to a temp dir via --local)
     overseer(&[
         "instance",
         "init",
@@ -38,7 +38,7 @@ fn full_workflow_init_enable_deploy_status_purge() {
     .success()
     .stdout(predicate::str::contains("Created instance"));
 
-    // 2. Stage a mod by hand (an archive isn't needed to exercise mod/deploy commands).
+    // 2. Stage a mod by hand (an archive isn't needed to exercise mod/deploy commands)
     let mod_file = inst
         .join("mods")
         .join("CoolMod")
@@ -47,37 +47,37 @@ fn full_workflow_init_enable_deploy_status_purge() {
     std::fs::create_dir_all(mod_file.parent().unwrap()).unwrap();
     std::fs::write(&mod_file, "cool-bytes").unwrap();
 
-    // 3. Enabling reconciles the new mod into the profile, then enables it.
+    // 3. Enabling reconciles the new mod into the profile, then enables it
     overseer(&["mod", "enable", "CoolMod", "--instance", inst_s])
         .success()
         .stdout(predicate::str::contains("CoolMod"));
 
-    // 4. It now appears in the mod list.
+    // 4. It now appears in the mod list
     overseer(&["mod", "list", "--instance", inst_s])
         .success()
         .stdout(predicate::str::contains("CoolMod"));
 
-    // 5. Deploy it.
+    // 5. Deploy it
     overseer(&["deploy", "--instance", inst_s])
         .success()
         .stdout(predicate::str::contains("Deployed"));
 
-    // 6. The file is live under the game's Data/ directory.
+    // 6. The file is live under the game's Data/ directory
     let deployed = game.join("Data").join("Textures").join("cool.dds");
     assert!(deployed.exists(), "mod file should be deployed into Data/");
     assert_eq!(std::fs::read_to_string(&deployed).unwrap(), "cool-bytes");
 
-    // 7. Status reports the live deployment.
+    // 7. Status reports the live deployment
     overseer(&["status", "--instance", inst_s])
         .success()
         .stdout(predicate::str::contains("Default"));
 
-    // 8. Purge it.
+    // 8. Purge it
     overseer(&["purge", "--instance", inst_s])
         .success()
         .stdout(predicate::str::contains("Purged"));
 
-    // 9. The game directory is clean again and status reports nothing.
+    // 9. The game directory is clean again and status reports nothing
     assert!(!deployed.exists(), "deployed file removed after purge");
     overseer(&["status", "--instance", inst_s])
         .success()
@@ -117,7 +117,7 @@ fn exe_and_launch_manage_and_list_targets() {
     let inst = root.join("inst");
     let inst_s = inst.to_str().unwrap();
 
-    // init seeds `game` + `script-extender` as ordinary launch targets.
+    // init seeds `game` + `script-extender` as ordinary launch targets
     overseer(&[
         "instance",
         "init",
@@ -129,12 +129,12 @@ fn exe_and_launch_manage_and_list_targets() {
     .success()
     .stdout(predicate::str::contains("targets:").and(predicate::str::contains("script-extender")));
 
-    // Bare `launch` lists the available targets.
+    // Bare `launch` lists the available targets
     overseer(&["launch", "--instance", inst_s])
         .success()
         .stdout(predicate::str::contains("game").and(predicate::str::contains("script-extender")));
 
-    // Add a real on-disk tool with an argument.
+    // Add a real on-disk tool with an argument
     let tool = root.join("FO4Edit.exe");
     std::fs::write(&tool, "").unwrap();
     overseer(&[
@@ -152,7 +152,7 @@ fn exe_and_launch_manage_and_list_targets() {
     .success()
     .stdout(predicate::str::contains("Added launch target `FO4Edit`"));
 
-    // `exe list` shows it as installed, with its argument.
+    // `exe list` shows it as installed, with its argument
     overseer(&["exe", "list", "--instance", inst_s])
         .success()
         .stdout(
@@ -161,7 +161,7 @@ fn exe_and_launch_manage_and_list_targets() {
                 .and(predicate::str::contains("-FO4")),
         );
 
-    // Adding the same name again is rejected.
+    // Adding the same name again is rejected
     overseer(&[
         "exe",
         "add",
@@ -175,7 +175,7 @@ fn exe_and_launch_manage_and_list_targets() {
     .failure()
     .stderr(predicate::str::contains("already exists"));
 
-    // Removing it drops it from the list (the seeded targets remain).
+    // Removing it drops it from the list (the seeded targets remain)
     overseer(&["exe", "remove", "FO4Edit", "--instance", inst_s])
         .success()
         .stdout(predicate::str::contains("Removed launch target `FO4Edit`"));
@@ -201,12 +201,12 @@ fn launch_reports_missing_and_unknown_targets() {
     ])
     .success();
 
-    // `game` is seeded, but its executable isn't on disk.
+    // `game` is seeded, but its executable isn't on disk
     overseer(&["launch", "game", "--instance", inst_s])
         .failure()
         .stderr(predicate::str::contains("not present"));
 
-    // An unknown target name is rejected.
+    // An unknown target name is rejected
     overseer(&["launch", "bogus", "--instance", inst_s])
         .failure()
         .stderr(predicate::str::contains("no launch target named `bogus`"));
@@ -220,10 +220,10 @@ fn doctor_reports_a_clean_fresh_instance() {
 
     let game = tmp.path().join("game");
     std::fs::create_dir_all(&game).unwrap();
-    // A complete install ships its Creation Club manifest in the game root.
+    // A complete install ships its Creation Club manifest in the game root
     std::fs::write(game.join("Fallout4.ccc"), "ccBGSFO4001-PipBoy(Black).esl\n").unwrap();
 
-    // A controlled INI dir with archive invalidation correctly configured, so the check is; clean and deterministic instead of reading the real `My Games\Fallout4`.
+    // A controlled INI dir with archive invalidation correctly configured, so the check is; clean and deterministic instead of reading the real `My Games\Fallout4`
     let ini = tmp.path().join("ini");
     std::fs::create_dir_all(&ini).unwrap();
     std::fs::write(
@@ -244,7 +244,7 @@ fn doctor_reports_a_clean_fresh_instance() {
     ])
     .success();
 
-    // A fresh instance has no plugins, so every count is within limits.
+    // A fresh instance has no plugins, so every count is within limits
     overseer(&["doctor", "--instance", inst_s])
         .success()
         .stdout(
@@ -264,7 +264,7 @@ fn profile_saves_toggle_redirects_saves_on_deploy() {
     let my_games = root.join("my_games");
     let inst_s = inst.to_str().unwrap();
 
-    // Init with both the Plugins.txt dir and the INI dir redirected to temp.
+    // Init with both the Plugins.txt dir and the INI dir redirected to temp
     overseer(&[
         "instance",
         "init",
@@ -279,7 +279,7 @@ fn profile_saves_toggle_redirects_saves_on_deploy() {
     ])
     .success();
 
-    // Stage and enable a mod so there is something to deploy.
+    // Stage and enable a mod so there is something to deploy
     let mod_file = inst
         .join("mods")
         .join("CoolMod")
@@ -289,7 +289,7 @@ fn profile_saves_toggle_redirects_saves_on_deploy() {
     std::fs::write(&mod_file, "cool-bytes").unwrap();
     overseer(&["mod", "enable", "CoolMod", "--instance", inst_s]).success();
 
-    // Turn per-profile saves on, then the bare form reports the current setting.
+    // Turn per-profile saves on, then the bare form reports the current setting
     overseer(&["profile", "saves", "on", "--instance", inst_s])
         .success()
         .stdout(predicate::str::contains("enabled"));
@@ -297,7 +297,7 @@ fn profile_saves_toggle_redirects_saves_on_deploy() {
         .success()
         .stdout(predicate::str::contains("Local saves: on"));
 
-    // Deploying redirects saves into the profile's folder via Fallout4Custom.ini.
+    // Deploying redirects saves into the profile's folder via Fallout4Custom.ini
     overseer(&["deploy", "--instance", inst_s]).success();
     let custom_ini = my_games.join("Fallout4Custom.ini");
     let written = std::fs::read_to_string(&custom_ini).unwrap();
@@ -306,7 +306,7 @@ fn profile_saves_toggle_redirects_saves_on_deploy() {
         "deploy should write the save redirect, got: {written}"
     );
 
-    // Purge removes it (the user had no prior value to restore).
+    // Purge removes it (the user had no prior value to restore)
     overseer(&["purge", "--instance", inst_s]).success();
     let after = std::fs::read_to_string(&custom_ini).unwrap_or_default();
     assert!(
@@ -315,7 +315,7 @@ fn profile_saves_toggle_redirects_saves_on_deploy() {
     );
 }
 
-/// A minimal BA2 the patch tests flip the version byte on. Reuses the shared core builder.
+/// A minimal BA2 the patch tests flip the version byte on. Reuses the shared core builder
 use overseer_core::test_support::ba2_bytes;
 
 #[test]
@@ -326,7 +326,7 @@ fn patch_ba2_downgrades_a_single_file_and_preserves_the_body() {
     std::fs::write(&file, &original).unwrap();
     let file_s = file.to_str().unwrap();
 
-    // A dry run previews the change but writes nothing.
+    // A dry run previews the change but writes nothing
     overseer(&["patch", "ba2", file_s, "--to", "og", "--dry-run"])
         .success()
         .stdout(predicate::str::contains("would patch v8").and(predicate::str::contains("v1")));
@@ -336,7 +336,7 @@ fn patch_ba2_downgrades_a_single_file_and_preserves_the_body() {
         "dry run must not write"
     );
 
-    // The real patch flips only the version byte.
+    // The real patch flips only the version byte
     overseer(&["patch", "ba2", file_s, "--to", "og"])
         .success()
         .stdout(predicate::str::contains("patched v8").and(predicate::str::contains("v1")));
@@ -348,7 +348,7 @@ fn patch_ba2_downgrades_a_single_file_and_preserves_the_body() {
         "everything after the version is untouched"
     );
 
-    // Re-running is idempotent.
+    // Re-running is idempotent
     overseer(&["patch", "ba2", file_s, "--to", "og"])
         .success()
         .stdout(predicate::str::contains("already og"));
@@ -361,11 +361,11 @@ fn patch_ba2_directory_requires_yes_then_patches_all() {
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(dir.join("A.ba2"), ba2_bytes(8, b"GNRL", b"aaaa")).unwrap();
     std::fs::write(dir.join("B.ba2"), ba2_bytes(8, b"DX10", b"bbbb")).unwrap();
-    // A non-BA2 file in the same dir is simply ignored by the scan.
+    // A non-BA2 file in the same dir is simply ignored by the scan
     std::fs::write(dir.join("notes.txt"), "ignore me").unwrap();
     let dir_s = dir.to_str().unwrap();
 
-    // Without --yes a directory is previewed, not written.
+    // Without --yes a directory is previewed, not written
     overseer(&["patch", "ba2", dir_s, "--to", "og"])
         .success()
         .stdout(
@@ -378,7 +378,7 @@ fn patch_ba2_directory_requires_yes_then_patches_all() {
         "preview must not write"
     );
 
-    // With --yes both archives are patched.
+    // With --yes both archives are patched
     overseer(&["patch", "ba2", dir_s, "--to", "og", "--yes"])
         .success()
         .stdout(predicate::str::contains("2 patched"));
@@ -390,14 +390,14 @@ fn patch_ba2_directory_requires_yes_then_patches_all() {
 fn patch_ba2_skips_unsupported_and_fails_on_invalid() {
     let tmp = TempDir::new().unwrap();
 
-    // A Starfield-version archive is a benign skip, not an error.
+    // A Starfield-version archive is a benign skip, not an error
     let sf = tmp.path().join("Starfield.ba2");
     std::fs::write(&sf, ba2_bytes(3, b"GNRL", b"sf")).unwrap();
     overseer(&["patch", "ba2", sf.to_str().unwrap(), "--to", "og"])
         .success()
         .stdout(predicate::str::contains("skipped").and(predicate::str::contains("unsupported")));
 
-    // A file without the BTDX magic is a hard error (non-zero exit).
+    // A file without the BTDX magic is a hard error (non-zero exit)
     let bad = tmp.path().join("Bad.ba2");
     std::fs::write(&bad, b"NOPE-not-a-ba2-header-padding-padding").unwrap();
     overseer(&["patch", "ba2", bad.to_str().unwrap(), "--to", "og"])
@@ -451,7 +451,7 @@ fn mod_rename_renames_the_installed_mod() {
     ])
     .success();
 
-    // Stage + enable a mod so it lands in the Default profile's modlist.
+    // Stage + enable a mod so it lands in the Default profile's modlist
     let mod_file = inst.join("mods").join("CoolMod").join("readme.txt");
     std::fs::create_dir_all(mod_file.parent().unwrap()).unwrap();
     std::fs::write(&mod_file, "hi").unwrap();
@@ -468,7 +468,7 @@ fn mod_rename_renames_the_installed_mod() {
     .success()
     .stdout(predicate::str::contains("Renamed"));
 
-    // The folder is renamed on disk and the modlist follows.
+    // The folder is renamed on disk and the modlist follows
     assert!(inst.join("mods").join("BetterMod").is_dir());
     assert!(!inst.join("mods").join("CoolMod").exists());
     overseer(&["mod", "list", "--instance", inst_s])
@@ -476,7 +476,7 @@ fn mod_rename_renames_the_installed_mod() {
         .stdout(predicate::str::contains("BetterMod"));
 }
 
-/// Create a temp instance with every path under `tmp` (saves resolve to `<tmp>/ini/Saves/<profile>`).
+/// Create a temp instance with every path under `tmp` (saves resolve to `<tmp>/ini/Saves/<profile>`)
 fn init_instance(tmp: &TempDir) -> std::path::PathBuf {
     let root = tmp.path();
     let inst = root.join("inst");
@@ -502,7 +502,7 @@ fn conflicts_lists_files_provided_by_two_mods() {
     let inst = init_instance(&tmp);
     let inst_s = inst.to_str().unwrap();
 
-    // Two enabled mods provide the same file.
+    // Two enabled mods provide the same file
     for m in ["AlphaMod", "BetaMod"] {
         let f = inst
             .join("mods")
@@ -549,7 +549,7 @@ fn saves_list_and_delete_manage_fos_files() {
     let inst = init_instance(&tmp);
     let inst_s = inst.to_str().unwrap();
 
-    // saves_dir resolves to <ini>/Saves/Default; a `.fos` with an unreadable header still lists.
+    // saves_dir resolves to <ini>/Saves/Default; a `.fos` with an unreadable header still lists
     let saves = tmp.path().join("ini").join("Saves").join("Default");
     std::fs::create_dir_all(&saves).unwrap();
     let save = saves.join("Save1_abc.fos");

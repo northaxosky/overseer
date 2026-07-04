@@ -25,7 +25,7 @@ use crate::app::{
 };
 use crate::theme;
 
-/// The shared title for the Conflicts workspace pane, scan or message alike.
+/// The shared title for the Conflicts workspace pane, scan or message alike
 const CONFLICTS_TITLE: &str = " Conflicts — all enabled mods ";
 
 /// Draw the main view, plus any modal floating on top
@@ -65,7 +65,7 @@ pub(crate) fn draw_main(app: &mut App, frame: &mut Frame) {
         rows[1],
     );
 
-    // Two columns: the mods pane on the left, the active workspace on the right.
+    // Two columns: the mods pane on the left, the active workspace on the right
     let cols = Layout::horizontal([Constraint::Fill(1), Constraint::Fill(1)]).split(rows[2]);
 
     let mods_focused = app.focus == Focus::Mods;
@@ -103,9 +103,11 @@ pub(crate) fn draw_main(app: &mut App, frame: &mut Frame) {
         mods_focused,
     );
 
-    render_workspace(app, frame, cols[1]);
+    // Right pane: draw the active workspace body
+    let ws = app.workspace;
+    ws.render(app, frame, cols[1]);
 
-    // Status/message on the left, key hints on the right, sharing the footer row.
+    // Status/message on the left, key hints on the right, sharing the footer row
     let (status_text, status_role) = match &app.message {
         Some(n) => (n.text.clone(), n.role),
         None => (status_summary(app.session.status.as_ref()), Role::Muted),
@@ -123,14 +125,8 @@ pub(crate) fn draw_main(app: &mut App, frame: &mut Frame) {
     frame.render_widget(Paragraph::new(hint).alignment(Alignment::Right), rows[3]);
 }
 
-/// Draw the right pane body; `draw_main` draws the switcher full-width so both panes align.
-fn render_workspace(app: &mut App, frame: &mut Frame, area: Rect) {
-    let ws = app.workspace;
-    ws.render(app, frame, area);
-}
-
 impl Workspace {
-    /// Draw this workspace's body into `area`.
+    /// Draw this workspace's body into `area`
     fn render(self, app: &mut App, frame: &mut Frame, area: Rect) {
         match self {
             Workspace::Plugins => render_plugins(app, frame, area),
@@ -140,7 +136,7 @@ impl Workspace {
         }
     }
 
-    /// The header's scope tag: what this workspace shows (Saves is per-profile).
+    /// The header's scope tag: what this workspace shows (Saves is per-profile)
     fn scope(self, profile: &str) -> String {
         match self {
             Workspace::Plugins => "load order".to_owned(),
@@ -151,7 +147,7 @@ impl Workspace {
     }
 }
 
-/// The switcher line compacted to `width`: full labels when they fit, else numbers with the active label kept.
+/// The switcher line compacted to `width`: full labels when they fit, else numbers with the active label kept
 fn workspace_header(active: Workspace, profile: &str, width: usize) -> Paragraph<'static> {
     let full = switcher_line(active, profile, true);
     let line = if full.width() <= width {
@@ -162,7 +158,7 @@ fn workspace_header(active: Workspace, profile: &str, width: usize) -> Paragraph
     Paragraph::new(line)
 }
 
-/// Build the switcher line; `verbose` shows labels/prefix/scope, compact labels only the active workspace.
+/// Build the switcher line; `verbose` shows labels/prefix/scope, compact labels only the active workspace
 fn switcher_line(active: Workspace, profile: &str, verbose: bool) -> Line<'static> {
     let role = |on: bool| if on { Role::Heading } else { Role::Muted };
     let mut spans = if verbose {
@@ -177,7 +173,7 @@ fn switcher_line(active: Workspace, profile: &str, verbose: bool) -> Line<'stati
         if i > 0 {
             spans.push(Span::styled("| ", theme::style(Role::Muted)));
         }
-        // Compact mode keeps only the active workspace's label.
+        // Compact mode keeps only the active workspace's label
         let text = if verbose || w == active {
             format!("{} {} ", w.key(), w.label())
         } else {
@@ -194,7 +190,7 @@ fn switcher_line(active: Workspace, profile: &str, verbose: bool) -> Line<'stati
     Line::from(spans)
 }
 
-/// The plugins workspace: the load order, highlighted when the right pane has focus.
+/// The plugins workspace: the load order, highlighted when the right pane has focus
 fn render_plugins(app: &mut App, frame: &mut Frame, area: Rect) {
     let focused = app.focus == Focus::Workspace;
     let title = format!(" plugins — {} ", app.session.order.plugins.len());
@@ -217,7 +213,7 @@ fn render_plugins(app: &mut App, frame: &mut Frame, area: Rect) {
     render_pane(frame, area, title, items, &mut app.plugins_state, focused);
 }
 
-/// The conflicts workspace: a scan result, or a short prompt in every other state.
+/// The conflicts workspace: a scan result, or a short prompt in every other state
 fn render_conflicts(app: &mut App, frame: &mut Frame, area: Rect) {
     let focused = app.focus == Focus::Workspace;
     let found = match &app.conflicts.status {
@@ -243,7 +239,7 @@ fn render_conflicts(app: &mut App, frame: &mut Frame, area: Rect) {
                 focused,
             );
         }
-        // Each row is a priority chain; providers are winner-last, so the rightmost wins.
+        // Each row is a priority chain; providers are winner-last, so the rightmost wins
         ConflictsStatus::Ready(found) => found,
     };
 
@@ -331,7 +327,7 @@ fn conflict_detail_lines(conflict: &FileConflict, width: usize) -> Vec<Line<'sta
     lines
 }
 
-/// The downloads workspace: installable archives, or a hint to drop files in.
+/// The downloads workspace: installable archives, or a hint to drop files in
 fn render_downloads(app: &mut App, frame: &mut Frame, area: Rect) {
     let focused = app.focus == Focus::Workspace;
     let title = downloads_title(app);
@@ -347,7 +343,7 @@ fn render_downloads(app: &mut App, frame: &mut Frame, area: Rect) {
         .entries
         .iter()
         .map(|e| {
-            // Installed archives are muted with a suffix, like inactive rows elsewhere.
+            // Installed archives are muted with a suffix, like inactive rows elsewhere
             if e.installed {
                 ListItem::new(format!("{} (installed)", e.name)).style(theme::style(Role::Muted))
             } else {
@@ -358,7 +354,7 @@ fn render_downloads(app: &mut App, frame: &mut Frame, area: Rect) {
     render_pane(frame, area, title, rows, &mut app.downloads.list, focused);
 }
 
-/// The saves workspace: the profile's saves in the active sort order, or an empty-folder note.
+/// The saves workspace: the profile's saves in the active sort order, or an empty-folder note
 fn render_saves(app: &mut App, frame: &mut Frame, area: Rect) {
     let focused = app.focus == Focus::Workspace;
     let title = saves_title(app);
@@ -376,12 +372,12 @@ fn render_saves(app: &mut App, frame: &mut Frame, area: Rect) {
         .entries
         .iter()
         .map(|s| match &s.meta {
-            // A parsed save reads as its character/level/location/in-game date.
+            // A parsed save reads as its character/level/location/in-game date
             Some(m) => ListItem::new(format!(
                 "{}  ·  L{}  ·  {}  ·  {}",
                 m.character, m.level, m.location, m.game_date
             )),
-            // An unparsable save still lists, muted, as its bare file name.
+            // An unparsable save still lists, muted, as its bare file name
             None => ListItem::new(s.file_name.clone()).style(theme::style(Role::Muted)),
         })
         .collect();
@@ -403,7 +399,7 @@ fn saves_title(app: &App) -> String {
     )
 }
 
-/// A short, centered message inside a workspace pane frame (stale / error / empty).
+/// A short, centered message inside a workspace pane frame (stale / error / empty)
 fn render_workspace_message(frame: &mut Frame, area: Rect, title: &str, msg: &str, focused: bool) {
     let block = Block::bordered()
         .border_type(if focused {
@@ -437,7 +433,7 @@ pub(super) fn centered_rect(pct_x: u16, pct_y: u16, area: Rect) -> Rect {
     .split(rows[1])[1]
 }
 
-/// A `Rect` centered in `area`, `pct_x`% wide and a fixed `lines` tall (clamped to `area`).
+/// A `Rect` centered in `area`, `pct_x`% wide and a fixed `lines` tall (clamped to `area`)
 pub(super) fn centered_rect_lines(pct_x: u16, lines: u16, area: Rect) -> Rect {
     let lines = lines.min(area.height);
     let top = area.height.saturating_sub(lines) / 2;
@@ -546,13 +542,13 @@ fn render_overlay_list(
     frame.render_stateful_widget(list, area, state);
 }
 
-/// Greedily wrap `text` to `width` columns, hard-splitting any word too long to fit.
+/// Greedily wrap `text` to `width` columns, hard-splitting any word too long to fit
 pub(super) fn wrap_text(text: &str, width: usize) -> Vec<String> {
     let mut lines = Vec::new();
     let mut current = String::new();
     for word in text.split_whitespace() {
         if word.chars().count() > width {
-            // A word longer than the line: flush what we have, then hard-split it.
+            // A word longer than the line: flush what we have, then hard-split it
             if !current.is_empty() {
                 lines.push(std::mem::take(&mut current));
             }
@@ -710,7 +706,7 @@ mod tests {
 
     #[test]
     fn workspace_header_compacts_on_a_narrow_terminal() {
-        // App::sample() defaults to the Plugins workspace.
+        // App::sample() defaults to the Plugins workspace
         let mut app = App::sample();
         let out = render(&mut app, 30, 24);
         assert!(
@@ -1034,7 +1030,7 @@ mod tests {
             }]),
             list: initial_selection(1),
         }));
-        // The trailing word only survives if the title wrapped instead of; clipping at the findings pane's edge.
+        // The trailing word only survives if the title wrapped instead of clipping at the findings pane's edge
         let out = render(&mut app, 80, 24);
         assert!(
             out.contains("row"),
@@ -1104,7 +1100,7 @@ mod tests {
             "prompt shows the submit hint"
         );
 
-        // Clearing the input and submitting surfaces the inline validation error.
+        // Clearing the input and submitting surfaces the inline validation error
         app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
         app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
         app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
