@@ -80,3 +80,59 @@ fn header_version_and_archive_name_are_flagged_over_a_generated_instance() {
         "a conventionally-named archive must not be flagged"
     );
 }
+
+#[test]
+fn a_source_format_loose_file_is_flagged_over_a_generated_instance() {
+    let (_tmp, root) = test_support::temp();
+    let spec = TestbedSpec::new().managed("Retex", true, |m| {
+        m.loose("Textures/armor.dds", b"real asset")
+            .loose("Textures/preview.png", b"source format")
+    });
+    let instance = test_support::build_testbed(&root, &spec);
+
+    let report = diagnose(&instance, "Default").expect("diagnose");
+
+    // A `.png` the game can't load is flagged; the real `.dds` asset beside it is not.
+    assert!(
+        report.findings.iter().any(|f| f.check == "loose-files"
+            && f.severity == Severity::Warning
+            && f.title.contains("preview.png")),
+        "loose-files should flag preview.png: {:?}",
+        report.findings
+    );
+    assert!(
+        !report
+            .findings
+            .iter()
+            .any(|f| f.check == "loose-files" && f.title.contains("armor.dds")),
+        "a real .dds asset must not be flagged"
+    );
+}
+
+#[test]
+fn a_base_script_override_is_flagged_over_a_generated_instance() {
+    let (_tmp, root) = test_support::temp();
+    // The F4SE package ships the most base scripts (dominant provider); BadMod, at higher
+    // priority, wins one of those paths — so its Actor.pex reads as an override.
+    let spec = TestbedSpec::new()
+        .managed("BadMod", true, |m| {
+            m.loose("Scripts/Actor.pex", b"override")
+        })
+        .managed("F4SE", true, |m| {
+            m.loose("Scripts/Actor.pex", b"base")
+                .loose("Scripts/Game.pex", b"base")
+                .loose("Scripts/Form.pex", b"base")
+        });
+    let instance = test_support::build_testbed(&root, &spec);
+
+    let report = diagnose(&instance, "Default").expect("diagnose");
+
+    assert!(
+        report.findings.iter().any(|f| f.check == "script-overrides"
+            && f.severity == Severity::Warning
+            && f.title.contains("Actor.pex")
+            && f.title.contains("BadMod")),
+        "script-overrides should flag BadMod's Actor.pex: {:?}",
+        report.findings
+    );
+}
