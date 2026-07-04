@@ -102,7 +102,7 @@ pub enum ConvertError {
     },
     #[error("source `{item}` changed before commit; refusing to swap")]
     SourceChanged { item: String },
-    #[error("backup `{backup}` already exists and does not match the current source")]
+    #[error("backup `{backup}` is from an earlier conversion; revert or remove it first")]
     BackupConflict { backup: Utf8PathBuf },
     #[error("commit failed for `{item}`; rollback was attempted")]
     CommitFailed {
@@ -350,9 +350,15 @@ fn commit_batch_with_renamer(
     ready: &[PreparedReady],
     renamer: &mut dyn RenameOp,
 ) -> Result<(), ConvertError> {
-    preflight_writable(game_dir, ready)?;
-    for ready in ready {
-        guard_backup_slot(game_dir, ready)?;
+    if let Err(err) = preflight_writable(game_dir, ready) {
+        cleanup_remaining_temps(ready);
+        return Err(err);
+    }
+    for r in ready {
+        if let Err(err) = guard_backup_slot(game_dir, r) {
+            cleanup_remaining_temps(ready);
+            return Err(err);
+        }
     }
     let mut moved: Vec<&PreparedReady> = Vec::new();
     for (idx, current) in ready.iter().enumerate() {
@@ -392,7 +398,7 @@ fn cleanup_remaining_temps(ready: &[PreparedReady]) {
     }
 }
 
-/// Refuse up front if a backup slot is occupied by a file that is not this source.
+/// Refuse up front if the backup slot holds a non-source file; re-converting a converted file must revert first
 fn guard_backup_slot(game_dir: &Utf8Path, ready: &PreparedReady) -> Result<(), ConvertError> {
     let bak = backup_path(game_dir, ready.item);
     if let Some(existing) = fingerprint_file(&bak)?
@@ -403,7 +409,7 @@ fn guard_backup_slot(game_dir: &Utf8Path, ready: &PreparedReady) -> Result<(), C
     Ok(())
 }
 
-/// Move the original aside via atomic rename; a matching pre-existing backup is left in place.
+/// Move the original aside via atomic rename; a matching pre-existing backup is left in place
 fn move_original_aside(
     game_dir: &Utf8Path,
     ready: &PreparedReady,
@@ -780,6 +786,25 @@ mod tests {
         assert_eq!(
             std::fs::read(root.join("check.bin")).unwrap(),
             b"AE-version"
+        );
+    }
+
+    #[test]
+    fn a_backup_conflict_cleans_up_the_prepared_temp() {
+        // Regression: prepare() writes check.bin.overseer-tmp; a guard-phase BackupConflict must not leak it.
+        let (_tmp, root) = seed_source(b"AE-version");
+        std::fs::write(root.join("check.bin.overseer-bak"), b"other").unwrap();
+        let err = convert_item(
+            &root,
+            item(),
+            Utf8Path::new("d.vcdiff"),
+            &FakeDecoder::Writes(b"123456789".to_vec()),
+        )
+        .expect_err("backup conflict");
+        assert!(matches!(err, ConvertError::BackupConflict { .. }));
+        assert!(
+            !root.join("check.bin.overseer-tmp").exists(),
+            "the prepared temp must be cleaned up when the backup guard fails"
         );
     }
 
