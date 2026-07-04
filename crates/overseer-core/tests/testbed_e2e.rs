@@ -32,10 +32,10 @@
 //! - `deploy_purge_roundtrip_leaves_testbed_pristine` deploys a **synthetic** mod in a private
 //!   namespace (the unique-paths guarantee above).
 //! - `deploy_purge_roundtrip_with_real_mods_leaves_testbed_pristine` copies a **curated set of
-//!   real MO2 mods** from `OVERSEER_MO2_INSTANCE` onto the testbed volume and deploys those —
-//!   real plugins, `.ba2` archives, loose textures, and a genuine two-mod file conflict. Its
-//!   safety rests on the marker gate, the lock, and the pristine snapshot rather than unique
-//!   paths, so keep the ignored set single-threaded to hold the two off the shared `Data/`.
+//!   real mods** from the standing testbed instance (`OVERSEER_TESTBED`) and deploys those — real
+//!   plugins, `.ba2` archives, loose F4SE DLLs, and a genuine two-mod file conflict. Its safety
+//!   rests on the marker gate, the lock, and the pristine snapshot rather than unique paths, so
+//!   keep the ignored set single-threaded to hold the two off the shared `Data/`.
 
 use camino::{Utf8Path, Utf8PathBuf};
 use overseer_core::apply::{self, Status};
@@ -341,28 +341,28 @@ fn deploy_purge_roundtrip_leaves_testbed_pristine() {
 
 // ---------------------------------------------------------------------------; Curated real-mod round-trip; ---------------------------------------------------------------------------
 
-/// Curated real MO2 mods (from `OVERSEER_MO2_INSTANCE`) covering a real conflict (`Interface/MCM.swf`), ESM+ESP plugins, `.ba2` archives, and loose textures; highest-priority first so the first entry wins.
+/// Curated mods from the standing testbed instance (`OVERSEER_TESTBED`) covering a real conflict (`Interface/MCM.swf`), an ESM master, `.ba2` archives, and loose F4SE plugin DLLs; highest-priority first so the first entry wins.
 const CURATED_MODS: &[&str] = &[
     "Mod Configuration Menu", // Interface/MCM.swf — conflict winner (highest priority)
     "Fallout 76 Style Main Menu", // Interface/MCM.swf — conflict loser
-    "Extended Dialogue Interface", // XDI.esm + .ba2
-    "Dried Blood",            // DriedBlood.esm + .ba2
-    "Holotape Visual Improvement", // .esp + .ba2
-    "Beer Bottles Retextured", // .esp + loose Textures/
+    "Extended Dialogue Interface", // XDI.esm (a master) + .ba2
+    "Community Fixes Merged", // .esp + .ba2
+    "Cell Offset Generator",  // .esp + F4SE plugin DLL
+    "House Rules",            // .esp + F4SE plugin DLL
 ];
 
-/// The MO2 instance whose `mods/` supplies the curated subset, from `OVERSEER_MO2_INSTANCE`; unset skips.
-fn mo2_source_or_skip() -> Option<Utf8PathBuf> {
+/// The standing testbed instance whose `mods/` supplies the curated subset, from `OVERSEER_TESTBED`; unset skips.
+fn testbed_source_or_skip() -> Option<Utf8PathBuf> {
     let _ = dotenvy::dotenv();
-    let Ok(dir) = std::env::var("OVERSEER_MO2_INSTANCE") else {
+    let Ok(dir) = std::env::var("OVERSEER_TESTBED") else {
         eprintln!(
-            "skipping: set OVERSEER_MO2_INSTANCE to a real MO2 instance to source curated mods"
+            "skipping: set OVERSEER_TESTBED to the standing testbed instance to source curated mods"
         );
         return None;
     };
     let dir = Utf8PathBuf::from(dir);
     if !dir.join("mods").is_dir() {
-        eprintln!("skipping: no mods/ under OVERSEER_MO2_INSTANCE={dir}");
+        eprintln!("skipping: no mods/ under OVERSEER_TESTBED={dir}");
         return None;
     }
     Some(dir)
@@ -402,12 +402,12 @@ fn mod_plugins(mod_dir: &Utf8Path) -> Vec<String> {
 }
 
 #[test]
-#[ignore = "destructive; run against OVERSEER_FO4_TESTBED with OVERSEER_MO2_INSTANCE set"]
+#[ignore = "destructive; run against OVERSEER_FO4_TESTBED with OVERSEER_TESTBED set"]
 fn deploy_purge_roundtrip_with_real_mods_leaves_testbed_pristine() {
     let Some(game_dir) = testbed_or_skip() else {
         return;
     };
-    let Some(source) = mo2_source_or_skip() else {
+    let Some(source) = testbed_source_or_skip() else {
         return;
     };
     let data = game_dir.join("Data");
