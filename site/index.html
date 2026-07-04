@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en" class="theme-balanced">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Overseer: a Fallout 4 mod manager, in Rust</title>
+  <meta name="description" content="Overseer is a Fallout 4 mod manager written in Rust. Explicit, non-destructive mod and load-order management on the Mod Organizer 2 model, with root-folder deployment, plugin grouping, and setup diagnostics built in." />
+  <meta name="theme-color" content="#0b0b0b" />
+  <link rel="icon" href="assets/app-icon.png" />
+  <link rel="apple-touch-icon" href="assets/app-icon.png" />
+
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="Overseer: a Fallout 4 mod manager, in Rust" />
+  <meta property="og:description" content="Explicit, non-destructive mod and load-order management on the Mod Organizer 2 model, written in Rust." />
+  <meta property="og:image" content="https://northaxosky.github.io/overseer/assets/app-icon.png" />
+  <meta name="twitter:card" content="summary" />
+
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="fx-scanlines" aria-hidden="true"></div>
+  <div class="fx-vignette" aria-hidden="true"></div>
+
+  <header class="site-header">
+    <a class="brand" href="#top">
+      <img src="assets/app-icon.png" alt="" width="32" height="32" />
+      <span class="brand-name">Overseer</span>
+    </a>
+    <nav class="site-nav" aria-label="Primary">
+      <a href="#features">Features</a>
+      <a href="#quickstart">Quick start</a>
+      <a class="nav-cta" href="https://github.com/northaxosky/overseer">GitHub&nbsp;↗</a>
+    </nav>
+  </header>
+
+  <main id="top">
+    <!-- Hero -->
+    <section class="hero">
+      <div class="hero-emblem" aria-hidden="true">
+        <span class="crosshair"></span>
+        <img src="assets/app-icon.png" alt="" width="128" height="128" />
+      </div>
+      <h1 class="hero-title">Overseer</h1>
+      <p class="hero-tagline">A Fallout&nbsp;4 mod manager, written in Rust.</p>
+      <p class="status-pill"><span class="dot" aria-hidden="true"></span>Under active development</p>
+      <div class="hero-actions">
+        <a class="btn btn-primary" href="https://github.com/northaxosky/overseer">View on GitHub</a>
+        <a class="btn btn-ghost" href="#features">Explore features</a>
+      </div>
+    </section>
+
+    <!-- What it is -->
+    <section class="pitch">
+      <h2 class="section-title">The Mod Organizer&nbsp;2 model, done right</h2>
+      <p>
+        Overseer follows the <strong>Mod Organizer&nbsp;2</strong> model of explicit, non-destructive
+        mod and load-order management, and builds in the pieces MO2 leaves to third-party plugins:
+        root-folder deployment (script extenders, ReShade, ENB), in-app plugin grouping, native tool
+        integration, and setup diagnostics. One UI-agnostic Rust core drives every front end.
+      </p>
+    </section>
+
+    <!-- Features -->
+    <section id="features" class="features">
+      <h2 class="section-title">What&rsquo;s inside</h2>
+      <div class="feature-grid">
+
+        <article class="card">
+          <span class="card-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5c0 4.5-3 7.6-7 9-4-1.4-7-4.5-7-9V6l7-3z"/><path d="M9 12l2 2 4-4"/></svg>
+          </span>
+          <h3>Crash-safe deployment</h3>
+          <p>Non-destructive hardlink deploy, journaled as a transaction. Overwritten files are backed up and restored on purge; an interrupted run rolls back cleanly.</p>
+        </article>
+
+        <article class="card">
+          <span class="card-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/></svg>
+          </span>
+          <h3>Real load order</h3>
+          <p>Writes the actual <code>Plugins.txt</code> through <code>libloadorder</code> on deploy, and restores it on purge, so the game and tools see exactly what you set.</p>
+        </article>
+
+        <article class="card">
+          <span class="card-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/></svg>
+          </span>
+          <h3>Root-folder deploy</h3>
+          <p>F4SE, ENB and ReShade files that live beside the executable are handled first-class, not just what lands in <code>Data/</code>.</p>
+        </article>
+
+        <article class="card">
+          <span class="card-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l9 5-9 5-9-5 9-5z"/><path d="M3 13l9 5 9-5"/></svg>
+          </span>
+          <h3>Plugin grouping</h3>
+          <p>Organise your load order into named groups inside the app, with no external plugin needed to keep a large setup readable.</p>
+        </article>
+
+        <article class="card">
+          <span class="card-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l2 6 4-14 2 8h6"/></svg>
+          </span>
+          <h3>Setup diagnostics</h3>
+          <p><code>overseer doctor</code> runs read-only health checks on your install and surfaces the same results in the terminal UI.</p>
+        </article>
+
+        <article class="card">
+          <span class="card-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="1.5"/><path d="M7 9l3 3-3 3M13 15h4"/></svg>
+          </span>
+          <h3>TUI-first, scriptable CLI</h3>
+          <p>A <code>ratatui</code> terminal UI for daily driving, plus a one-shot CLI for automation, both over the same core.</p>
+        </article>
+
+      </div>
+    </section>
+
+    <!-- Quick start -->
+    <section id="quickstart" class="quickstart">
+      <h2 class="section-title">Quick start</h2>
+      <p class="quickstart-lead">Launch the terminal UI:</p>
+      <pre class="code"><code><span class="c">cargo</span> run -p overseer-tui</code></pre>
+      <p class="quickstart-lead">Or drive a full Fallout&nbsp;4 workflow from the CLI:</p>
+      <pre class="code"><code><span class="cm"># create an instance pointing at your game</span>
+overseer instance init --path &lt;instance-dir&gt; --game-dir <span class="s">"&lt;FO4 install&gt;"</span>
+
+<span class="cm"># install a mod, then inspect the mod list and plugin order</span>
+overseer install &lt;mod.7z&gt; --instance &lt;instance-dir&gt;
+overseer mod list    --instance &lt;instance-dir&gt;
+overseer plugin list --instance &lt;instance-dir&gt;
+
+<span class="cm"># deploy into Data/ (writes the real Plugins.txt), then undo</span>
+overseer deploy --instance &lt;instance-dir&gt;
+overseer purge  --instance &lt;instance-dir&gt;</code></pre>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <p>
+      <a href="https://github.com/northaxosky/overseer">github.com/northaxosky/overseer</a>
+      &nbsp;·&nbsp; GPL-3.0-or-later
+    </p>
+    <p class="fine">Not affiliated with Bethesda Softworks. Fallout is a trademark of Bethesda Softworks / ZeniMax Media.</p>
+  </footer>
+</body>
+</html>
