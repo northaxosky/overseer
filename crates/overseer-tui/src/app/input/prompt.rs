@@ -20,6 +20,7 @@ impl App {
                 Some(PromptKind::RenameProfile { old }) => self.submit_rename_profile(old),
                 Some(PromptKind::AddExe) => self.submit_add_exe(),
                 Some(PromptKind::RenameMod { old }) => self.submit_rename_mod(old),
+                Some(PromptKind::NewSeparator) => self.submit_new_separator(),
                 None => {}
             },
             KeyCode::Backspace => {
@@ -51,6 +52,18 @@ impl App {
     pub(super) fn open_new_profile(&mut self) {
         self.modal = Some(Modal::Prompt(Prompt {
             kind: PromptKind::NewProfile,
+            input: String::new(),
+            error: None,
+        }));
+    }
+
+    pub(super) fn open_new_separator(&mut self) {
+        if self.focus != Focus::Mods {
+            self.note("Switch to the mods pane to add a separator");
+            return;
+        }
+        self.modal = Some(Modal::Prompt(Prompt {
+            kind: PromptKind::NewSeparator,
             input: String::new(),
             error: None,
         }));
@@ -101,6 +114,36 @@ impl App {
             }
             Err(msg) => self.set_prompt_error(msg),
         }
+    }
+
+    /// Insert the separator named in the open prompt above the selection; stay open on any error
+    fn submit_new_separator(&mut self) {
+        let Some(Modal::Prompt(prompt)) = self.modal.as_ref() else {
+            return;
+        };
+        let name = prompt.input.trim().to_owned();
+        match self.insert_selected_separator(&name) {
+            Ok(()) => {
+                self.modal = None;
+                self.ok(format!("Added separator: {name}"));
+            }
+            Err(msg) => self.set_prompt_error(msg),
+        }
+    }
+
+    /// Insert a separator above the selection and persist; revert the in-memory insert if it fails
+    fn insert_selected_separator(&mut self, name: &str) -> Result<(), String> {
+        let index = self.mods_state.selected().unwrap_or(0);
+        self.session
+            .profile
+            .insert_separator(index, name)
+            .map_err(|e| e.to_string())?;
+        if let Err(e) = self.session.profile.save(&self.session.instance) {
+            self.session.profile.mods.remove(index);
+            return Err(format!("Could not save: {e}"));
+        }
+        self.mods_state.select(Some(index));
+        Ok(())
     }
 
     /// Validate then create a profile, mapping any failure to a user-facing message.
@@ -716,6 +759,45 @@ mod tests {
             "duplicate name stays inline"
         );
         assert_eq!(app.session.profile.mods[0].name, "CoolMod");
+    }
+
+    #[test]
+    fn a_adds_a_separator_above_the_selection_and_saves() {
+        let (_tmp, instance) = overseer_core::test_support::temp_instance();
+        install_mod(&instance, "CoolMod", &[("Textures/a.dds", "pixels")]);
+        save_profile(&instance, "Default", &[("CoolMod", true)]);
+        let mut app = App::sample();
+        app.session.instance = instance;
+        app.mods_state.select(Some(0));
+
+        app.handle_key(key(KeyCode::Char('A')));
+        for c in "Gameplay".chars() {
+            app.handle_key(key(KeyCode::Char(c)));
+        }
+        app.handle_key(key(KeyCode::Enter));
+
+        assert!(app.modal.is_none(), "success closes the prompt");
+        assert_eq!(app.session.profile.mods[0].kind, ModKind::Separator);
+        assert_eq!(app.session.profile.mods[0].name, "Gameplay_separator");
+        assert_eq!(
+            app.mods_state.selected(),
+            Some(0),
+            "the new separator is selected"
+        );
+    }
+
+    #[test]
+    fn a_with_an_invalid_separator_name_keeps_the_prompt_with_error() {
+        let mut app = App::sample();
+        app.handle_key(key(KeyCode::Char('A')));
+        for c in "a/b".chars() {
+            app.handle_key(key(KeyCode::Char(c)));
+        }
+        app.handle_key(key(KeyCode::Enter));
+        assert!(
+            matches!(prompt_state(&app), Some(("a/b", Some(_)))),
+            "an invalid name stays inline with an error"
+        );
     }
 
     #[test]

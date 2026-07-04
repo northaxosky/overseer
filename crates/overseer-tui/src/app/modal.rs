@@ -26,6 +26,7 @@ pub(crate) struct Prompt {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum PromptKind {
     NewProfile,
+    NewSeparator,
     RenameMod { old: String },
     RenameProfile { old: String },
     AddExe,
@@ -39,6 +40,7 @@ impl PromptKind {
             PromptKind::RenameMod { old } => format!("Rename: {old}"),
             PromptKind::RenameProfile { old } => format!("Rename profile: {old}"),
             PromptKind::AddExe => "Add launch target — full path".to_owned(),
+            PromptKind::NewSeparator => "New separator".to_owned(),
         }
     }
 
@@ -55,7 +57,7 @@ impl PromptKind {
         match self {
             PromptKind::NewProfile | PromptKind::RenameProfile { .. } => Some(SelectKind::Profile),
             PromptKind::AddExe => Some(SelectKind::Launch),
-            PromptKind::RenameMod { .. } => None,
+            PromptKind::RenameMod { .. } | PromptKind::NewSeparator => None,
         }
     }
 }

@@ -49,6 +49,7 @@ impl App {
                 self.open_select(kind);
             }
             KeyCode::Char('R') => self.open_rename_mod(),
+            KeyCode::Char('A') => self.open_new_separator(),
 
             // Workspace view related controls
             KeyCode::Char('d') => self.open_doctor(),

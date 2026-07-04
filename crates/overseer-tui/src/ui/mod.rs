@@ -617,6 +617,41 @@ mod tests {
     }
 
     #[test]
+    fn separator_header_fills_to_the_inner_width() {
+        let line = separator_header("Mid", 20);
+        assert!(line.starts_with("── Mid "));
+        assert!(line.ends_with('─'));
+        assert_eq!(line.chars().count(), 18); // width 20 minus the 2 border columns
+    }
+
+    #[test]
+    fn a_separator_renders_as_a_header_rule_not_a_checkbox_row() {
+        let mut app = App::sample();
+        app.session.profile.mods.insert(
+            0,
+            ModListEntry {
+                name: "Gameplay_separator".to_owned(),
+                enabled: false,
+                kind: ModKind::Separator,
+            },
+        );
+        let out = render(&mut app, 60, 10);
+        assert!(
+            out.contains("Gameplay"),
+            "shows the separator's display name"
+        );
+        assert!(out.contains("──"), "rendered as a rule");
+        assert!(
+            !out.contains("Gameplay_separator"),
+            "the `_separator` suffix is stripped for display"
+        );
+        assert!(
+            !out.contains("[ ] Gameplay"),
+            "a separator has no checkbox marker"
+        );
+    }
+
+    #[test]
     fn both_panes_render_their_contents() {
         let mut app = App::sample();
         let out = render(&mut app, 60, 10);
