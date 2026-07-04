@@ -42,7 +42,7 @@ impl Check for F4se {
                 let advertises = if p.plugin.supports_ngae {
                     p.plugin.supports(packed) || p.plugin.version_independent_for(game)
                 } else {
-                    game == Generation::OldGen // OG-only plugins (Query, no Version)
+                    p.plugin.supports_og && game == Generation::OldGen // OG-only plugins (Query, no Version)
                 };
                 if !advertises {
                     findings.push(Finding::new(
@@ -233,5 +233,36 @@ mod tests {
         let findings = F4se.run(&plugin_ctx(vec![s], Some(0x010B_0DD0)));
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].severity, Severity::Warning);
+    }
+
+    #[test]
+    fn a_plugin_with_no_og_entry_point_warns_on_old_gen() {
+        // Exports F4SEPlugin_Load but neither Query nor Version: no valid entry point on OG.
+        let ctx = GameContext {
+            runtime_family: Some(Generation::OldGen),
+            runtime_packed: Some(0x010A_3D80),
+            f4se_plugins: vec![F4sePluginScan {
+                name: "loadonly.dll".to_owned(),
+                mod_name: "ModA".to_owned(),
+                plugin: F4sePlugin::default(),
+            }],
+            ..GameContext::default()
+        };
+        let findings = F4se.run(&ctx);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].severity, Severity::Warning);
+        assert!(findings[0].title.contains("loadonly.dll"));
+    }
+
+    #[test]
+    fn a_real_og_plugin_is_silent_on_old_gen() {
+        // supports_og = true (exports Query); it advertises OG and must not be flagged.
+        let ctx = GameContext {
+            runtime_family: Some(Generation::OldGen),
+            runtime_packed: Some(0x010A_3D80),
+            f4se_plugins: vec![scan("legacy.dll", false, &[])],
+            ..GameContext::default()
+        };
+        assert!(F4se.run(&ctx).is_empty());
     }
 }

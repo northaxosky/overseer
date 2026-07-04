@@ -356,9 +356,10 @@ fn address_library_status(
         return AddressLibraryStatus::NotApplicable;
     };
     let present = data_files.iter().any(|f| {
-        f.path
-            .file_name()
-            .is_some_and(|n| n.eq_ignore_ascii_case(&expected))
+        under_plugins(f)
+            && f.path
+                .file_name()
+                .is_some_and(|n| n.eq_ignore_ascii_case(&expected))
     });
     if present {
         AddressLibraryStatus::Present
@@ -1012,5 +1013,56 @@ mod tests {
         );
         assert_eq!(archive_plugin_stem("MyMod.ba2").as_deref(), Some("mymod"));
         assert_eq!(archive_plugin_stem("MyMod.txt"), None);
+    }
+
+    #[test]
+    fn address_library_outside_f4se_plugins_does_not_count_as_present() {
+        // A stray version-*.bin loose in Data/ must not satisfy the check; it belongs under F4SE/Plugins/.
+        let version = overseer_core::detect::ExeVersion {
+            major: 1,
+            minor: 10,
+            patch: 163,
+            build: 0,
+        };
+        let files = vec![
+            DataFile {
+                path: Utf8PathBuf::from("F4SE/Plugins/Buffout4.dll"),
+                mod_name: "Buffout".to_owned(),
+            },
+            DataFile {
+                path: Utf8PathBuf::from("version-1-10-163-0.bin"),
+                mod_name: "Stray".to_owned(),
+            },
+        ];
+        match address_library_status(&files, Some(version)) {
+            AddressLibraryStatus::Missing { expected } => {
+                assert_eq!(expected, "version-1-10-163-0.bin")
+            }
+            _ => panic!("a loose version-*.bin outside F4SE/Plugins must read as Missing"),
+        }
+    }
+
+    #[test]
+    fn address_library_under_f4se_plugins_is_present() {
+        let version = overseer_core::detect::ExeVersion {
+            major: 1,
+            minor: 10,
+            patch: 163,
+            build: 0,
+        };
+        let files = vec![
+            DataFile {
+                path: Utf8PathBuf::from("F4SE/Plugins/Buffout4.dll"),
+                mod_name: "Buffout".to_owned(),
+            },
+            DataFile {
+                path: Utf8PathBuf::from("F4SE/Plugins/version-1-10-163-0.bin"),
+                mod_name: "AddrLib".to_owned(),
+            },
+        ];
+        assert!(matches!(
+            address_library_status(&files, Some(version)),
+            AddressLibraryStatus::Present
+        ));
     }
 }
