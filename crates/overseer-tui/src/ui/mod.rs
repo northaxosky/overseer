@@ -8,6 +8,7 @@ mod modal;
 
 use overseer_core::apply::DeploymentStatus;
 use overseer_core::deploy::FileConflict;
+use overseer_core::instance::{ModKind, ModListEntry};
 use overseer_core::plugins::PluginMeta;
 use overseer_frontend::style::Role;
 use ratatui::{
@@ -75,14 +76,7 @@ pub(crate) fn draw_main(app: &mut App, frame: &mut Frame) {
         .profile
         .mods
         .iter()
-        .map(|m| {
-            let role = if m.enabled {
-                Role::Success
-            } else {
-                Role::Muted
-            };
-            ListItem::new(format!("{} {}", marker(m.enabled), m.name)).style(theme::style(role))
-        })
+        .map(|m| mod_row(m, cols[0].width))
         .collect();
     render_pane(
         frame,
@@ -448,6 +442,29 @@ pub(super) fn centered_rect_lines(pct_x: u16, lines: u16, area: Rect) -> Rect {
 /// The enabled/active checkbox marker
 fn marker(on: bool) -> &'static str {
     if on { "[x]" } else { "[ ]" }
+}
+
+/// A mod-list row: a separator renders as a header rule, every other kind as a checkbox + name
+fn mod_row(m: &ModListEntry, width: u16) -> ListItem<'static> {
+    if m.kind == ModKind::Separator {
+        let display = m.name.strip_suffix("_separator").unwrap_or(&m.name);
+        ListItem::new(separator_header(display, width)).style(theme::style(Role::Heading))
+    } else {
+        let role = if m.enabled {
+            Role::Success
+        } else {
+            Role::Muted
+        };
+        ListItem::new(format!("{} {}", marker(m.enabled), m.name)).style(theme::style(role))
+    }
+}
+
+/// A `── Name ─────` header line filling the pane's inner width; over-long names truncate at the edge
+fn separator_header(display: &str, width: u16) -> String {
+    let head = format!("── {display} ");
+    let inner = (width as usize).saturating_sub(2);
+    let fill = inner.saturating_sub(head.chars().count());
+    format!("{head}{}", "─".repeat(fill))
 }
 
 /// Whether a plugin name is a master, per discovered metadata
