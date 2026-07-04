@@ -67,7 +67,7 @@ impl App {
         true
     }
 
-    /// Flip the mod's `enabled`, or act on the focused workspace spane
+    /// Flip the mod's `enabled`, or act on the focused workspace pane
     fn flip_selected(&mut self) -> bool {
         match self.focus {
             Focus::Mods => {
