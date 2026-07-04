@@ -19,7 +19,10 @@ use ratatui::{
 };
 use strum::IntoEnumIterator;
 
-use crate::app::{App, ConflictsStatus, Focus, Workspace, downloads_sort_label, saves_sort_label};
+use crate::app::{
+    App, ConflictsStatus, Focus, Workspace, downloads_sort_label, saves_sort_label,
+    separator_display,
+};
 use crate::theme;
 
 /// The shared title for the Conflicts workspace pane, scan or message alike.
@@ -71,11 +74,26 @@ pub(crate) fn draw_main(app: &mut App, frame: &mut Frame) {
         app.session.profile.name,
         app.session.profile.mods.len()
     );
+
     let mods_items: Vec<ListItem<'static>> = app
         .visible_rows()
         .iter()
-        .map(|&i| mod_row(&app.session.profile.mods[i], cols[0].width))
+        .map(|&i| {
+            let m = &app.session.profile.mods[i];
+            if m.kind == ModKind::Separator {
+                let header = separator_header(
+                    separator_display(&m.name),
+                    cols[0].width,
+                    app.is_collapsed(i),
+                    app.group_members(i),
+                );
+                ListItem::new(header).style(theme::style(Role::Heading))
+            } else {
+                mod_row(m)
+            }
+        })
         .collect();
+
     render_pane(
         frame,
         cols[0],
@@ -443,23 +461,22 @@ fn marker(on: bool) -> &'static str {
 }
 
 /// A mod-list row: a separator renders as a header rule, every other kind as a checkbox + name
-fn mod_row(m: &ModListEntry, width: u16) -> ListItem<'static> {
-    if m.kind == ModKind::Separator {
-        let display = m.name.strip_suffix("_separator").unwrap_or(&m.name);
-        ListItem::new(separator_header(display, width)).style(theme::style(Role::Heading))
+fn mod_row(m: &ModListEntry) -> ListItem<'static> {
+    let role = if m.enabled {
+        Role::Success
     } else {
-        let role = if m.enabled {
-            Role::Success
-        } else {
-            Role::Muted
-        };
-        ListItem::new(format!("{} {}", marker(m.enabled), m.name)).style(theme::style(role))
-    }
+        Role::Muted
+    };
+    ListItem::new(format!("{} {}", marker(m.enabled), m.name)).style(theme::style(role))
 }
 
-/// A `── Name ─────` header line filling the pane's inner width; over-long names truncate at the edge
-fn separator_header(display: &str, width: u16) -> String {
-    let head = format!("── {display} ");
+/// A separator header filling the pane's inner width: `▼ Name ───` expanded, `▶ Name (n) ───` collapsed
+fn separator_header(display: &str, width: u16, collapsed: bool, members: usize) -> String {
+    let head = if collapsed {
+        format!("▶ {display} ({members}) ")
+    } else {
+        format!("▼ {display} ")
+    };
     let inner = (width as usize).saturating_sub(2);
     let fill = inner.saturating_sub(head.chars().count());
     format!("{head}{}", "─".repeat(fill))
@@ -616,10 +633,20 @@ mod tests {
 
     #[test]
     fn separator_header_fills_to_the_inner_width() {
-        let line = separator_header("Mid", 20);
-        assert!(line.starts_with("── Mid "));
+        let line = separator_header("Mid", 20, false, 0);
+        assert!(line.starts_with("▼ Mid "));
         assert!(line.ends_with('─'));
         assert_eq!(line.chars().count(), 18); // width 20 minus the 2 border columns
+    }
+
+    #[test]
+    fn a_collapsed_separator_shows_a_glyph_and_member_count() {
+        let line = separator_header("Mid", 30, true, 5);
+        assert!(
+            line.starts_with("▶ Mid (5) "),
+            "collapsed shows ▶ and the count"
+        );
+        assert!(line.ends_with('─'));
     }
 
     #[test]

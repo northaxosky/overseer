@@ -20,13 +20,17 @@ use overseer_core::saves::SaveInfo;
 use overseer_core::settings::Settings;
 use overseer_frontend::style::Role;
 use ratatui::widgets::ListState;
+use std::collections::HashSet;
 use strum::{EnumIter, IntoEnumIterator, IntoStaticStr};
 
 /// Key bindings shown (and selectable) in the help modal: (keys, description).
 pub(crate) const HELP_ENTRIES: &[(&str, &str)] = &[
     ("j / k   ↓ / ↑", "move selection"),
     ("Tab", "switch pane"),
-    ("Space / Enter", "toggle enabled · install download"),
+    (
+        "Space / Enter",
+        "toggle enabled · collapse separator · install",
+    ),
     ("x", "delete save"),
     ("L", "toggle local saves"),
     ("J / K", "reorder mod (priority)"),
@@ -179,6 +183,7 @@ pub(crate) struct App {
     pub(crate) session: Session,
     pub(crate) mods_state: ListState,
     pub(crate) plugins_state: ListState,
+    pub(crate) collapsed: HashSet<String>,
 }
 
 impl App {
@@ -209,6 +214,7 @@ impl App {
             plugins_state: initial_selection(session.order.plugins.len()),
             settings,
             session,
+            collapsed: HashSet::new(),
         })
     }
 
@@ -244,4 +250,9 @@ pub(crate) fn initial_selection(len: usize) -> ListState {
         state.select(Some(0));
     }
     state
+}
+
+/// A seperator entry's display name: its stored name with the `_separator` suffix stripped
+pub(crate) fn separator_display(name: &str) -> &str {
+    name.strip_suffix("_separator").unwrap_or(name)
 }

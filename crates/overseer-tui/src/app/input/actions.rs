@@ -55,6 +55,11 @@ impl App {
             self.note("Can't reorder past a base-game entry");
             return false;
         }
+        if mods[b].kind == ModKind::Separator && self.is_collapsed(b) {
+            self.note("expand the group to move past it");
+            return false;
+        }
+
         // Both endpoints visible, they are model-adjacent: plain swap is clean
         self.session.profile.mods.swap(a, b);
         self.mods_state.select(Some(q as usize));
@@ -69,6 +74,10 @@ impl App {
                 let Some(m) = self.selected_mod() else {
                     return false;
                 };
+                if self.session.profile.mods[m].kind == ModKind::Separator {
+                    self.toggle_collapsed(m);
+                    return false;
+                }
                 let entry = &mut self.session.profile.mods[m];
                 if entry.kind != ModKind::Managed {
                     self.note("Only managed mods can be toggled");
@@ -335,5 +344,29 @@ mod tests {
         app.mods_state.select(Some(0)); // the separator
         assert!(!app.shift_selected_mod(1), "separators don't reorder in v1");
         assert!(app.message.is_some());
+    }
+
+    #[test]
+    fn a_move_past_a_collapsed_separator_is_refused() {
+        let mut app = App::sample();
+        app.session.profile.mods = vec![
+            managed("PatchA"),
+            separator("Lower_separator"),
+            managed("TextureX"),
+            separator("Upper_separator"),
+        ];
+        app.collapsed.insert("lower".to_owned());
+        // display: [Upper(d0), TextureX(d1), Lower▶(d2)]
+        app.mods_state.select(Some(1)); // TextureX
+        assert!(
+            !app.shift_selected_mod(1),
+            "the collapsed separator blocks it"
+        );
+        assert!(app.message.is_some(), "the user is told to expand");
+        assert_eq!(
+            names(&app),
+            vec!["PatchA", "Lower_separator", "TextureX", "Upper_separator"],
+            "nothing moved"
+        );
     }
 }

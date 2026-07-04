@@ -140,6 +140,7 @@ impl App {
             .profile
             .insert_separator(anchor, name)
             .map_err(|e| e.to_string())?;
+        self.clamp_mod_selection();
         if let Err(e) = self.session.profile.save(&self.session.instance) {
             self.session.profile.mods.remove(anchor);
             return Err(format!("Could not save: {e}"));

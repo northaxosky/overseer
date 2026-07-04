@@ -66,6 +66,7 @@ impl App {
             },
             mods_state: initial_selection(2),
             plugins_state: initial_selection(2),
+            collapsed: std::collections::HashSet::new(),
             conflicts: ConflictsState::default(),
             downloads: DownloadsState::default(),
             saves: SavesState::default(),

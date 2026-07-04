@@ -13,9 +13,12 @@ use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::widgets::ListState;
 
 use overseer_core::deploy::detect_conflicts;
+use overseer_core::instance::ModKind;
 
 use super::sort::{DownloadsPane, SavesPane};
-use super::{App, ConflictsStatus, Focus, Modal, SelectKind, Workspace, initial_selection};
+use super::{
+    App, ConflictsStatus, Focus, Modal, SelectKind, Workspace, initial_selection, separator_display,
+};
 
 #[derive(Clone, Copy)]
 enum RefreshCause {
@@ -23,10 +26,26 @@ enum RefreshCause {
     Explicit,
 }
 
+/// A separator's collapse key: its display name, lowercased
+fn group_key(separator_name: &str) -> String {
+    separator_display(separator_name).to_ascii_lowercase()
+}
+
 impl App {
     /// Model indices of the mods pane in display (MO2) order: file order reversed
     pub(crate) fn visible_rows(&self) -> Vec<usize> {
-        (0..self.session.profile.mods.len()).rev().collect()
+        let mods = &self.session.profile.mods;
+        let mut rows = Vec::with_capacity(mods.len());
+        let mut hidden = false;
+        for i in (0..mods.len()).rev() {
+            if mods[i].kind == ModKind::Separator {
+                hidden = self.collapsed.contains(&group_key(&mods[i].name));
+                rows.push(i);
+            } else if !hidden {
+                rows.push(i);
+            }
+        }
+        rows
     }
 
     /// Model index of the selected mods-pane row, translating from display space
@@ -43,6 +62,36 @@ impl App {
             return;
         }
         self.handle_main_key(key);
+    }
+
+    /// Whether `model_index` is a separator whose group is collapsed
+    pub(crate) fn is_collapsed(&self, model_index: usize) -> bool {
+        let m = &self.session.profile.mods[model_index];
+        m.kind == ModKind::Separator && self.collapsed.contains(&group_key(&m.name))
+    }
+
+    /// The number of entries under the separator at `model_index`
+    pub(crate) fn group_members(&self, model_index: usize) -> usize {
+        self.session.profile.mods[..model_index]
+            .iter()
+            .rev()
+            .take_while(|m| m.kind != ModKind::Separator)
+            .count()
+    }
+
+    /// Re-clamp the display selection into the visible bounds; the one guard against a stale index
+    pub(super) fn clamp_mod_selection(&mut self) {
+        let len = self.visible_rows().len();
+        clamp_selection(&mut self.mods_state, len);
+    }
+
+    /// Toggle the separator at `model_index` between collapsed and expanded, then re-clamp
+    pub(super) fn toggle_collapsed(&mut self, model_index: usize) {
+        let key = group_key(&self.session.profile.mods[model_index].name);
+        if !self.collapsed.remove(&key) {
+            self.collapsed.insert(key);
+        }
+        self.clamp_mod_selection();
     }
 
     /// Handle one key press. Input is read by the run loop in `main`
@@ -168,6 +217,7 @@ impl App {
 
     /// After replacing `self.session`, reset the per-pane selection and refresh workspace
     pub(super) fn after_session_changed(&mut self) {
+        self.collapsed.clear();
         self.mods_state = initial_selection(self.session.profile.mods.len());
         self.plugins_state = initial_selection(self.session.order.plugins.len());
         self.mark_conflicts_stale();
@@ -824,5 +874,59 @@ mod tests {
         assert_eq!(app.selected_mod(), Some(4)); // top of the UI = the Visual separator
         app.mods_state.select(Some(4));
         assert_eq!(app.selected_mod(), Some(0)); // bottom = PatchA, the highest priority
+    }
+
+    #[test]
+    fn collapsing_a_separator_hides_its_group_and_keeps_the_cursor() {
+        let mut app = app_with_groups();
+        app.mods_state.select(Some(2)); // the Gameplay separator
+        app.handle_key(key(KeyCode::Char(' ')));
+        assert!(app.is_collapsed(2));
+        assert_eq!(
+            app.visible_rows(),
+            vec![4, 3, 2],
+            "PatchB and PatchA are hidden"
+        );
+        assert_eq!(app.group_members(2), 2, "the group has two members");
+        assert_eq!(
+            app.selected_mod(),
+            Some(2),
+            "the cursor stays on the separator"
+        );
+        app.handle_key(key(KeyCode::Char(' ')));
+        assert!(!app.is_collapsed(2), "space toggles back to expanded");
+        assert_eq!(app.visible_rows(), vec![4, 3, 2, 1, 0]);
+    }
+
+    #[test]
+    fn navigation_skips_a_collapsed_groups_members() {
+        let mut app = app_with_groups();
+        app.mods_state.select(Some(2));
+        app.handle_key(key(KeyCode::Char(' '))); // collapse Gameplay -> visible [4, 3, 2]
+        app.mods_state.select(Some(0));
+        app.handle_key(key(KeyCode::Down));
+        app.handle_key(key(KeyCode::Down));
+        app.handle_key(key(KeyCode::Down)); // clamps: only three rows are visible
+        assert_eq!(app.mods_state.selected(), Some(2));
+    }
+
+    #[test]
+    fn clamp_mod_selection_pulls_a_stale_index_into_view() {
+        let mut app = app_with_groups();
+        app.collapsed.insert("gameplay".to_owned()); // visible shrinks to [4, 3, 2]
+        app.mods_state.select(Some(4)); // stale: past the new end
+        app.clamp_mod_selection();
+        assert_eq!(app.mods_state.selected(), Some(2));
+    }
+
+    #[test]
+    fn changing_session_clears_collapse_state() {
+        let mut app = app_with_groups();
+        app.collapsed.insert("gameplay".to_owned());
+        app.after_session_changed();
+        assert!(
+            app.collapsed.is_empty(),
+            "a session swap resets ephemeral collapse"
+        );
     }
 }
