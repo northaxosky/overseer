@@ -192,6 +192,80 @@ impl Profile {
         Ok(())
     }
 
+    /// Insert a seperator (`_seperator` divider) at `index`
+    pub fn insert_separator(
+        &mut self,
+        index: usize,
+        display_name: &str,
+    ) -> Result<(), InstanceError> {
+        let name = Self::separator_name(display_name)?;
+        if self.contains(&name) {
+            return Err(InstanceError::ModAlreadyInList(name));
+        }
+        let index = index.min(self.mods.len());
+        self.mods.insert(
+            index,
+            ModListEntry {
+                name,
+                enabled: false,
+                kind: ModKind::Separator,
+            },
+        );
+        Ok(())
+    }
+
+    /// Rename the separator at `index` from a user display name
+    pub fn rename_separator(
+        &mut self,
+        index: usize,
+        display_name: &str,
+    ) -> Result<(), InstanceError> {
+        self.ensure_separator(index)?;
+        let name = Self::separator_name(display_name)?;
+        if self
+            .mods
+            .iter()
+            .enumerate()
+            .any(|(i, m)| i != index && m.name.eq_ignore_ascii_case(&name))
+        {
+            return Err(InstanceError::ModAlreadyInList(name));
+        }
+        self.mods[index].name = name;
+        Ok(())
+    }
+
+    /// Confirm `index` points at a separator entry
+    fn ensure_separator(&self, index: usize) -> Result<(), InstanceError> {
+        match self.mods.get(index) {
+            Some(e) if e.kind == ModKind::Separator => Ok(()),
+            _ => Err(InstanceError::InvalidSeparatorName(
+                "no separator at that position".to_owned(),
+            )),
+        }
+    }
+
+    /// Validate a user separator display name and return its stored `<name>_separator` form
+    fn separator_name(display_name: &str) -> Result<String, InstanceError> {
+        let name = display_name.trim();
+        let reject = |why: &str| Err(InstanceError::InvalidSeparatorName(why.to_owned()));
+        if name.is_empty() {
+            return reject("name cannot be empty");
+        }
+        if name.chars().any(char::is_control) {
+            return reject("name cannot contain control characters");
+        }
+        if name.contains(['/', '\\']) {
+            return reject("name cannot contain path separators");
+        }
+        if name.starts_with('#') || name.starts_with('*') {
+            return reject("name cannot start with `#` or `*`");
+        }
+        if name.to_ascii_lowercase().ends_with("_separator") {
+            return reject("name cannot end with `_separator`");
+        }
+        Ok(format!("{name}_separator"))
+    }
+
     /// Reconcile this profile's mod list with whats actually installed under `mods/`
     pub fn reconcile(&mut self, instance: &Instance) -> Result<bool, InstanceError> {
         let installed = instance.installed_mods()?;

@@ -34,6 +34,9 @@ pub enum InstanceError {
     #[error("`{0}` is not a managed mod; only managed mods can be enabled or disabled")]
     NotManaged(String),
 
+    #[error("invalid separator name: {0}")]
+    InvalidSeparatorName(String),
+
     #[error("failed to parse instance config `{path}`")]
     Config {
         path: Utf8PathBuf,
