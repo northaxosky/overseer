@@ -77,22 +77,8 @@ pub fn list_downloads(instance: &Instance) -> Result<Vec<DownloadEntry>, Install
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::temp_instance;
+    use crate::test_support::{set_mtime, temp_instance, touch};
     use std::time::{Duration, SystemTime};
-
-    /// Create a small file at `path`, making parent dirs as needed
-    fn touch(path: &camino::Utf8Path) {
-        std::fs::create_dir_all(path.parent().expect("parent")).expect("mkdir");
-        std::fs::write(path, b"x").expect("write");
-    }
-
-    fn set_mtime(path: &camino::Utf8Path, when: SystemTime) {
-        let file = std::fs::File::options()
-            .write(true)
-            .open(path)
-            .expect("open for mtime");
-        file.set_modified(when).expect("set mtime");
-    }
 
     #[test]
     fn missing_downloads_dir_is_an_empty_list() {

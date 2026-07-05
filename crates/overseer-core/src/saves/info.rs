@@ -254,7 +254,7 @@ pub fn delete_save(path: &Utf8Path) -> Result<(), IoError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::{fos_bytes, temp, write_fos};
+    use crate::test_support::{fos_bytes, set_mtime, temp, write_fos};
     use std::time::Duration;
 
     // --- parse_header ---
@@ -334,15 +334,6 @@ mod tests {
     }
 
     // --- list_saves ---
-
-    /// Open `path` and stamp its modified time so ordering tests are deterministic
-    fn set_mtime(path: &Utf8Path, when: SystemTime) {
-        let file = std::fs::File::options()
-            .write(true)
-            .open(path)
-            .expect("open for mtime");
-        file.set_modified(when).expect("set mtime");
-    }
 
     #[test]
     fn missing_saves_dir_is_an_empty_list() {

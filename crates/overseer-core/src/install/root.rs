@@ -181,14 +181,7 @@ mod tests {
 
     // --- find_content_root (real temp-dir trees) ---
 
-    fn touch(path: &Utf8Path) {
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).expect("mkdirs");
-        }
-        std::fs::write(path, b"x").expect("write");
-    }
-
-    use crate::test_support::temp;
+    use crate::test_support::{temp, touch};
 
     #[test]
     fn flat_archive_root_is_the_extraction_dir() {

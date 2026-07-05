@@ -447,9 +447,7 @@ fn read_subdirs(dir: &Utf8Path) -> Result<Vec<String>, InstanceError> {
 mod tests {
     use super::*;
     use crate::instance::{ModKind, ModListEntry};
-    use tempfile::TempDir;
-
-    use crate::test_support::{install_mod, save_profile, temp_instance};
+    use crate::test_support::{install_mod, save_profile, temp, temp_instance};
 
     #[test]
     fn path_helpers_compose_under_root() {
@@ -505,12 +503,6 @@ mod tests {
 
     // --- config persistence ---
 
-    fn temp_root() -> (TempDir, Utf8PathBuf) {
-        let dir = TempDir::new().expect("temp dir");
-        let root = Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).expect("utf8 path");
-        (dir, root.join("inst"))
-    }
-
     fn config(game_dir: &str) -> InstanceConfig {
         InstanceConfig {
             game_dir: Utf8PathBuf::from(game_dir),
@@ -525,7 +517,7 @@ mod tests {
 
     #[test]
     fn init_writes_config_and_creates_dirs() {
-        let (_tmp, root) = temp_root();
+        let (_tmp, root) = temp();
         let instance = Instance::init(&root, config("C:/games/FO4")).expect("init");
 
         assert!(Instance::config_path(&root).exists());
@@ -539,7 +531,7 @@ mod tests {
 
     #[test]
     fn init_then_load_round_trips_the_config() {
-        let (_tmp, root) = temp_root();
+        let (_tmp, root) = temp();
         let cfg = InstanceConfig {
             game_dir: Utf8PathBuf::from("D:/FO4"),
             game: GameKind::SkyrimSE,
@@ -599,14 +591,14 @@ mod tests {
 
     #[test]
     fn load_missing_config_is_not_an_instance() {
-        let (_tmp, root) = temp_root();
+        let (_tmp, root) = temp();
         let err = Instance::load(&root).expect_err("should fail");
         assert!(matches!(err, InstanceError::NotAnInstance { .. }));
     }
 
     #[test]
     fn init_refuses_to_clobber_existing_instance() {
-        let (_tmp, root) = temp_root();
+        let (_tmp, root) = temp();
         Instance::init(&root, config("C:/a")).expect("first init");
         let err = Instance::init(&root, config("C:/b")).expect_err("should refuse");
         assert!(matches!(err, InstanceError::AlreadyAnInstance { .. }));
@@ -614,7 +606,7 @@ mod tests {
 
     #[test]
     fn omitted_local_dir_is_absent_from_the_toml_and_loads_as_none() {
-        let (_tmp, root) = temp_root();
+        let (_tmp, root) = temp();
         Instance::init(&root, config("C:/FO4")).expect("init");
 
         let text = std::fs::read_to_string(Instance::config_path(&root)).expect("read");
@@ -627,7 +619,7 @@ mod tests {
     #[test]
     fn minimal_toml_uses_default_profile() {
         // A hand-written config with only game_dir must load with the default profile
-        let (_tmp, root) = temp_root();
+        let (_tmp, root) = temp();
         std::fs::create_dir_all(&root).expect("mkdir");
         std::fs::write(Instance::config_path(&root), "game_dir = \"C:/FO4\"\n").expect("write");
 

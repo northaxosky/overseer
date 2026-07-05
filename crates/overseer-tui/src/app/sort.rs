@@ -227,18 +227,8 @@ fn dir_arrow(dir: SortDir) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use camino::Utf8PathBuf;
+    use crate::test_support::{download_entry, save_info};
     use overseer_core::saves::SaveMeta;
-    use std::time::{Duration, SystemTime};
-
-    fn save(name: &str, modified_secs: u64, meta: Option<SaveMeta>) -> SaveInfo {
-        SaveInfo {
-            path: Utf8PathBuf::from(format!("Saves/{name}")),
-            file_name: name.to_owned(),
-            modified: SystemTime::UNIX_EPOCH + Duration::from_secs(modified_secs),
-            meta,
-        }
-    }
 
     fn meta(character: &str, level: u32) -> SaveMeta {
         SaveMeta {
@@ -250,19 +240,12 @@ mod tests {
         }
     }
 
-    fn download(name: &str, size: u64, modified_secs: u64, installed: bool) -> DownloadEntry {
-        DownloadEntry {
-            name: name.to_owned(),
-            path: Utf8PathBuf::from(format!("downloads/{name}")),
-            installed,
-            size,
-            modified: SystemTime::UNIX_EPOCH + Duration::from_secs(modified_secs),
-        }
-    }
-
     #[test]
     fn sorts_saves_by_date_in_both_directions() {
-        let mut entries = vec![save("Old.fos", 10, None), save("New.fos", 20, None)];
+        let mut entries = vec![
+            save_info("Old.fos", 10, None),
+            save_info("New.fos", 20, None),
+        ];
         sort_saves(&mut entries, sort(SavesSortKey::Date, SortDir::Desc));
         assert_eq!(entries[0].file_name, "New.fos");
         sort_saves(&mut entries, sort(SavesSortKey::Date, SortDir::Asc));
@@ -272,9 +255,9 @@ mod tests {
     #[test]
     fn save_meta_sorts_keep_unparsed_entries_last_in_both_directions() {
         let mut entries = vec![
-            save("Broken.fos", 30, None),
-            save("Nora.fos", 10, Some(meta("Nora", 20))),
-            save("Ada.fos", 20, Some(meta("Ada", 10))),
+            save_info("Broken.fos", 30, None),
+            save_info("Nora.fos", 10, Some(meta("Nora", 20))),
+            save_info("Ada.fos", 20, Some(meta("Ada", 10))),
         ];
         sort_saves(&mut entries, sort(SavesSortKey::Character, SortDir::Asc));
         assert_eq!(names(&entries), ["Ada.fos", "Nora.fos", "Broken.fos"]);
@@ -285,9 +268,9 @@ mod tests {
     #[test]
     fn save_level_sort_keeps_unparsed_entries_last() {
         let mut entries = vec![
-            save("Broken.fos", 30, None),
-            save("Low.fos", 10, Some(meta("Nora", 10))),
-            save("High.fos", 20, Some(meta("Nora", 30))),
+            save_info("Broken.fos", 30, None),
+            save_info("Low.fos", 10, Some(meta("Nora", 10))),
+            save_info("High.fos", 20, Some(meta("Nora", 30))),
         ];
         sort_saves(&mut entries, sort(SavesSortKey::Level, SortDir::Desc));
         assert_eq!(names(&entries), ["High.fos", "Low.fos", "Broken.fos"]);
@@ -296,8 +279,8 @@ mod tests {
     #[test]
     fn sorts_downloads_by_each_key() {
         let entries = vec![
-            download("Zeta.zip", 5, 10, true),
-            download("alpha.7z", 10, 20, false),
+            download_entry("Zeta.zip", 5, 10, true),
+            download_entry("alpha.7z", 10, 20, false),
         ];
         for key in [
             DownloadsSortKey::Name,
@@ -330,8 +313,8 @@ mod tests {
     fn applying_a_sort_moves_the_cursor_to_the_top() {
         let mut app = App::sample();
         app.downloads.entries = vec![
-            download("B.zip", 1, 10, false),
-            download("A.zip", 1, 20, false),
+            download_entry("B.zip", 1, 10, false),
+            download_entry("A.zip", 1, 20, false),
         ];
         app.downloads.list.select(Some(1));
         app.settings.downloads_sort = DownloadsSort {

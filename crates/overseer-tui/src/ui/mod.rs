@@ -848,26 +848,12 @@ mod tests {
     #[test]
     fn downloads_workspace_lists_archives_and_marks_installed() {
         use crate::app::Workspace;
-        use camino::Utf8PathBuf;
-        use overseer_core::install::DownloadEntry;
-        use std::time::SystemTime;
+        use crate::test_support::download_entry;
         let mut app = App::sample();
         app.workspace = Workspace::Downloads;
         app.downloads.entries = vec![
-            DownloadEntry {
-                name: "Alpha.zip".to_owned(),
-                path: Utf8PathBuf::from("downloads/Alpha.zip"),
-                installed: false,
-                size: 0,
-                modified: SystemTime::UNIX_EPOCH,
-            },
-            DownloadEntry {
-                name: "Beta.7z".to_owned(),
-                path: Utf8PathBuf::from("downloads/Beta.7z"),
-                installed: true,
-                size: 0,
-                modified: SystemTime::UNIX_EPOCH,
-            },
+            download_entry("Alpha.zip", 0, 0, false),
+            download_entry("Beta.7z", 0, 0, true),
         ];
         app.downloads.list.select(Some(0));
         let out = render(&mut app, 80, 24);

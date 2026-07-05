@@ -3,10 +3,13 @@
 use crate::app::{
     App, ConflictsState, DownloadsState, Focus, SavesState, Session, Workspace, initial_selection,
 };
-use camino::Utf8Path;
+use camino::{Utf8Path, Utf8PathBuf};
+use overseer_core::install::DownloadEntry;
 use overseer_core::instance::{Instance, ModKind, ModListEntry, Profile};
 use overseer_core::plugins::{PluginEntry, PluginLoadOrder, PluginMeta};
+use overseer_core::saves::{SaveInfo, SaveMeta};
 use overseer_core::settings::Settings;
+use std::time::{Duration, SystemTime};
 
 impl App {
     /// A small in-memory fixture for tests (no disk access)
@@ -71,5 +74,31 @@ impl App {
             downloads: DownloadsState::default(),
             saves: SavesState::default(),
         }
+    }
+}
+
+/// A `SaveInfo` at `Saves/{name}` whose mtime sits `modified_secs` past the epoch
+pub(crate) fn save_info(name: &str, modified_secs: u64, meta: Option<SaveMeta>) -> SaveInfo {
+    SaveInfo {
+        path: Utf8PathBuf::from(format!("Saves/{name}")),
+        file_name: name.to_owned(),
+        modified: SystemTime::UNIX_EPOCH + Duration::from_secs(modified_secs),
+        meta,
+    }
+}
+
+/// A `DownloadEntry` at `downloads/{name}` whose mtime sits `modified_secs` past the epoch
+pub(crate) fn download_entry(
+    name: &str,
+    size: u64,
+    modified_secs: u64,
+    installed: bool,
+) -> DownloadEntry {
+    DownloadEntry {
+        name: name.to_owned(),
+        path: Utf8PathBuf::from(format!("downloads/{name}")),
+        installed,
+        size,
+        modified: SystemTime::UNIX_EPOCH + Duration::from_secs(modified_secs),
     }
 }

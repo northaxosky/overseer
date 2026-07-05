@@ -66,21 +66,8 @@ fn resolve(instance: &Instance, name: &str) -> Result<LaunchTarget, LaunchError>
 mod tests {
     use super::*;
     use crate::instance::{Executable, InstanceConfig};
+    use crate::test_support::{temp, touch};
     use camino::Utf8Path;
-    use tempfile::TempDir;
-
-    fn temp_root() -> (TempDir, Utf8PathBuf) {
-        let dir = TempDir::new().expect("temp dir");
-        let root = Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).expect("utf8 path");
-        (dir, root)
-    }
-
-    fn touch(path: &Utf8Path) {
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).expect("mkdir");
-        }
-        std::fs::write(path, b"").expect("touch");
-    }
 
     fn seeded_instance(root: &Utf8Path, game_dir: &Utf8Path) -> Instance {
         let mut instance = Instance::new(root.join("inst"), game_dir.to_owned());
@@ -91,7 +78,7 @@ mod tests {
 
     #[test]
     fn resolve_points_a_built_in_at_the_game_dir() {
-        let (_tmp, root) = temp_root();
+        let (_tmp, root) = temp();
         let game_dir = root.join("game");
         let instance = seeded_instance(&root, &game_dir);
         touch(&game_dir.join("Fallout4.exe"));
@@ -104,7 +91,7 @@ mod tests {
 
     #[test]
     fn resolve_uses_a_tools_own_dir_and_args() {
-        let (_tmp, root) = temp_root();
+        let (_tmp, root) = temp();
         let game_dir = root.join("game");
         let tool = root.join("tools").join("FO4Edit.exe");
         touch(&tool);
@@ -124,7 +111,7 @@ mod tests {
 
     #[test]
     fn resolve_rejects_an_unknown_target() {
-        let (_tmp, root) = temp_root();
+        let (_tmp, root) = temp();
         let instance = seeded_instance(&root, &root.join("game"));
         let err = resolve(&instance, "nope").expect_err("unknown target");
         assert!(matches!(err, LaunchError::UnknownTarget(name) if name == "nope"));
@@ -132,7 +119,7 @@ mod tests {
 
     #[test]
     fn resolve_reports_a_missing_program() {
-        let (_tmp, root) = temp_root();
+        let (_tmp, root) = temp();
         let game_dir = root.join("game");
         let instance = seeded_instance(&root, &game_dir);
         // Fallout4.exe is deliberately never created
@@ -147,7 +134,7 @@ mod tests {
 
     #[test]
     fn targets_lists_every_configured_name() {
-        let (_tmp, root) = temp_root();
+        let (_tmp, root) = temp();
         let game_dir = root.join("game");
         let mut instance = seeded_instance(&root, &game_dir);
         instance.config.executables.push(Executable {

@@ -7,6 +7,7 @@
 
 use crate::instance::{Instance, ModKind, ModListEntry, Profile};
 use camino::{Utf8Path, Utf8PathBuf};
+use std::time::SystemTime;
 use tempfile::TempDir;
 
 /// TES4 header flag: master file
@@ -81,6 +82,23 @@ pub fn temp() -> (TempDir, Utf8PathBuf) {
     let dir = TempDir::new().expect("temp dir");
     let root = Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).expect("utf8 path");
     (dir, root)
+}
+
+/// Create a small non-empty file at `path`, making parent dirs as needed
+pub fn touch(path: &Utf8Path) {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).expect("create parents");
+    }
+    std::fs::write(path, b"x").expect("touch");
+}
+
+/// Stamp `path`'s modified time so ordering tests are deterministic
+pub fn set_mtime(path: &Utf8Path, when: SystemTime) {
+    let file = std::fs::File::options()
+        .write(true)
+        .open(path)
+        .expect("open for mtime");
+    file.set_modified(when).expect("set mtime");
 }
 
 /// A throwaway same-volume instance with temp local/INI dirs, never real `%LOCALAPPDATA%` or `Documents\My Games`

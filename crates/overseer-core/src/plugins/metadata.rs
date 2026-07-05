@@ -65,15 +65,9 @@ pub fn read_metadata(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::{FLAG_LIGHT, FLAG_MASTER, write_plugin, write_plugin_versioned};
-    use camino::Utf8PathBuf;
-    use tempfile::TempDir;
-
-    fn temp() -> (TempDir, Utf8PathBuf) {
-        let d = TempDir::new().expect("temp");
-        let base = Utf8PathBuf::from_path_buf(d.path().to_path_buf()).expect("utf8");
-        (d, base)
-    }
+    use crate::test_support::{
+        FLAG_LIGHT, FLAG_MASTER, temp, write_plugin, write_plugin_versioned,
+    };
 
     // --- is_plugin_file ---
 

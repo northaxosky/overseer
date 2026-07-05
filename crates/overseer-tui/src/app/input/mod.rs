@@ -361,12 +361,12 @@ pub(crate) mod test_helpers {
 mod tests {
     use super::test_helpers::key;
     use super::*;
+    use crate::test_support::{download_entry, save_info};
     use overseer_core::settings::{
         DownloadsSort, DownloadsSortKey, SavesSort, SavesSortKey, Settings, SortDir,
     };
     use std::ffi::OsString;
     use std::sync::Mutex;
-    use std::time::{Duration, SystemTime};
     use strum::IntoEnumIterator;
 
     static SETTINGS_ENV_LOCK: Mutex<()> = Mutex::new(());
@@ -392,25 +392,6 @@ mod tests {
         unsafe { std::env::set_var("OVERSEER_CONFIG_DIR", path.as_str()) };
         let _guard = ConfigEnvGuard { previous };
         f(path.join("config.toml"))
-    }
-
-    fn save_entry(name: &str, modified_secs: u64) -> overseer_core::saves::SaveInfo {
-        overseer_core::saves::SaveInfo {
-            path: camino::Utf8PathBuf::from(format!("Saves/{name}")),
-            file_name: name.to_owned(),
-            modified: SystemTime::UNIX_EPOCH + Duration::from_secs(modified_secs),
-            meta: None,
-        }
-    }
-
-    fn download_entry(name: &str, modified_secs: u64) -> overseer_core::install::DownloadEntry {
-        overseer_core::install::DownloadEntry {
-            name: name.to_owned(),
-            path: camino::Utf8PathBuf::from(format!("downloads/{name}")),
-            installed: false,
-            size: 1,
-            modified: SystemTime::UNIX_EPOCH + Duration::from_secs(modified_secs),
-        }
     }
 
     #[test]
@@ -608,7 +589,7 @@ mod tests {
         with_config_dir(|config| {
             let mut app = App::sample();
             app.workspace = Workspace::Saves;
-            app.saves.entries = vec![save_entry("B.fos", 20), save_entry("A.fos", 10)];
+            app.saves.entries = vec![save_info("B.fos", 20, None), save_info("A.fos", 10, None)];
             app.saves.list.select(Some(1));
 
             app.handle_key(key(KeyCode::Char('o')));
@@ -651,7 +632,10 @@ mod tests {
         with_config_dir(|_config| {
             let mut app = App::sample();
             app.workspace = Workspace::Downloads;
-            app.downloads.entries = vec![download_entry("B.zip", 10), download_entry("A.zip", 20)];
+            app.downloads.entries = vec![
+                download_entry("B.zip", 1, 10, false),
+                download_entry("A.zip", 1, 20, false),
+            ];
             app.downloads.list.select(Some(1));
 
             app.handle_key(key(KeyCode::Char('o')));
