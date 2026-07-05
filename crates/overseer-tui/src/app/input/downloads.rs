@@ -1,7 +1,7 @@
 //! The downloads workspace's actions: listing archives and installing one
 
 use crate::app::sort::sort_downloads;
-use crate::app::{App, Confirm, ConfirmAction, Modal, Session};
+use crate::app::{App, Confirm, ConfirmAction, Modal, Session, select_first};
 use camino::Utf8Path;
 use overseer_core::install::{self, DownloadEntry, InstallError};
 
@@ -11,9 +11,7 @@ impl App {
         match install::list_downloads(&self.session.instance) {
             Ok(mut entries) => {
                 sort_downloads(&mut entries, self.settings.downloads_sort);
-                self.downloads
-                    .list
-                    .select((!entries.is_empty()).then_some(0));
+                select_first(&mut self.downloads.list, entries.len());
                 self.downloads.entries = entries;
             }
             Err(e) => {

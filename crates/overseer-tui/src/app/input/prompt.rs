@@ -171,12 +171,7 @@ impl App {
 
         match self.add_named_exe(&path) {
             Ok(name) => {
-                self.open_select(SelectKind::Launch);
-                if let Some(Modal::Select(s)) = self.modal.as_mut()
-                    && let Some(i) = s.items.iter().position(|p| p == &name)
-                {
-                    s.state.select(Some(i));
-                }
+                self.reopen_select(SelectKind::Launch, &name);
                 self.ok(format!("Added launch target: {name}"));
             }
             Err(msg) => self.set_prompt_error(msg),
@@ -317,14 +312,19 @@ impl App {
         }
     }
 
-    /// Reopen the Profile picker with `name` highlighted
-    fn reopen_profiles_selecting(&mut self, name: &str) {
-        self.open_select(SelectKind::Profile);
+    /// Reopen a Select picker of `kind` with the entry named `name` highlighted
+    fn reopen_select(&mut self, kind: SelectKind, name: &str) {
+        self.open_select(kind);
         if let Some(Modal::Select(s)) = self.modal.as_mut()
             && let Some(i) = s.items.iter().position(|p| p == name)
         {
             s.state.select(Some(i));
         }
+    }
+
+    /// Reopen the Profile picker with `name` highlighted
+    fn reopen_profiles_selecting(&mut self, name: &str) {
+        self.reopen_select(SelectKind::Profile, name);
     }
 
     /// Show an inline error on the open prompt (no-op if no prompt is open)

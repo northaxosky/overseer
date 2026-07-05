@@ -10,7 +10,7 @@ use overseer_core::saves::SaveInfo;
 use overseer_core::settings::{DownloadsSort, DownloadsSortKey, SavesSort, SavesSortKey, SortDir};
 use strum::IntoEnumIterator;
 
-use crate::app::App;
+use crate::app::{App, cycle_variant, select_first};
 
 /// Re-order saves in place for `sort`, tie-broken by file name for a stable order
 pub(crate) fn sort_saves(entries: &mut [SaveInfo], sort: SavesSort) {
@@ -48,11 +48,16 @@ pub(crate) fn sort_downloads(entries: &mut [DownloadEntry], sort: DownloadsSort)
 
 /// A compact `key ↑`/`key ↓` tag for the pane title (the key name is `strum::Display`)
 pub(crate) fn saves_sort_label(sort: SavesSort) -> String {
-    format!("{} {}", sort.key, dir_arrow(sort.dir))
+    sort_label(sort.key, sort.dir)
 }
 
 pub(crate) fn downloads_sort_label(sort: DownloadsSort) -> String {
-    format!("{} {}", sort.key, dir_arrow(sort.dir))
+    sort_label(sort.key, sort.dir)
+}
+
+/// A compact `key ↑`/`key ↓` tag (the key name is `strum::Display`)
+fn sort_label(key: impl std::fmt::Display, dir: SortDir) -> String {
+    format!("{key} {}", dir_arrow(dir))
 }
 
 /// A view list (Saves or Downloads) sortable by a persisted key + direction
@@ -69,7 +74,7 @@ pub(super) trait SortablePane {
     fn resort(app: &mut App);
 
     fn label(app: &App) -> String {
-        format!("{} {}", Self::key(app), dir_arrow(Self::dir(app)))
+        sort_label(Self::key(app), Self::dir(app))
     }
 }
 
@@ -103,9 +108,7 @@ impl SortablePane for SavesPane {
 
     fn resort(app: &mut App) {
         sort_saves(&mut app.saves.entries, app.settings.saves_sort);
-        app.saves
-            .list
-            .select((!app.saves.entries.is_empty()).then_some(0));
+        select_first(&mut app.saves.list, app.saves.entries.len());
     }
 }
 
@@ -136,15 +139,13 @@ impl SortablePane for DownloadsPane {
 
     fn resort(app: &mut App) {
         sort_downloads(&mut app.downloads.entries, app.settings.downloads_sort);
-        app.downloads
-            .list
-            .select((!app.downloads.entries.is_empty()).then_some(0));
+        select_first(&mut app.downloads.list, app.downloads.entries.len());
     }
 }
 
 impl App {
     pub(super) fn cycle_sort<P: SortablePane>(&mut self) {
-        let next = next_variant(P::key(self));
+        let next = cycle_variant(P::key(self), 1);
         P::set_key(self, next);
         P::set_dir(self, P::default_dir(next));
         P::resort(self);
@@ -165,13 +166,6 @@ impl App {
             tracing::warn!(error = %e, "could not save sort preference");
         }
     }
-}
-
-/// The next variant after `current` in declaration order, wrapping at the end
-fn next_variant<T: IntoEnumIterator + PartialEq + Copy>(current: T) -> T {
-    let all: Vec<T> = T::iter().collect();
-    let idx = all.iter().position(|&v| v == current).unwrap_or(0);
-    all[(idx + 1) % all.len()]
 }
 
 /// Flip an ascending ordering when the preference is descending

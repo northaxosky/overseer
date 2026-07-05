@@ -77,10 +77,7 @@ pub(crate) enum Workspace {
 impl Workspace {
     /// The workspace `delta` steps away in `Workspace::iter()` order, wrapping at the ends
     pub(crate) fn cycle(self, delta: isize) -> Workspace {
-        let all: Vec<Workspace> = Workspace::iter().collect();
-        let i = all.iter().position(|&w| w == self).unwrap_or(0) as isize;
-        let n = all.len() as isize;
-        all[(i + delta).rem_euclid(n) as usize]
+        cycle_variant(self, delta)
     }
 
     /// The digit key that switches to this workspace (`1`..`4`)
@@ -243,16 +240,50 @@ impl App {
     }
 }
 
+/// Select the first row of `list` when `len > 0`, else clear the selection
+pub(crate) fn select_first(list: &mut ListState, len: usize) {
+    list.select((len > 0).then_some(0));
+}
+
 /// A `ListState` selecting the first row when the list is non-empty
 pub(crate) fn initial_selection(len: usize) -> ListState {
     let mut state = ListState::default();
-    if len > 0 {
-        state.select(Some(0));
-    }
+    select_first(&mut state, len);
     state
+}
+
+/// The variant `delta` steps from `current` in `T::iter()` order, wrapping both ends
+pub(crate) fn cycle_variant<T: IntoEnumIterator + PartialEq + Copy>(current: T, delta: isize) -> T {
+    let n = T::iter().count();
+    let i = T::iter().position(|v| v == current).unwrap_or(0);
+    let target = (i as isize + delta).rem_euclid(n as isize) as usize;
+    T::iter()
+        .nth(target)
+        .expect("target is within the variant count")
 }
 
 /// A separator entry's display name: its stored name with the `_separator` suffix stripped
 pub(crate) fn separator_display(name: &str) -> &str {
     name.strip_suffix("_separator").unwrap_or(name)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn select_first_selects_row_zero_only_when_non_empty() {
+        let mut list = ListState::default();
+        select_first(&mut list, 3);
+        assert_eq!(list.selected(), Some(0));
+        select_first(&mut list, 0);
+        assert_eq!(list.selected(), None);
+    }
+
+    #[test]
+    fn cycle_variant_wraps_in_both_directions() {
+        assert_eq!(cycle_variant(Workspace::Plugins, 1), Workspace::Conflicts);
+        assert_eq!(cycle_variant(Workspace::Saves, 1), Workspace::Plugins);
+        assert_eq!(cycle_variant(Workspace::Plugins, -1), Workspace::Saves);
+    }
 }

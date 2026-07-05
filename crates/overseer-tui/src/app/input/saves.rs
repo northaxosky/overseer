@@ -1,7 +1,7 @@
 //! The saves workspace's actions: listing the profile's `.fos` saves and deleting one
 
 use crate::app::sort::sort_saves;
-use crate::app::{App, Confirm, ConfirmAction, Focus, Modal, Workspace};
+use crate::app::{App, Confirm, ConfirmAction, Focus, Modal, Workspace, select_first};
 use camino::Utf8Path;
 use overseer_core::saves::{self, SaveInfo};
 
@@ -12,7 +12,7 @@ impl App {
             Ok(dir) => match saves::list_saves(&dir) {
                 Ok(mut entries) => {
                     sort_saves(&mut entries, self.settings.saves_sort);
-                    self.saves.list.select((!entries.is_empty()).then_some(0));
+                    select_first(&mut self.saves.list, entries.len());
                     self.saves.entries = entries;
                 }
                 Err(e) => {
@@ -38,7 +38,7 @@ impl App {
     /// Confirm deleting the selected save; inert unless the Saves pane is focused
     pub(super) fn begin_delete_selected_save(&mut self) {
         // `x` is a main-view key, so guard it to the one pane it acts on
-        if self.focus != Focus::Workspace || self.workspace != Workspace::Saves {
+        if !self.on_saves_pane() {
             return;
         }
         let Some(save) = self.selected_save() else {
@@ -72,7 +72,7 @@ impl App {
 
     /// Toggle the current profile's LocalSaves flag; inert unless the Saves pane is focused
     pub(super) fn toggle_local_saves(&mut self) {
-        if self.focus != Focus::Workspace || self.workspace != Workspace::Saves {
+        if !self.on_saves_pane() {
             return;
         }
         self.session.profile.local_saves = !self.session.profile.local_saves;
@@ -90,6 +90,11 @@ impl App {
                 self.fail(format!("Could not save profile: {e}"));
             }
         }
+    }
+
+    /// True when the Saves workspace pane is focused
+    fn on_saves_pane(&self) -> bool {
+        self.focus == Focus::Workspace && self.workspace == Workspace::Saves
     }
 }
 

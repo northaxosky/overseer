@@ -17,7 +17,8 @@ use overseer_core::instance::ModKind;
 
 use super::sort::{DownloadsPane, SavesPane};
 use super::{
-    App, ConflictsStatus, Focus, Modal, SelectKind, Workspace, initial_selection, separator_display,
+    App, ConflictsStatus, Focus, Modal, SelectKind, Workspace, initial_selection, select_first,
+    separator_display,
 };
 
 #[derive(Clone, Copy)]
@@ -203,7 +204,7 @@ impl App {
         let sources = self.session.profile.deploy_sources(&self.session.instance);
         match detect_conflicts(&sources) {
             Ok(found) => {
-                self.conflicts.list.select((!found.is_empty()).then_some(0));
+                select_first(&mut self.conflicts.list, found.len());
                 self.conflicts.status = ConflictsStatus::Ready(found);
             }
             Err(e) => self.conflicts.status = ConflictsStatus::Error(e.to_string()),
