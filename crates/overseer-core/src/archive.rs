@@ -1,6 +1,6 @@
 //! Reading Bethesda archive (BA2 / "BTDX") headers
 
-use crate::error::IoError;
+use crate::error::{IoError, io_err};
 use camino::Utf8Path;
 use std::io::Read;
 use thiserror::Error;
@@ -76,11 +76,11 @@ impl Ba2Header {
 
     /// Read the header (first 24 bytes) of a BA2 file, without reading archive body
     pub fn read(path: &Utf8Path) -> Result<Self, Ba2Error> {
-        let mut file = std::fs::File::open(path).map_err(|e| IoError::new(path, e))?;
+        let mut file = std::fs::File::open(path).map_err(|e| io_err(path, e))?;
         let mut buf = [0u8; HEADER_LEN];
         file.read_exact(&mut buf).map_err(|e| match e.kind() {
             std::io::ErrorKind::UnexpectedEof => Ba2Error::TooShort,
-            _ => Ba2Error::Io(IoError::new(path, e)),
+            _ => Ba2Error::Io(io_err(path, e)),
         })?;
         Self::parse(&buf)
     }

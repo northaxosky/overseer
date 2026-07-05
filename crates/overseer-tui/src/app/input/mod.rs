@@ -27,6 +27,7 @@ enum RefreshCause {
     Explicit,
 }
 
+// Known limitation: two separators with the same display name share one collapse key, and renaming a separator drops its state; accepted while collapse state is session-only
 /// A separator's collapse key: its display name, lowercased
 fn group_key(separator_name: &str) -> String {
     separator_display(separator_name).to_ascii_lowercase()

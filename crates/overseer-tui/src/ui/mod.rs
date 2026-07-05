@@ -968,6 +968,10 @@ mod tests {
         let out = render(&mut app, 80, 24);
         assert!(out.contains("alpha"), "lists a recent instance");
         assert!(out.contains("switch"), "the hint names the switch action");
+        assert!(
+            out.contains("> /alpha"),
+            "the selected row uses the shared selection cursor"
+        );
     }
 
     #[test]

@@ -1,7 +1,7 @@
 //! The real game load order: writing the game's `Plugins.txt` via libloadorder
 
 use super::error::PluginError;
-use super::loadorder::PluginEntry;
+use super::load_order::PluginEntry;
 use crate::restore::{MissingCurrent, Restore, restore_if_ours};
 use camino::{Utf8Path, Utf8PathBuf};
 use loadorder::{GameId, GameSettings};

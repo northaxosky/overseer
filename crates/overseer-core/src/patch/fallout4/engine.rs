@@ -879,10 +879,7 @@ mod tests {
     impl RenameOp for FailInstallOf {
         fn rename(&mut self, from: &Utf8Path, to: &Utf8Path) -> Result<(), IoError> {
             if from.as_str().ends_with(&self.tmp_suffix) {
-                return Err(IoError::new(
-                    to,
-                    std::io::Error::other("injected rename failure"),
-                ));
+                return Err(io_err(to, std::io::Error::other("injected rename failure")));
             }
             rename(from, to)
         }

@@ -1,9 +1,9 @@
 //! Reading and deleting a profile's Fallout 4 `.fos` save games
 
+use super::SaveParseError;
 use crate::error::{IoError, io_err};
 use camino::{Utf8Path, Utf8PathBuf};
 use std::time::SystemTime;
-use thiserror::Error;
 
 /// The 12-byte magic every Fallout 4 save begins with
 const MAGIC: &[u8] = b"FO4_SAVEGAME";
@@ -37,23 +37,6 @@ pub struct SaveMeta {
     pub location: String,
     /// Opaque in-game date text (format is engine-defined)
     pub game_date: String,
-}
-
-/// Why a `.fos` save header could not be parsed
-#[derive(Debug, Clone, PartialEq, Eq, Error)]
-enum SaveParseError {
-    /// The file did not begin with the `FO4_SAVEGAME` magic
-    #[error("not a Fallout 4 save: bad magic")]
-    BadMagic,
-    /// The header ended before a field we needed was fully read
-    #[error("save header ended unexpectedly")]
-    UnexpectedEof,
-    /// A header string was not valid UTF-8
-    #[error("save header string was not valid UTF-8")]
-    BadString,
-    /// The declared header size was implausibly large
-    #[error("save header size {0} is implausibly large")]
-    HeaderTooLarge(usize),
 }
 
 /// A panic-free, little-endian reader over a byte slice; every read is bounds checked
