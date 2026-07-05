@@ -74,7 +74,11 @@ fn render_select(select: &mut Select, frame: &mut Frame) {
             .wrap(Wrap { trim: true });
         frame.render_widget(msg, rows[0]);
     } else {
-        let list_items: Vec<ListItem> = select.items.iter().cloned().map(ListItem::new).collect();
+        let list_items: Vec<ListItem> = select
+            .items
+            .iter()
+            .map(|s| ListItem::new(s.as_str()))
+            .collect();
         let list = highlighted(List::new(list_items));
         frame.render_stateful_widget(list, rows[0], &mut select.state);
     }
