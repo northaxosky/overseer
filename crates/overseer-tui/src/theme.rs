@@ -28,16 +28,6 @@ pub(crate) fn selection_style() -> Style {
     Style::new().add_modifier(Modifier::REVERSED)
 }
 
-// ────────────────────────────────────────────────────────────────────────
-// Tests
-// ────────────────────────────────────────────────────────────────────────
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn roles_map_to_distinct_styles() {
-        assert_eq!(style(Role::Success), style(Role::Added));
-        assert_ne!(style(Role::Success), style(Role::Muted));
-    }
-}
+#[path = "tests/theme.rs"]
+mod tests;
