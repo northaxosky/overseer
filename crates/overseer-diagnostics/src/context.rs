@@ -53,7 +53,7 @@ const BASE_SCRIPT_NAMES: &[&str] = &[
 ];
 /// The state a diagnostic run inspects. Gathered once using [`GameContext::gather`]
 #[derive(Default)]
-pub struct GameContext {
+pub(crate) struct GameContext {
     /// The active mod plugins to inspect (with their masters)
     pub active_plugins: Vec<PluginMeta>,
     /// The real load-order budget: active mod plugins plus force-loaded base/DLC/Creation Club plugins
@@ -94,7 +94,7 @@ pub struct GameContext {
 
 /// Loaded BA2 counts split by content kind and Fallout 4 archive generation
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
-pub struct LoadedArchiveCounts {
+pub(crate) struct LoadedArchiveCounts {
     /// Loaded `GNRL` archives
     pub gnrl: usize,
     /// Loaded `DX10` archives
@@ -107,7 +107,7 @@ pub struct LoadedArchiveCounts {
 
 /// An installed DLC group and any of its files not at the consistency revision
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DlcGroupState {
+pub(crate) struct DlcGroupState {
     /// The DLC group name (e.g. `DLCCoast`)
     pub group: &'static str,
     /// Present files whose on-disk identity differs from the consistency revision
@@ -117,7 +117,7 @@ pub struct DlcGroupState {
 }
 
 /// A deployed F4SE plugin DLL and the runtime support it advertises
-pub struct F4sePluginScan {
+pub(crate) struct F4sePluginScan {
     /// File name, e.g. `Buffout4.dll`
     pub name: String,
     /// The mod that owns it
@@ -128,7 +128,7 @@ pub struct F4sePluginScan {
 
 /// Whether the F4SE Address Library is in place. Only meaningful when F4SE plugins are deployed
 #[derive(Default, PartialEq, Eq)]
-pub enum AddressLibraryStatus {
+pub(crate) enum AddressLibraryStatus {
     /// No F4SE plugins are deployed, so it isn't needed
     #[default]
     NotApplicable,
@@ -139,7 +139,7 @@ pub enum AddressLibraryStatus {
 }
 
 /// A file that will deploy under the game's `Data/` folder, and the mod it came from
-pub struct DataFile {
+pub(crate) struct DataFile {
     /// Path relative to `Data/` (e.g. `textures/foo.dds`)
     pub path: Utf8PathBuf,
     /// The mod that owns this file (the conflict winner)
@@ -147,7 +147,7 @@ pub struct DataFile {
 }
 
 /// A BA2 archive in the profile's deploy set, with its scanned header
-pub struct ArchiveInfo {
+pub(crate) struct ArchiveInfo {
     /// File name, e.g. `Textures.ba2`
     pub name: String,
     /// The mod that owns it (conflict winner)
@@ -159,7 +159,7 @@ pub struct ArchiveInfo {
 }
 
 /// A loose top-level `Data/Scripts/<name>.pex` that shadows a base F4SE script
-pub struct ScriptOverrideScan {
+pub(crate) struct ScriptOverrideScan {
     /// File name, e.g. `Actor.pex`
     pub name: String,
     /// The mod that owns it (conflict winner) — not the F4SE package
@@ -167,7 +167,7 @@ pub struct ScriptOverrideScan {
 }
 
 /// The outcome of reading a BA2 header during gather
-pub enum ArchiveScan {
+pub(crate) enum ArchiveScan {
     /// Header parsed successfully
     Header(Ba2Header),
     /// Present but not a valid BA2 (bad magic or too short)
@@ -178,7 +178,7 @@ pub enum ArchiveScan {
 
 /// The state of the game's INI files
 #[derive(Default)]
-pub enum IniStatus {
+pub(crate) enum IniStatus {
     /// INIs were read successfully
     Present,
     /// INIs are not configured for this instance
@@ -190,7 +190,7 @@ pub enum IniStatus {
 
 /// The state of the game's Creation Club manifest (e.g. `Fallout4.ccc`)
 #[derive(Default)]
-pub enum CccStatus {
+pub(crate) enum CccStatus {
     /// This game has no Creation Club manifest
     #[default]
     NotApplicable,
@@ -206,7 +206,7 @@ pub enum CccStatus {
 }
 
 /// How many race-subgraph (`SADD`) records a plugin contains
-pub struct SaddCount {
+pub(crate) struct SaddCount {
     /// The plugin's filename
     pub plugin: String,
     /// Number of `SADD` markers found in its bytes

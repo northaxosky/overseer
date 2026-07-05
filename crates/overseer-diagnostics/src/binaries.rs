@@ -13,7 +13,7 @@ const BINARIES: [&str; 2] = [LAUNCHER, STEAM_API];
 
 /// Which game generation a single binary belongs to
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BinaryEdition {
+pub(crate) enum BinaryEdition {
     /// Old-Gen (`1.10.163`)
     OldGen,
     /// Next-Gen (`1.10.984`)
@@ -41,7 +41,7 @@ impl BinaryEdition {
 
 /// One inspected binary: what it is, and whether it was even there
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct BinaryScan {
+pub(crate) struct BinaryScan {
     /// The file name, e.g. `steam_api64.dll`
     pub name: &'static str,
     /// the generation it was classified as, if recognized

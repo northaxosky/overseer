@@ -14,14 +14,16 @@ pub fn run(ctx: &GameContext) -> Vec<Finding> {
             "Race-subgraph record counts are within the safe range",
         )];
     }
+    let plugins = ctx
+        .sadd_records
+        .iter()
+        .map(|r| r.plugin.as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
     vec![
         Finding::warning(format!(
-            "Mods add {total} race-subgraph records across {} plugins",
-            ctx.sadd_records.len()
-        ))
-        .detail(
-            "High counts can cause stutter between cells; removing or merging animation mods can help",
-        ),
+            "Mods add {total} race-subgraph records across {} plugins: {plugins}", ctx.sadd_records.len()
+        )).detail("High counts can cause stutter between cells; removing or merging animation mods can help")
     ]
 }
 
@@ -65,12 +67,16 @@ mod tests {
     }
 
     #[test]
-    fn over_the_threshold_warns_with_the_total_and_plugin_count() {
+    fn over_the_threshold_warns_with_the_total_count_and_plugin_names() {
         let findings = super::run(&ctx(vec![sadd("A.esp", 80), sadd("B.esp", 40)]));
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].severity, Severity::Warning);
         assert!(findings[0].title.contains("120"), "80 + 40");
         assert!(findings[0].title.contains("2 plugins"));
+        assert!(
+            findings[0].title.contains("A.esp") && findings[0].title.contains("B.esp"),
+            "the warning names the offending plugins"
+        );
     }
 
     #[test]

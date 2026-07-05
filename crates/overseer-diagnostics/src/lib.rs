@@ -12,7 +12,7 @@ mod error;
 mod finding;
 mod report;
 
-pub use context::{CccStatus, DataFile, GameContext, IniStatus, SaddCount};
+use context::GameContext;
 pub use error::DiagnosticError;
 pub use finding::{Finding, Severity};
 pub use report::Report;
