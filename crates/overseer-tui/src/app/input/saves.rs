@@ -8,23 +8,24 @@ use overseer_core::saves::{self, SaveInfo};
 impl App {
     /// List the current profile's saves in the saved sort order, selecting the first row
     pub(super) fn refresh_saves(&mut self) {
-        match self.session.instance.saves_dir(&self.session.profile.name) {
-            Ok(dir) => match saves::list_saves(&dir) {
-                Ok(mut entries) => {
-                    sort_saves(&mut entries, self.settings.saves_sort);
-                    select_first(&mut self.saves.list, entries.len());
-                    self.saves.entries = entries;
-                }
-                Err(e) => {
-                    self.saves.entries.clear();
-                    self.saves.list.select(None);
-                    self.fail(format!("Could not list saves: {e}"));
-                }
-            },
-            Err(e) => {
+        let listed = self
+            .session
+            .instance
+            .saves_dir(&self.session.profile.name)
+            .map_err(|e| format!("Could not locate saves: {e}"))
+            .and_then(|dir| {
+                saves::list_saves(&dir).map_err(|e| format!("Could not list saves: {e}"))
+            });
+        match listed {
+            Ok(mut entries) => {
+                sort_saves(&mut entries, self.settings.saves_sort);
+                select_first(&mut self.saves.list, entries.len());
+                self.saves.entries = entries;
+            }
+            Err(msg) => {
                 self.saves.entries.clear();
                 self.saves.list.select(None);
-                self.fail(format!("Could not locate saves: {e}"));
+                self.fail(msg);
             }
         }
     }

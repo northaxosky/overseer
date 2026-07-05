@@ -100,6 +100,24 @@ fn under(path: &Utf8Path, prefix: &[&str]) -> bool {
     })
 }
 
+/// How a count sits against an engine limit: over it, within ~10%, or comfortably under
+enum LimitTier {
+    Over,
+    Near,
+    Under,
+}
+
+/// Classify `count` against `limit` for count-limit checks
+fn limit_tier(count: usize, limit: usize) -> LimitTier {
+    if count > limit {
+        LimitTier::Over
+    } else if count >= limit * 9 / 10 {
+        LimitTier::Near
+    } else {
+        LimitTier::Under
+    }
+}
+
 // ────────────────────────────────────────────────────────────────────────
 // Tests
 // ────────────────────────────────────────────────────────────────────────

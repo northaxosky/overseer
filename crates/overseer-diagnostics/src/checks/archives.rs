@@ -3,6 +3,8 @@
 use crate::context::{ArchiveScan, GameContext};
 use crate::finding::Finding;
 
+use super::{LimitTier, limit_tier};
+
 /// BA2 header versions Fallout 4 can read: 1 = OG, 7/8 = NG/AE. Starfield's v2/v3 are not FO4-readable
 const SUPPORTED_VERSIONS: &[u32] = &[1, 7, 8];
 const MAX_ARCHIVES_GNRL: usize = 256;
@@ -60,22 +62,19 @@ pub fn run(ctx: &GameContext) -> Vec<Finding> {
 }
 
 fn limit_finding(count: usize, limit: usize, label: &str) -> Option<Finding> {
-    let warn = limit * 95 / 100;
-    if count > limit {
-        Some(
+    match limit_tier(count, limit) {
+        LimitTier::Over => Some(
             Finding::error(format!(
                 "{label} BA2 archives: {count} / {limit} — over the limit"
             ))
             .detail(
                 "Unpack or merge archives to reduce the total (don't mix texture and non-texture when merging).",
             ),
-        )
-    } else if count >= warn {
-        Some(Finding::warning(format!(
+        ),
+        LimitTier::Near => Some(Finding::warning(format!(
             "{label} BA2 archives: {count} / {limit} — approaching the limit"
-        )))
-    } else {
-        None
+        ))),
+        LimitTier::Under => None,
     }
 }
 
@@ -188,11 +187,11 @@ mod tests {
             ..LoadedArchiveCounts::default()
         });
         let at_floor = run_counts(LoadedArchiveCounts {
-            gnrl: 243,
+            gnrl: 230,
             ..LoadedArchiveCounts::default()
         });
         let just_under = run_counts(LoadedArchiveCounts {
-            gnrl: 242,
+            gnrl: 229,
             ..LoadedArchiveCounts::default()
         });
 
@@ -206,7 +205,7 @@ mod tests {
 
         assert_eq!(at_floor.len(), 1);
         assert_eq!(at_floor[0].severity, Severity::Warning);
-        assert!(at_floor[0].title.contains("243 / 256"));
+        assert!(at_floor[0].title.contains("230 / 256"));
 
         assert!(just_under.is_empty());
     }

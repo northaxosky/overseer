@@ -1,7 +1,9 @@
 //! Active full/light plugin counts vs the engine limits
 
 use crate::context::GameContext;
-use crate::finding::{Finding, Severity};
+use crate::finding::Finding;
+
+use super::{LimitTier, limit_tier};
 
 /// Fallout 4's hard limits on simultaneously-loaded plugins
 const MAX_FULL: usize = 254;
@@ -17,22 +19,13 @@ pub fn run(ctx: &GameContext) -> Vec<Finding> {
     ]
 }
 
-/// One finding for a plugin tier: error over the limit, warn within ~5%, else info
+/// One finding for a plugin tier: error over the limit, warn when near it, else info
 fn count_finding(label: &str, count: usize, limit: usize) -> Finding {
-    let (severity, detail) = if count > limit {
-        (
-            Severity::Error,
-            Some("Over the limit — the game won't start"),
-        )
-    } else if count >= limit - limit / 20 {
-        (Severity::Warning, Some("Approaching the limit"))
-    } else {
-        (Severity::Info, None)
-    };
-    let f = Finding::new(severity, format!("{label} plugins: {count} / {limit}"));
-    match detail {
-        Some(d) => f.detail(d),
-        None => f,
+    let title = format!("{label} plugins: {count} / {limit}");
+    match limit_tier(count, limit) {
+        LimitTier::Over => Finding::error(title).detail("Over the limit — the game won't start"),
+        LimitTier::Near => Finding::warning(title).detail("Approaching the limit"),
+        LimitTier::Under => Finding::info(title),
     }
 }
 
@@ -43,6 +36,7 @@ fn count_finding(label: &str, count: usize, limit: usize) -> Finding {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::finding::Severity;
     use overseer_core::plugins::PluginMeta;
 
     fn plugin(is_light: bool) -> PluginMeta {
@@ -80,7 +74,7 @@ mod tests {
 
     #[test]
     fn approaching_the_full_limit_warns() {
-        // 254 - 254/20 = 242 is the warning threshold
+        // 254 * 9/10 = 228 is the warning threshold
         let findings = super::run(&ctx(245, 0));
         assert_eq!(findings[0].severity, Severity::Warning);
     }
