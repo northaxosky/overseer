@@ -612,7 +612,7 @@ mod tests {
         use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
         let mut app = App::sample();
         app.handle_key(KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE));
-        let out = render(&mut app, 80, 24);
+        let out = render(&mut app, 80, 32);
         assert!(out.contains("Help"), "the modal is titled Help");
         assert!(out.contains("sort"), "the modal lists sort bindings");
         assert!(out.contains("reorder"), "the modal lists bindings");

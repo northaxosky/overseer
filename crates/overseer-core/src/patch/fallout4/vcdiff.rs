@@ -179,7 +179,8 @@ fn parse_app_header(path: &Utf8Path, bytes: &[u8]) -> Result<Option<String>, Vcd
         idx = idx.checked_add(1).ok_or_else(|| malformed(path))?;
     }
     if indicator & VCD_CODETABLE != 0 {
-        idx = idx.checked_add(1).ok_or_else(|| malformed(path))?;
+        let len = read_varint(bytes, &mut idx).ok_or_else(|| malformed(path))?;
+        idx = idx.checked_add(len).ok_or_else(|| malformed(path))?;
     }
     if indicator & VCD_APPHEADER == 0 {
         return Ok(None);
@@ -287,6 +288,19 @@ mod tests {
         )
         .unwrap();
         assert_eq!(target_from_header(&path, CORE).unwrap(), "Fallout4.exe");
+    }
+
+    #[test]
+    fn skips_a_length_prefixed_code_table_to_reach_the_app_header() {
+        let mut bytes = vec![0xD6, 0xC3, 0xC4, 0x00, VCD_CODETABLE | VCD_APPHEADER];
+        let code_table = [0x01, 0x02, 0x03, 0x04, 0x05];
+        write_varint(&mut bytes, code_table.len());
+        bytes.extend_from_slice(&code_table);
+        let app = br"C:\new\Fallout4.exe/";
+        write_varint(&mut bytes, app.len());
+        bytes.extend_from_slice(app);
+        let header = parse_app_header(Utf8Path::new("patch.vcdiff"), &bytes).unwrap();
+        assert_eq!(header.as_deref(), Some(r"C:\new\Fallout4.exe/"));
     }
 
     #[test]
