@@ -4,7 +4,8 @@ use crate::fs;
 use camino::Utf8Path;
 use strum::{EnumIter, EnumString, IntoEnumIterator, IntoStaticStr};
 
-use super::error::{InstallError, io_err};
+use super::error::InstallError;
+use crate::error::io_err;
 
 /// An archive format Overseer can extract
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumIter, EnumString, IntoStaticStr)]

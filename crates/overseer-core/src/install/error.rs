@@ -42,5 +42,3 @@ pub enum InstallError {
     #[error("FOMOD installers aren't supported yet")]
     Fomod,
 }
-
-pub(crate) use crate::error::io_err;

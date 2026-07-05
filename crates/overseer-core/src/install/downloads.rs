@@ -1,7 +1,8 @@
 //! Listing the per-instance `downloads/` directory of installable archives
 
 use super::archive::ArchiveFormat;
-use super::error::{InstallError, io_err};
+use super::error::InstallError;
+use crate::error::io_err;
 use crate::instance::Instance;
 use camino::Utf8PathBuf;
 use std::time::SystemTime;

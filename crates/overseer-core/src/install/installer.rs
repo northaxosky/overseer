@@ -1,9 +1,9 @@
 //! The mod installer: extract an archive, find its content root, and stage it under `mods/`
 
 use super::archive::extract;
-use super::error::{InstallError, io_err};
+use super::error::InstallError;
 use super::root::find_content_root;
-use crate::error::non_utf8;
+use crate::error::{io_err, non_utf8};
 use crate::fs;
 use crate::instance::{InstalledMod, Instance};
 use camino::{Utf8Path, Utf8PathBuf};

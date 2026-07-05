@@ -1,6 +1,7 @@
 //! Locating the content root inside an extracted archive
 
-use super::error::{InstallError, io_err};
+use super::error::InstallError;
+use crate::error::io_err;
 use camino::{Utf8Path, Utf8PathBuf};
 
 /// Top-level directory names that mark a valid Bethesda game data root
