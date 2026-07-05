@@ -36,6 +36,15 @@ pub enum InstallError {
     #[error("archive contains no installable files")]
     EmptyArchive,
 
+    #[error(
+        "archive `{path}` expands to {uncompressed} bytes, despite {compressed}-byte size (decompression bomb?)"
+    )]
+    TooLarge {
+        path: Utf8PathBuf,
+        uncompressed: u64,
+        compressed: u64,
+    },
+
     #[error("path is not valid UTF-8: `{0}`")]
     NonUtf8Path(String),
 

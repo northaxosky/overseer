@@ -7,6 +7,12 @@ use strum::{EnumIter, EnumString, IntoEnumIterator, IntoStaticStr};
 use super::error::InstallError;
 use crate::error::io_err;
 
+/// Archives whose declared output stays under this are never bomb-checked
+const BOMB_FLOOR_BYTES: u64 = 100 * 1024 * 1024;
+
+/// Output beyond this multiple of the archive's own on-disk size is considered a bomb
+const BOMB_RATIO: u64 = 100;
+
 /// An archive format Overseer can extract
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumIter, EnumString, IntoStaticStr)]
 pub(crate) enum ArchiveFormat {
@@ -45,6 +51,8 @@ pub(super) fn extract(archive: &Utf8Path, dest: &Utf8Path) -> Result<(), Install
             extension: archive.extension().unwrap_or_default().to_owned(),
         })?;
 
+    guard_decompression_bomb(archive, format)?;
+
     match format {
         ArchiveFormat::SevenZip => extract_7z(archive, dest),
         ArchiveFormat::Zip => extract_zip(archive, dest),
@@ -73,6 +81,54 @@ fn extract_zip(archive: &Utf8Path, dest: &Utf8Path) -> Result<(), InstallError> 
         })
 }
 
+/// Whether declared output is an implausible expansion of the archive's size (BOMBBBBB)
+fn is_bomb(uncompressed: u64, compressed: u64) -> bool {
+    uncompressed > BOMB_FLOOR_BYTES && uncompressed > compressed.saturating_mul(BOMB_RATIO)
+}
+
+/// Refuse an archive whose declared output mogs its on-disk size
+fn guard_decompression_bomb(archive: &Utf8Path, format: ArchiveFormat) -> Result<(), InstallError> {
+    let uncompressed = declared_uncompressed(archive, format)?;
+    let compressed = std::fs::metadata(archive)
+        .map_err(|e| io_err(archive, e))?
+        .len();
+    if is_bomb(uncompressed, compressed) {
+        return Err(InstallError::TooLarge {
+            path: archive.to_owned(),
+            uncompressed,
+            compressed,
+        });
+    }
+    Ok(())
+}
+
+/// The total uncompressed size the archive's metadata declares
+fn declared_uncompressed(archive: &Utf8Path, format: ArchiveFormat) -> Result<u64, InstallError> {
+    match format {
+        ArchiveFormat::Zip => {
+            let file = std::fs::File::open(archive).map_err(|e| io_err(archive, e))?;
+            let zip = zip::ZipArchive::new(file).map_err(|source| InstallError::Zip {
+                path: archive.to_owned(),
+                source,
+            })?;
+            Ok(zip.decompressed_size().unwrap_or(0).min(u64::MAX as u128) as u64)
+        }
+        ArchiveFormat::SevenZip => {
+            let mut file = std::fs::File::open(archive).map_err(|e| io_err(archive, e))?;
+            let meta = sevenz_rust2::Archive::read(&mut file, &sevenz_rust2::Password::empty())
+                .map_err(|source| InstallError::SevenZip {
+                    path: archive.to_owned(),
+                    source,
+                })?;
+            Ok(meta
+                .files
+                .iter()
+                .map(|e| e.size())
+                .fold(0u64, u64::saturating_add))
+        }
+    }
+}
+
 // ────────────────────────────────────────────────────────────────────────
 // Tests
 // ────────────────────────────────────────────────────────────────────────
@@ -83,6 +139,22 @@ mod tests {
     use std::fs::File;
 
     use crate::test_support::temp;
+
+    /// `is_bomb` flags only archives that are both large (over the floor) and absurdly high-ratio
+    #[test]
+    fn is_bomb_flags_only_large_high_ratio_archives() {
+        let mb: u64 = 1024 * 1024;
+        // Under the 100 MB floor: never a bomb, even at an absurd ratio
+        assert!(!is_bomb(50 * mb, 1));
+        // Over the floor and over the 100x ratio: a bomb
+        assert!(is_bomb(200 * mb, mb));
+        // Over the floor but a plausible expansion: a legitimate large mod
+        assert!(!is_bomb(200 * mb, 10 * mb));
+        // Saturating math: an archive expanding ~1:1 is never a bomb, even at the u64 ceiling
+        assert!(!is_bomb(u64::MAX, u64::MAX));
+        // ...but a tiny archive declaring the maximum is
+        assert!(is_bomb(u64::MAX, 1));
+    }
 
     /// A normal `.7z` extracts through `extract`, covering the 7z happy path on the backend
     #[test]
