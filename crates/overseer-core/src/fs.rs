@@ -5,7 +5,7 @@
 use crate::error::{IoError, io_err};
 use atomicwrites::{AtomicFile, OverwriteBehavior};
 use camino::Utf8Path;
-use std::io::{ErrorKind, Write};
+use std::io::{ErrorKind, Read, Write};
 
 /// Read a file to a `String`, returning `Ok(None)` when it doesn't exist so callers choose their default
 pub(crate) fn read_to_string_opt(path: &Utf8Path) -> Result<Option<String>, IoError> {
@@ -89,6 +89,20 @@ pub(crate) fn read_dir_opt(dir: &Utf8Path) -> Result<Option<std::fs::ReadDir>, I
         Err(e) if e.kind() == ErrorKind::NotFound => Ok(None),
         Err(e) => Err(io_err(dir, e)),
     }
+}
+
+/// Read `path` in 64 KiB chunks, handing each to `on_chunk`; hash large fiels without buffering
+pub(crate) fn read_chunks(path: &Utf8Path, mut on_chunk: impl FnMut(&[u8])) -> Result<(), IoError> {
+    let mut file = std::fs::File::open(path).map_err(|e| io_err(path, e))?;
+    let mut buf = [0u8; 64 * 1024];
+    loop {
+        let n = file.read(&mut buf).map_err(|e| io_err(path, e))?;
+        if n == 0 {
+            break;
+        }
+        on_chunk(&buf[..n]);
+    }
+    Ok(())
 }
 
 /// Move a corrupt file aside to `<path>.bak` so a later write won't clobber it. No-op if absent

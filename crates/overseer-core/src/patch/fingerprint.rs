@@ -1,11 +1,10 @@
 //! Game-agnostic binary verification: measure a file and gate it against known-good hashes.
 
-use crate::error::{IoError, io_err};
+use crate::error::IoError;
 use crate::fs::size_opt;
 use camino::Utf8Path;
 use sha2::{Digest, Sha256};
 use std::fmt::Write as _;
-use std::io::Read;
 
 /// The measured identity of a file on disk
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -84,18 +83,12 @@ pub fn fingerprint_file(path: &Utf8Path) -> Result<Option<FileFingerprint>, IoEr
     let Some(size) = size_opt(path)? else {
         return Ok(None);
     };
-    let mut file = std::fs::File::open(path).map_err(|e| io_err(path, e))?;
     let mut crc = crc32fast::Hasher::new();
     let mut sha = Sha256::new();
-    let mut buf = [0u8; 64 * 1024];
-    loop {
-        let n = file.read(&mut buf).map_err(|e| io_err(path, e))?;
-        if n == 0 {
-            break;
-        }
-        crc.update(&buf[..n]);
-        sha.update(&buf[..n]);
-    }
+    crate::fs::read_chunks(path, |chunk| {
+        crc.update(chunk);
+        sha.update(chunk);
+    })?;
     Ok(Some(FileFingerprint {
         size,
         crc32: crc.finalize(),

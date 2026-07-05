@@ -5,11 +5,6 @@ use camino::{Utf8Path, Utf8PathBuf};
 use std::process::Command;
 use thiserror::Error;
 
-#[cfg(test)]
-use crate::error::io_err;
-#[cfg(test)]
-use std::io::Read;
-
 /// Applies a VCDIFF `delta` to `source`, writing the reconstructed file to `dest`
 pub trait DeltaDecoder {
     fn apply(&self, source: &Utf8Path, delta: &Utf8Path, dest: &Utf8Path)
@@ -85,16 +80,8 @@ impl DeltaDecoder for Xdelta3CliDecoder {
 /// CRC32 of a file, read in a streaming fashion (for verifying multi-MB game files)
 #[cfg(test)]
 fn crc32_file(path: &Utf8Path) -> Result<u32, IoError> {
-    let mut file = std::fs::File::open(path).map_err(|e| io_err(path, e))?;
     let mut hasher = crc32fast::Hasher::new();
-    let mut buf = [0u8; 64 * 1024];
-    loop {
-        let n = file.read(&mut buf).map_err(|e| io_err(path, e))?;
-        if n == 0 {
-            break;
-        }
-        hasher.update(&buf[..n]);
-    }
+    crate::fs::read_chunks(path, |chunk| hasher.update(chunk))?;
     Ok(hasher.finalize())
 }
 

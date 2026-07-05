@@ -151,6 +151,12 @@ fn read_header_prefix(path: &Utf8Path) -> Result<Vec<u8>, IoError> {
     Ok(buf)
 }
 
+/// Whether `path` is a Fallout 4 `.fos` save, not a co-save
+fn is_fos(path: &Utf8Path) -> bool {
+    path.extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("fos"))
+}
+
 /// List a profile's `.fos` saves in `dir`, newest first
 pub fn list_saves(dir: &Utf8Path) -> Result<Vec<SaveInfo>, IoError> {
     let Some(entries) = crate::fs::read_dir_opt(dir)? else {
@@ -184,7 +190,7 @@ pub fn list_saves(dir: &Utf8Path) -> Result<Vec<SaveInfo>, IoError> {
         let path = dir.join(&file_name);
 
         // Only `.fos` saves; ignore cosaves
-        if path.extension().map(|e| e.eq_ignore_ascii_case("fos")) != Some(true) {
+        if !is_fos(&path) {
             continue;
         }
 
@@ -229,7 +235,7 @@ pub fn list_saves(dir: &Utf8Path) -> Result<Vec<SaveInfo>, IoError> {
 /// Delete a save and its script extender co-save, refusing anything but a `.fos`
 pub fn delete_save(path: &Utf8Path) -> Result<(), IoError> {
     // Safety guard: never delete anything but a Fallout 4 save
-    if path.extension().map(|e| e.eq_ignore_ascii_case("fos")) != Some(true) {
+    if !is_fos(path) {
         return Err(io_err(
             path,
             std::io::Error::new(

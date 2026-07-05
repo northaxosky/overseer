@@ -44,6 +44,12 @@ pub enum Ba2Error {
     Io(#[from] IoError),
 }
 
+/// Read a little-endian u32 at `offset`, or `TooShort` if it ends first
+fn read_u32_le(bytes: &[u8], offset: usize) -> Result<u32, Ba2Error> {
+    let slice = bytes.get(offset..offset + 4).ok_or(Ba2Error::TooShort)?;
+    Ok(u32::from_le_bytes(slice.try_into().expect("4-byte slice")))
+}
+
 impl Ba2Header {
     /// Parse a header from the start of a BA2
     pub fn parse(bytes: &[u8]) -> Result<Self, Ba2Error> {
@@ -53,14 +59,14 @@ impl Ba2Header {
         if &bytes[0..4] != MAGIC {
             return Err(Ba2Error::BadMagic);
         }
-        let version = u32::from_le_bytes(bytes[4..8].try_into().expect("4 bytes"));
+        let version = read_u32_le(bytes, 4)?;
         let tag: [u8; 4] = bytes[8..12].try_into().expect("4 bytes");
         let kind = match &tag {
             b"GNRL" => Ba2Kind::General,
             b"DX10" => Ba2Kind::Texture,
             _ => Ba2Kind::Other(tag),
         };
-        let file_count = u32::from_le_bytes(bytes[12..16].try_into().expect("4 bytes"));
+        let file_count = read_u32_le(bytes, 12)?;
         Ok(Self {
             version,
             kind,
