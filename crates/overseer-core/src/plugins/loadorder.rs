@@ -84,14 +84,14 @@ impl PluginLoadOrder {
 
     /// Reconcile the load order with the plugins actually discovered in the profile's enabled mods
     pub fn reconcile(&mut self, discovered: &[PluginMeta]) -> bool {
-        let before = self.plugins.clone();
-
         // Drop entries that are no longer discovered
+        let before_len = self.plugins.len();
         self.plugins.retain(|e| {
             discovered
                 .iter()
                 .any(|m| m.name.eq_ignore_ascii_case(&e.name))
         });
+        let mut changed = self.plugins.len() != before_len;
 
         // Append newly discovered plugins
         for m in discovered {
@@ -100,13 +100,20 @@ impl PluginLoadOrder {
                     name: m.name.clone(),
                     active: true,
                 });
+                changed = true;
             }
         }
 
-        // Stable sort masters before normal plugins
-        self.plugins
-            .sort_by_key(|e| !is_master(&e.name, discovered));
-        self.plugins != before
+        // Stable sort masters before normal plugins, only when not already ordered
+        if !self
+            .plugins
+            .is_sorted_by_key(|e| !is_master(&e.name, discovered))
+        {
+            self.plugins
+                .sort_by_key(|e| !is_master(&e.name, discovered));
+            changed = true;
+        }
+        changed
     }
 }
 

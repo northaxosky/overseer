@@ -18,8 +18,11 @@ fn saves(target: &ProfileArgs, state: Option<Toggle>) -> Result<()> {
 
     match state {
         Some(toggle) => {
-            profile.local_saves = matches!(toggle, Toggle::On);
-            profile.save(&instance).context("saving profile")?;
+            let enabled = matches!(toggle, Toggle::On);
+            if enabled != profile.local_saves {
+                profile.local_saves = enabled;
+                profile.save(&instance).context("saving profile")?;
+            }
             success(format!(
                 "Local saves {} for profile `{}`",
                 if profile.local_saves {

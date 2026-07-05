@@ -43,16 +43,20 @@ enum Step {
     Into(String),
 }
 
+/// Cap on wrapper levels to descend so a pathologically nested archive can't recurse unbounded
+const MAX_DESCENT_DEPTH: usize = 8;
+
 /// Detect the content root inside an archive: the dir whose contents should become staging files
 pub fn find_content_root(extracted: &Utf8Path) -> Result<Utf8PathBuf, InstallError> {
     let mut current = extracted.to_owned();
-    loop {
+    for _ in 0..MAX_DESCENT_DEPTH {
         let entries = read_entries(&current)?;
         match classify(&entries) {
             Step::Here => return Ok(current),
             Step::Into(name) => current = current.join(name),
         }
     }
+    Ok(current)
 }
 
 /// Decide whether a directory's entries are already the data root or we should descend
@@ -251,5 +255,15 @@ mod tests {
         let (_t, base) = temp();
         touch(&base.join("MyMod/Root/dxgi.dll"));
         assert_eq!(find_content_root(&base).unwrap(), base.join("MyMod"));
+    }
+
+    #[test]
+    fn descent_stops_at_the_depth_cap_on_pathological_nesting() {
+        let (_t, base) = temp();
+        // More single-wrapper levels than the cap allows, with the real data at the bottom
+        let nested = (0..MAX_DESCENT_DEPTH + 3).fold(base.clone(), |p, _| p.join("w"));
+        touch(&nested.join("Meshes/a.nif"));
+        let capped = (0..MAX_DESCENT_DEPTH).fold(base.clone(), |p, _| p.join("w"));
+        assert_eq!(find_content_root(&base).unwrap(), capped);
     }
 }

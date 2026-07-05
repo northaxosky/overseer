@@ -209,11 +209,10 @@ fn read_varint(bytes: &[u8], idx: &mut usize) -> Option<usize> {
 
 /// Every allowed rel-path whose basename appears in `header`'s path tokens
 fn matching_catalog_files(header: &str, allowed: &[&str]) -> Vec<String> {
-    let tokens = header_tokens(header);
     let mut out = Vec::new();
     for &rel in allowed {
         let base = basename(rel);
-        if tokens.iter().any(|token| token.eq_ignore_ascii_case(base)) {
+        if header_tokens(header).any(|token| token.eq_ignore_ascii_case(base)) {
             out.push(rel.to_owned());
         }
     }
@@ -224,12 +223,10 @@ fn basename(rel: &str) -> &str {
     rel.rsplit('/').next().unwrap_or(rel)
 }
 
-fn header_tokens(header: &str) -> Vec<String> {
+fn header_tokens(header: &str) -> impl Iterator<Item = &str> {
     header
         .split(['/', '\\', '\0', '\n', '\r', '\t'])
         .filter(|token| !token.is_empty())
-        .map(str::to_owned)
-        .collect()
 }
 
 fn is_delta_file(path: &Utf8Path) -> bool {

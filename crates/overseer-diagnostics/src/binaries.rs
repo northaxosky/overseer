@@ -48,6 +48,8 @@ pub struct BinaryScan {
     pub edition: Option<BinaryEdition>,
     /// Whether the file exists in the game folder
     pub present: bool,
+    /// Whether the file's bytes could be read (false on an IO error while present)
+    pub readable: bool,
 }
 
 /// Classify a core binary from its name, PE ver, and CRC32
@@ -106,16 +108,18 @@ fn scan_one(game_dir: &Utf8Path, name: &'static str) -> BinaryScan {
             name,
             edition: None,
             present: false,
+            readable: false,
         };
     }
     let version = detect::file_version(&path);
-    let crc = std::fs::read(&path)
-        .map(|b| crc32fast::hash(&b))
-        .unwrap_or(0);
+    let bytes = std::fs::read(&path);
+    let readable = bytes.is_ok();
+    let crc = bytes.map(|b| crc32fast::hash(&b)).unwrap_or(0);
     BinaryScan {
         name,
         edition: classify(name, version, crc),
         present: true,
+        readable,
     }
 }
 
@@ -231,10 +235,12 @@ mod tests {
 
         let launcher = scans.iter().find(|s| s.name == LAUNCHER).unwrap();
         assert!(launcher.present);
+        assert!(launcher.readable);
         assert_eq!(launcher.edition, None); // present but unrecognised
 
         let steam = scans.iter().find(|s| s.name == STEAM_API).unwrap();
         assert!(!steam.present);
+        assert!(!steam.readable);
         assert_eq!(steam.edition, None);
     }
 }

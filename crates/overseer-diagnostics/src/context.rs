@@ -477,12 +477,14 @@ fn dominant_provider<'a>(candidates: &[(&str, &'a str)]) -> Option<&'a str> {
 
 ///The filename if `relative` is a top-level `Data/Scripts/<name>.pex` naming a base script
 fn base_script_pex_name(relative: &Utf8Path) -> Option<&str> {
-    strip_data_prefix(relative)?;
     let mut components = relative.components();
-    components.next();
+    let data = components.next()?;
     let scripts = components.next()?;
     let file = components.next()?.as_str();
-    if components.next().is_some() || !scripts.as_str().eq_ignore_ascii_case("scripts") {
+    if components.next().is_some()
+        || !data.as_str().eq_ignore_ascii_case(DATA_DIR)
+        || !scripts.as_str().eq_ignore_ascii_case("scripts")
+    {
         return None;
     }
     let is_pex = Utf8Path::new(file)

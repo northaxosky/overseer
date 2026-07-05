@@ -74,6 +74,16 @@ fn inspect(binary: &BinaryScan, expected: Generation) -> Option<Finding> {
                  the game and its binaries agree.",
             ),
         ),
+        None if !binary.readable => Some(
+            Finding::warning(format!(
+                "`{}` is present but could not be read",
+                binary.name
+            ))
+            .detail(
+                "Overseer couldn't read the file to verify its version; close the game or its \
+                 launcher if it's running, or check the file's permissions.",
+            ),
+        ),
         None => Some(
             Finding::warning(format!(
                 "could not verify `{}` (unrecognized version)",
@@ -112,6 +122,7 @@ mod tests {
             name,
             edition,
             present,
+            readable: present,
         }
     }
 
@@ -194,6 +205,22 @@ mod tests {
         );
         assert_eq!(warnings(&findings), 1);
         assert!(findings[0].title.contains("could not verify"));
+    }
+
+    #[test]
+    fn an_unreadable_binary_is_flagged_as_unreadable_not_unrecognised() {
+        let findings = run(
+            Some(Edition::NextGen),
+            vec![BinaryScan {
+                name: "steam_api64.dll",
+                edition: None,
+                present: true,
+                readable: false,
+            }],
+        );
+        assert_eq!(warnings(&findings), 1);
+        assert!(findings[0].title.contains("could not be read"));
+        assert!(!findings[0].title.contains("could not verify"));
     }
 
     #[test]
