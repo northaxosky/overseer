@@ -61,4 +61,4 @@ pub enum ApplyError {
 }
 
 /// Attach the offending path to an [`std::io::Error`]
-pub(crate) use crate::error::io_err;
+pub(crate) use crate::error::{io_err, non_utf8, walk_io_err};

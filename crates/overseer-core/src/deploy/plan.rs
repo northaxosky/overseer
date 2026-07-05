@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use super::error::DeployError;
+use super::error::{DeployError, non_utf8};
 use super::layout::{DATA_DIR, ROOT_DIR};
 use camino::{Utf8Path, Utf8PathBuf};
 use walkdir::WalkDir;
@@ -116,7 +116,7 @@ pub(super) fn walk_mod_files(
         }
 
         let abs = Utf8Path::from_path(entry.path())
-            .ok_or_else(|| DeployError::NonUtf8Path(entry.path().display().to_string()))?;
+            .ok_or_else(|| DeployError::NonUtf8Path(non_utf8(entry.path())))?;
         let relative = abs
             .strip_prefix(&m.staging_dir)
             .expect("walked entry is always under a staging dir")

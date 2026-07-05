@@ -2,7 +2,7 @@
 
 use crate::deploy::deployer::LaunchTarget;
 
-use super::error::io_err;
+use super::error::{io_err, walk_io_err};
 use super::{
     DeployError, DeployPlan, DeployRecord, Deployer, DeployerKind, ProgressEvent, ProgressSink,
     ReversalReport, VerifyReport,
@@ -44,7 +44,7 @@ impl Deployer for HardlinkDeployer {
         record: &DeployRecord,
         progress: &dyn ProgressSink,
     ) -> Result<(), DeployError> {
-        fs::create_dir_all(&record.target_root).map_err(|e| io_err(&record.target_root, e))?;
+        crate::fs::ensure_dir(&record.target_root)?;
         progress.on_event(ProgressEvent::Started {
             total: record.entries.len(),
         });
@@ -52,14 +52,14 @@ impl Deployer for HardlinkDeployer {
         for (index, entry) in record.entries.iter().enumerate() {
             let dest = record.target_root.join(&entry.relative);
             if let Some(parent) = dest.parent() {
-                fs::create_dir_all(parent).map_err(|e| io_err(parent, e))?;
+                crate::fs::ensure_dir(parent)?;
             }
 
             // Back up pre existing real files
             if dest.symlink_metadata().is_ok() {
                 let backup = record.backup_root.join(&entry.relative);
                 if let Some(parent) = backup.parent() {
-                    fs::create_dir_all(parent).map_err(|e| io_err(parent, e))?;
+                    crate::fs::ensure_dir(parent)?;
                 }
                 fs::rename(&dest, &backup).map_err(|e| io_err(&dest, e))?;
             }
@@ -165,11 +165,7 @@ fn same_volume(a: &Utf8Path, b: &Utf8Path) -> bool {
 
 /// Remove a file if it is there
 fn remove_if_present(path: &Utf8Path) -> Result<(), DeployError> {
-    match fs::remove_file(path) {
-        Ok(()) => Ok(()),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(e) => Err(io_err(path, e).into()),
-    }
+    crate::fs::remove_file_opt(path).map_err(Into::into)
 }
 
 /// Whether `dest` is still the hard link this deployment created
@@ -199,10 +195,7 @@ fn sweep_backup_root(backup_root: &Utf8Path, unresolved: &mut Vec<DeployError>) 
                     .and_then(|p| Utf8Path::from_path(p))
                     .unwrap_or(backup_root)
                     .to_owned();
-                let io = e
-                    .into_io_error()
-                    .unwrap_or_else(|| std::io::Error::other("walk backup root"));
-                unresolved.push(io_err(&path, io).into());
+                unresolved.push(walk_io_err(&path, e).into());
                 continue;
             }
         };

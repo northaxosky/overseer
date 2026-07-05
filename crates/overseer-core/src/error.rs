@@ -37,3 +37,11 @@ pub(crate) fn io_err(path: &Utf8Path, source: std::io::Error) -> IoError {
 pub(crate) fn non_utf8(path: &std::path::Path) -> String {
     path.display().to_string()
 }
+
+/// Convert a walkdir error into an [`IoError`] tagged with `path`
+pub(crate) fn walk_io_err(path: &Utf8Path, source: walkdir::Error) -> IoError {
+    let io = source
+        .into_io_error()
+        .unwrap_or_else(|| std::io::Error::other("directory walk failed"));
+    io_err(path, io)
+}

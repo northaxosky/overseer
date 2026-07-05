@@ -150,18 +150,13 @@ fn capture_overwrite(instance: &Instance, record: &DeployRecord) -> Result<(), A
             continue;
         }
         for entry in WalkDir::new(&dir) {
-            let entry = entry.map_err(|e| {
-                let io = e
-                    .into_io_error()
-                    .unwrap_or_else(|| std::io::Error::other("walk capture dir"));
-                error::io_err(&dir, io)
-            })?;
+            let entry = entry.map_err(|e| error::walk_io_err(&dir, e))?;
             if !entry.file_type().is_file() {
                 continue;
             }
 
             let abs = Utf8Path::from_path(entry.path())
-                .ok_or_else(|| DeployError::NonUtf8Path(entry.path().display().to_string()))?;
+                .ok_or_else(|| DeployError::NonUtf8Path(error::non_utf8(entry.path())))?;
             let relative = abs
                 .strip_prefix(&record.target_root)
                 .expect("walked file is under the target root");

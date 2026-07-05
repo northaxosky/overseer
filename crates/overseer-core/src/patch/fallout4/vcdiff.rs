@@ -1,6 +1,6 @@
 //! Minimal VCDIFF header parsing for delta auto-mapping
 
-use crate::error::{IoError, io_err};
+use crate::error::{IoError, io_err, walk_io_err};
 use crate::fs::read_dir_opt;
 use camino::{Utf8Path, Utf8PathBuf};
 use std::collections::HashMap;
@@ -76,12 +76,7 @@ pub fn map_deltas(dir: &Utf8Path, allowed: &[&str]) -> Result<DeltaMap, VcdiffEr
         return Ok(out);
     }
     for entry in walkdir::WalkDir::new(dir).sort_by_file_name() {
-        let entry = entry.map_err(|e| {
-            let io = e
-                .into_io_error()
-                .unwrap_or_else(|| std::io::Error::other("directory walk failed"));
-            io_err(dir, io)
-        })?;
+        let entry = entry.map_err(|e| walk_io_err(dir, e))?;
         let path = Utf8PathBuf::from_path_buf(entry.into_path()).map_err(|p| {
             io_err(
                 dir,

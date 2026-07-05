@@ -4,10 +4,8 @@ use super::error::{ApplyError, io_err};
 use crate::deploy::DeployRecord;
 use crate::fs;
 use crate::instance::Instance;
-use atomicwrites::{AtomicFile, OverwriteBehavior};
-use camino::{Utf8Path, Utf8PathBuf};
+use camino::Utf8PathBuf;
 use serde::{Deserialize, Serialize};
-use std::io::Write;
 
 /// Where a deployment transaction stands, used in crash recovery
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -83,7 +81,7 @@ impl Deployment {
             path: path.clone(),
             source,
         })?;
-        write_atomic(&path, text.as_bytes())
+        fs::write_atomic(&path, text.as_bytes()).map_err(Into::into)
     }
 
     /// Delete the state file, marking the instance as no longer deployed
@@ -91,11 +89,4 @@ impl Deployment {
         let path = Self::path(instance);
         std::fs::remove_file(&path).map_err(|e| io_err(&path, e).into())
     }
-}
-
-/// Durable and atomic write
-pub(crate) fn write_atomic(path: &Utf8Path, bytes: &[u8]) -> Result<(), ApplyError> {
-    let file = AtomicFile::new(path, OverwriteBehavior::AllowOverwrite);
-    file.write(|f| f.write_all(bytes))
-        .map_err(|e: atomicwrites::Error<std::io::Error>| io_err(path, e.into()).into())
 }
