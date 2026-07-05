@@ -20,7 +20,10 @@ pub fn install(
         return Err(InstallError::AlreadyInstalled(name.to_owned()));
     }
 
-    let staging = tempfile::tempdir().map_err(|e| io_err(&instance.mods_dir(), e))?;
+    // Stage on the same volume as mods/ so the final move is a rename, not a cross-volume copy
+    let mods_dir = instance.mods_dir();
+    fs::ensure_dir(&mods_dir)?;
+    let staging = tempfile::tempdir_in(&mods_dir).map_err(|e| io_err(&mods_dir, e))?;
     let staging_root = Utf8Path::from_path(staging.path())
         .ok_or_else(|| InstallError::NonUtf8Path(non_utf8(staging.path())))?;
 
@@ -34,8 +37,6 @@ pub fn install(
     if read_dir_is_empty(&content_root)? {
         return Err(InstallError::EmptyArchive);
     }
-
-    fs::ensure_dir(dest.parent().unwrap_or(&dest))?;
     move_dir(&content_root, &dest)?;
 
     Ok(InstalledMod {

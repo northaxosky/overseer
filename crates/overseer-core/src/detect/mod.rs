@@ -109,7 +109,8 @@ fn steam_appmanifest_exists(game_dir: &Utf8Path, appid: u32) -> bool {
 
 /// The PE file version of any on-disk binary, or `None` if unreadable / version-less
 pub fn file_version(path: &Utf8Path) -> Option<ExeVersion> {
-    pe_file_version(&std::fs::read(path).ok()?)
+    let map = pelite::FileMap::open(path).ok()?;
+    pe_file_version(map.as_ref())
 }
 
 /// Extract the PE `VS_FIXEDFILEINFO` file version from raw bytes
