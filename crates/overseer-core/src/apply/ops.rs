@@ -186,12 +186,27 @@ fn capture_move(from: &Utf8Path, to: &Utf8Path) -> Result<(), ApplyError> {
         fs::ensure_dir(parent)?;
     }
     if std::fs::rename(from, to).is_err() {
-        std::fs::copy(from, to).map_err(|e| error::io_err(to, e))?;
-        // If the delete fails, undo the copy so a failed move doesn't leave an orphan
-        if let Err(e) = std::fs::remove_file(from) {
-            let _ = std::fs::remove_file(to);
-            return Err(error::io_err(from, e).into());
-        }
+        copy_then_remove(
+            from,
+            to,
+            |a, b| std::fs::copy(a, b).map(drop),
+            |p| std::fs::remove_file(p),
+        )?;
+    }
+    Ok(())
+}
+
+/// Cross-volume move fallback: copy, then remove the source; on a failed remove, undo the copy
+fn copy_then_remove(
+    from: &Utf8Path,
+    to: &Utf8Path,
+    copy: impl Fn(&Utf8Path, &Utf8Path) -> std::io::Result<()>,
+    remove: impl Fn(&Utf8Path) -> std::io::Result<()>,
+) -> Result<(), ApplyError> {
+    copy(from, to).map_err(|e| error::io_err(to, e))?;
+    if let Err(e) = remove(from) {
+        let _ = remove(to);
+        return Err(error::io_err(from, e).into());
     }
     Ok(())
 }
@@ -383,6 +398,54 @@ mod tests {
     use crate::instance::Instance;
     use crate::test_support::{install_mod, install_plugin, save_profile, temp_instance};
     use camino::Utf8PathBuf;
+
+    /// A failed source-delete during the copy fallback rolls the `to` copy back, leaving no orphan
+    #[test]
+    fn copy_then_remove_rolls_back_the_copy_when_the_source_wont_delete() {
+        use std::cell::RefCell;
+        let removed = RefCell::new(Vec::new());
+        let result = copy_then_remove(
+            Utf8Path::new("from"),
+            Utf8Path::new("to"),
+            |_, _| Ok(()),
+            |p| {
+                removed.borrow_mut().push(p.as_str().to_owned());
+                if p.as_str() == "from" {
+                    Err(std::io::Error::other("source is locked"))
+                } else {
+                    Ok(())
+                }
+            },
+        );
+        assert!(result.is_err(), "a failed source delete surfaces the error");
+        assert_eq!(
+            removed.into_inner(),
+            ["from", "to"],
+            "the `to` copy is rolled back after the source delete fails"
+        );
+    }
+
+    /// A clean copy fallback removes only the source, never touching the destination
+    #[test]
+    fn copy_then_remove_removes_only_the_source_on_success() {
+        use std::cell::RefCell;
+        let removed = RefCell::new(Vec::new());
+        let result = copy_then_remove(
+            Utf8Path::new("from"),
+            Utf8Path::new("to"),
+            |_, _| Ok(()),
+            |p| {
+                removed.borrow_mut().push(p.as_str().to_owned());
+                Ok(())
+            },
+        );
+        assert!(result.is_ok());
+        assert_eq!(
+            removed.into_inner(),
+            ["from"],
+            "a successful move removes only the source"
+        );
+    }
 
     /// Absolute path of a file as it would land under the game's Data/ directory
     fn deployed(instance: &Instance, rel: &str) -> Utf8PathBuf {
