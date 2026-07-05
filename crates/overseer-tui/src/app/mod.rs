@@ -76,23 +76,23 @@ pub(crate) enum Workspace {
 
 impl Workspace {
     /// The workspace `delta` steps away in `Workspace::iter()` order, wrapping at the ends
-    pub(crate) fn cycle(self, delta: isize) -> Workspace {
+    pub(crate) fn cycle(self, delta: isize) -> Self {
         cycle_variant(self, delta)
     }
 
     /// The digit key that switches to this workspace (`1`..`4`)
     pub(crate) fn key(self) -> char {
         match self {
-            Workspace::Plugins => '1',
-            Workspace::Conflicts => '2',
-            Workspace::Downloads => '3',
-            Workspace::Saves => '4',
+            Self::Plugins => '1',
+            Self::Conflicts => '2',
+            Self::Downloads => '3',
+            Self::Saves => '4',
         }
     }
 
     /// The workspace a digit key selects, if any
-    pub(crate) fn from_key(c: char) -> Option<Workspace> {
-        Workspace::iter().find(|w| w.key() == c)
+    pub(crate) fn from_key(c: char) -> Option<Self> {
+        Self::iter().find(|w| w.key() == c)
     }
 
     /// The switcher label for this workspace

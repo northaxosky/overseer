@@ -66,7 +66,7 @@ pub fn list_downloads(instance: &Instance) -> Result<Vec<DownloadEntry>, Install
             modified,
         });
     }
-    downloads.sort_by_key(|e| e.name.to_ascii_lowercase());
+    downloads.sort_by_cached_key(|e| e.name.to_ascii_lowercase());
     Ok(downloads)
 }
 

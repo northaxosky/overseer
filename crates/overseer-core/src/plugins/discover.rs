@@ -29,8 +29,8 @@ pub fn discover_plugins(
             if seen.iter().any(|s| s.eq_ignore_ascii_case(&name)) {
                 continue;
             }
-            seen.push(name.clone());
             plugins.push(read_metadata(game_id, &name, &found)?);
+            seen.push(name);
         }
     }
 

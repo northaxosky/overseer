@@ -67,11 +67,6 @@ impl<'a> Cursor<'a> {
         Self { bytes, pos: 0 }
     }
 
-    /// Unread bytes left in the slice
-    fn remaining(&self) -> usize {
-        self.bytes.len() - self.pos
-    }
-
     /// Take `n` bytes and advance; [`SaveParseError::UnexpectedEof`] if short
     fn take(&mut self, n: usize) -> Result<&'a [u8], SaveParseError> {
         let end = self
@@ -101,9 +96,6 @@ impl<'a> Cursor<'a> {
     /// Read a Bethesda wstring: a `u16` LE *byte length*, then that many UTF-8 bytes
     fn wstring(&mut self) -> Result<String, SaveParseError> {
         let len = self.u16()? as usize;
-        if len > self.remaining() {
-            return Err(SaveParseError::UnexpectedEof);
-        }
         let bytes = self.take(len)?;
         std::str::from_utf8(bytes)
             .map(str::to_owned)

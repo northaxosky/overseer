@@ -343,7 +343,7 @@ fn parse_modlist(text: &str) -> Vec<ModListEntry> {
         .filter_map(|line| {
             let line = line.trim();
             let enabled = match line.chars().next() {
-                Some('+') | Some('*') => true,
+                Some('+' | '*') => true,
                 Some('-') => false,
                 _ => return None,
             };
