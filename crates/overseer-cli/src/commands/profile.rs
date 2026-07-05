@@ -2,10 +2,8 @@
 
 use anyhow::{Context, Result};
 
-use crate::cli::{ProfileArgs, ProfileCommand, Toggle};
-use crate::context::open_instance;
+use crate::cli::{InstanceArgs, ProfileArgs, ProfileCommand, Toggle};
 use crate::ui::success;
-use camino::Utf8Path;
 
 pub fn run(command: ProfileCommand) -> Result<()> {
     match command {
@@ -44,8 +42,8 @@ fn saves(target: &ProfileArgs, state: Option<Toggle>) -> Result<()> {
 }
 
 /// Create a new, empty profile in the instance
-fn new_profile(instance_dir: &Utf8Path, name: &str) -> Result<()> {
-    let instance = open_instance(instance_dir)?;
+fn new_profile(instance: &InstanceArgs, name: &str) -> Result<()> {
+    let instance = instance.load_instance()?;
     instance
         .create_profile(name)
         .with_context(|| format!("creating profile `{name}`"))?;

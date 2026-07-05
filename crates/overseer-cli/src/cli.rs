@@ -30,17 +30,16 @@ pub enum Command {
 
     /// Remove the instance's live deployment, restoring the game directory
     Purge {
-        #[arg(long)]
-        instance: Utf8PathBuf,
+        #[command(flatten)]
+        instance: InstanceArgs,
     },
 
     /// Install a mod from an archive (.7z or .zip) into an instance's mods/ directory
     Install {
         /// Path to the mod archive
         archive: Utf8PathBuf,
-        /// Instance directory (contains mods/ and profiles/)
-        #[arg(long)]
-        instance: Utf8PathBuf,
+        #[command(flatten)]
+        instance: InstanceArgs,
         /// Name for the installed mod (defaults to the archive's file name)
         #[arg(long)]
         name: Option<String>,
@@ -48,9 +47,8 @@ pub enum Command {
 
     /// List the installable archives in the instance's downloads/ directory
     Downloads {
-        /// Instance directory (contains mods/ and profiles/)
-        #[arg(long)]
-        instance: Utf8PathBuf,
+        #[command(flatten)]
+        instance: InstanceArgs,
     },
 
     /// Manage the mods in a profile
@@ -85,9 +83,8 @@ pub enum Command {
 
     /// Show the instance's deployment status
     Status {
-        /// Instance directory (contains mods/ and profiles/)
-        #[arg(long)]
-        instance: Utf8PathBuf,
+        #[command(flatten)]
+        instance: InstanceArgs,
     },
 
     /// List files that more than one enabled mod provides (winner + overridden)
@@ -100,9 +97,8 @@ pub enum Command {
     Launch {
         /// Target name (omit to list the available targets)
         name: Option<String>,
-        /// Instance directory (contains mods/ and profiles/)
-        #[arg(long)]
-        instance: Utf8PathBuf,
+        #[command(flatten)]
+        instance: InstanceArgs,
     },
 
     /// Manage an instance's launch targets (executables)
@@ -124,12 +120,19 @@ pub enum Command {
     },
 }
 
-/// Arguments shared by every profile-scoped subcommand
+/// The instance directory, shared by every instance-scoped subcommand
 #[derive(Args)]
-pub struct ProfileArgs {
+pub struct InstanceArgs {
     /// Instance directory (contains mods/ and profiles/)
     #[arg(long)]
     pub instance: Utf8PathBuf,
+}
+
+/// Arguments shared by every profile-scoped subcommand
+#[derive(Args)]
+pub struct ProfileArgs {
+    #[command(flatten)]
+    pub instance: InstanceArgs,
     /// Profile name
     #[arg(long, default_value = "Default")]
     pub profile: String,
@@ -172,9 +175,8 @@ pub enum ModCommand {
         name: String,
         /// New name for the mod
         new_name: String,
-        /// Instance directory (contains mods/ and profiles/)
-        #[arg(long)]
-        instance: Utf8PathBuf,
+        #[command(flatten)]
+        instance: InstanceArgs,
     },
 }
 
@@ -214,9 +216,8 @@ pub enum ProfileCommand {
     New {
         /// Name for the new profile
         name: String,
-        /// Instance directory (contains mods/ and profiles/)
-        #[arg(long)]
-        instance: Utf8PathBuf,
+        #[command(flatten)]
+        instance: InstanceArgs,
     },
 }
 
@@ -278,9 +279,8 @@ pub enum InstanceCommand {
 pub enum ExeCommand {
     /// List the instance's configured launch targets
     List {
-        /// Instance directory (contains mods/ and profiles/)
-        #[arg(long)]
-        instance: Utf8PathBuf,
+        #[command(flatten)]
+        instance: InstanceArgs,
     },
     /// Add a launch target (an external tool, e.g. FO4Edit)
     Add {
@@ -293,17 +293,15 @@ pub enum ExeCommand {
         /// An argument to pass when launching (repeat for multiple)
         #[arg(long = "arg", allow_hyphen_values = true)]
         args: Vec<String>,
-        /// Instance directory (contains mods/ and profiles/)
-        #[arg(long)]
-        instance: Utf8PathBuf,
+        #[command(flatten)]
+        instance: InstanceArgs,
     },
     /// Remove a launch target by name
     Remove {
         /// The target's name
         name: String,
-        /// Instance directory (contains mods/ and profiles/)
-        #[arg(long)]
-        instance: Utf8PathBuf,
+        #[command(flatten)]
+        instance: InstanceArgs,
     },
 }
 

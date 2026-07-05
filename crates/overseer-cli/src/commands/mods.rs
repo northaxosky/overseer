@@ -2,10 +2,8 @@
 
 use anyhow::{Context, Result};
 
-use crate::cli::{ModCommand, ProfileArgs};
-use crate::context::open_instance;
+use crate::cli::{InstanceArgs, ModCommand, ProfileArgs};
 use crate::ui::{heading, list_item, success};
-use camino::Utf8Path;
 use overseer_core::apply;
 
 pub fn run(command: ModCommand) -> Result<()> {
@@ -80,8 +78,8 @@ fn move_mod(target: &ProfileArgs, mod_name: &str, to_1based: usize) -> Result<()
     Ok(())
 }
 
-fn rename(instance_dir: &Utf8Path, old: &str, new: &str) -> Result<()> {
-    let instance = open_instance(instance_dir)?;
+fn rename(instance: &InstanceArgs, old: &str, new: &str) -> Result<()> {
+    let instance = instance.load_instance()?;
     apply::rename_mod(&instance, old, new)
         .with_context(|| format!("renaming `{old}` to `{new}`"))?;
     success(format!("Renamed mod `{old}` to `{new}`"));

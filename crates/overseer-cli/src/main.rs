@@ -20,23 +20,23 @@ fn main() -> Result<()> {
     ui::apply_color_choice(cli.color);
     match cli.command {
         Command::Deploy { target } => commands::deploy::deploy(&target),
-        Command::Purge { instance } => commands::deploy::purge(instance),
+        Command::Purge { instance } => commands::deploy::purge(&instance),
         Command::Install {
             archive,
             instance,
             name,
-        } => commands::install::run(archive, instance, name),
+        } => commands::install::run(archive, &instance, name),
         Command::Mod { command } => commands::mods::run(command),
         Command::Plugin { command } => commands::plugins::run(command),
         Command::Profile { command } => commands::profile::run(command),
         Command::Instance { command } => commands::instance::run(command),
-        Command::Status { instance } => commands::deploy::status(instance),
-        Command::Launch { name, instance } => commands::launch::run(name, instance),
+        Command::Status { instance } => commands::deploy::status(&instance),
+        Command::Launch { name, instance } => commands::launch::run(name, &instance),
         Command::Exe { command } => commands::exe::run(command),
         Command::Doctor { target } => commands::doctor::run(&target),
         Command::Patch { command } => commands::patch::run(command),
         Command::Conflicts { target } => commands::conflicts::run(&target),
-        Command::Downloads { instance } => commands::downloads::run(instance),
+        Command::Downloads { instance } => commands::downloads::run(&instance),
         Command::Saves { command } => commands::saves::run(command),
     }
 }

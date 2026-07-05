@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use camino::Utf8Path;
 use overseer_core::instance::{Instance, Profile};
 
-use crate::cli::ProfileArgs;
+use crate::cli::{InstanceArgs, ProfileArgs};
 
 pub use overseer_frontend::absolutize;
 
@@ -26,10 +26,17 @@ pub fn load_reconciled(instance: &Instance, profile: &str) -> Result<Profile> {
     Ok(p)
 }
 
+impl InstanceArgs {
+    /// Open this instance with a normalized path
+    pub fn load_instance(&self) -> Result<Instance> {
+        open_instance(&self.instance)
+    }
+}
+
 impl ProfileArgs {
     /// Open this target's instance with a normalized path
     pub fn load_instance(&self) -> Result<Instance> {
-        open_instance(&self.instance)
+        self.instance.load_instance()
     }
 
     /// Open this target's instance, then load and reconcile its profile

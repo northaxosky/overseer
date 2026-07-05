@@ -1,10 +1,8 @@
 //! Instance-aware `deploy` & `purge`: apply a profile to the game's Data/ directory
 
-use crate::cli::ProfileArgs;
-use crate::context::open_instance;
+use crate::cli::{InstanceArgs, ProfileArgs};
 use crate::ui::{CliProgress, Role, check, heading, styled, success};
 use anyhow::{Context, Result};
-use camino::Utf8PathBuf;
 use overseer_core::apply;
 
 pub fn deploy(target: &ProfileArgs) -> Result<()> {
@@ -22,8 +20,8 @@ pub fn deploy(target: &ProfileArgs) -> Result<()> {
     Ok(())
 }
 
-pub fn purge(instance_dir: Utf8PathBuf) -> Result<()> {
-    let instance = open_instance(&instance_dir)?;
+pub fn purge(instance: &InstanceArgs) -> Result<()> {
+    let instance = instance.load_instance()?;
     heading(format!("Purging deployment for {}", instance.root));
 
     apply::purge(&instance, &CliProgress).context("purging deployment")?;
@@ -32,8 +30,8 @@ pub fn purge(instance_dir: Utf8PathBuf) -> Result<()> {
     Ok(())
 }
 
-pub fn status(instance_dir: Utf8PathBuf) -> Result<()> {
-    let instance = open_instance(&instance_dir)?;
+pub fn status(instance: &InstanceArgs) -> Result<()> {
+    let instance = instance.load_instance()?;
     heading(format!("Status for {}", instance.root));
 
     match apply::status(&instance).context("reading deployment status")? {
