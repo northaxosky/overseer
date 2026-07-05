@@ -870,6 +870,25 @@ mod tests {
         assert!(scan_script_overrides(&plan).is_empty());
     }
 
+    /// An F4SE plugin DLL that can't be read is skipped, not scanned
+    #[test]
+    fn scan_f4se_plugins_skips_an_unreadable_dll() {
+        let (_tmp, base) = temp_base();
+        let f4se = base.join("mods/F4SE");
+        let dll = f4se.join("F4SE/Plugins/Buffout4.dll");
+        write_file(&dll, b"stub");
+        let plan =
+            DeployPlan::from_rooted_mods(base.join("game"), &[ModSource::new("F4SE", &f4se)])
+                .unwrap();
+        // Swap the planned DLL for a directory so reading its bytes fails
+        std::fs::remove_file(&dll).unwrap();
+        std::fs::create_dir(&dll).unwrap();
+        assert!(
+            scan_f4se_plugins(&plan).is_empty(),
+            "an unreadable F4SE DLL is skipped, not scanned"
+        );
+    }
+
     #[test]
     fn a_base_script_from_a_non_provider_mod_is_flagged() {
         let (_tmp, base) = temp_base();
