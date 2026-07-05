@@ -33,7 +33,7 @@ fn off_revision_warn(group: &DlcGroupState) -> Finding {
         group.group,
         group.off_revision.len()
     ))
-    .detail("Run `overseer patch dlc-consistency` to bring the DLC to the consistency revision.")
+    .detail("Run `overseer patch dlc-consistency` to bring the DLC to the consistency revision")
 }
 
 /// A warning that an installed DLC group is missing required files

@@ -22,7 +22,7 @@ pub enum ApplyError {
     DeployedCannotRename { path: Utf8PathBuf },
 
     /// The profile was renamed on disk, but writing the updated default-profile pointer failed
-    #[error("renamed the profile, but updating the default profile faile: {0}")]
+    #[error("renamed the profile, but updating the default profile failed: {0}")]
     DefaultProfileNotUpdated(#[source] InstanceError),
 
     /// The deployment state file could not be read or written as JSON

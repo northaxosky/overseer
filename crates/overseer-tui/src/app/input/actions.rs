@@ -56,7 +56,7 @@ impl App {
             return false;
         }
         if mods[b].kind == ModKind::Separator && self.is_collapsed(b) {
-            self.note("expand the group to move past it");
+            self.note("Expand the group to move past it");
             return false;
         }
 

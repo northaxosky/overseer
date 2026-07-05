@@ -8,6 +8,7 @@ const STARTUP_BA2: &str = "Fallout4 - Startup.ba2";
 
 /// CRC32 of the NG `Startup.ba2` after its BA2 header
 const NG_STARTUP_CRC: u32 = 0xA580_8F5F;
+// CRC start offset (past magic + version + tag); excluding the version field keeps a down-patched NG archive matchable
 const BA2_HEADER_LEN: usize = 12;
 
 /// Which Fallout 4 exe generation is installed

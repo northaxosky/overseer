@@ -41,6 +41,10 @@ pub fn detect_conflicts(mods: &[ModSource]) -> Result<Vec<FileConflict>, DeployE
         .collect())
 }
 
+// ────────────────────────────────────────────────────────────────────────
+// Tests
+// ────────────────────────────────────────────────────────────────────────
+
 #[cfg(test)]
 mod tests {
     use super::*;
