@@ -326,13 +326,22 @@ fn scan_f4se_plugins(plan: &DeployPlan) -> Vec<F4sePluginScan> {
                 .is_some_and(|e| e.eq_ignore_ascii_case("dll"))
                 && strip_data_prefix(&f.relative).is_some_and(|p| p.starts_with(F4SE_PLUGINS_DIR))
         })
-        .filter_map(|f| match parse_f4se_dll(&std::fs::read(&f.source).ok()?) {
-            F4seDll::Plugin(plugin) => Some(F4sePluginScan {
-                name: f.relative.file_name().unwrap_or_default().to_owned(),
-                mod_name: f.winner.clone(),
-                plugin,
-            }),
-            _ => None,
+        .filter_map(|f| {
+            let bytes = match std::fs::read(&f.source) {
+                Ok(bytes) => bytes,
+                Err(e) => {
+                    tracing::warn!(path = %f.source, error = %e, "skipping unreadable F4SE plugin");
+                    return None;
+                }
+            };
+            match parse_f4se_dll(&bytes) {
+                F4seDll::Plugin(plugin) => Some(F4sePluginScan {
+                    name: f.relative.file_name().unwrap_or_default().to_owned(),
+                    mod_name: f.winner.clone(),
+                    plugin,
+                }),
+                _ => None,
+            }
         })
         .collect()
 }
@@ -612,7 +621,13 @@ fn active_plugins_name<'a>(relative: &'a Utf8Path, active: &BTreeSet<String>) ->
 fn scan_dlc_consistency(game_dir: &Utf8Path) -> Vec<DlcGroupState> {
     dlc::DLC_GROUPS
         .iter()
-        .filter(|group| group.is_owned(game_dir).unwrap_or(false))
+        .filter(|group| match group.is_owned(game_dir) {
+            Ok(owned) => owned,
+            Err(e) => {
+                tracing::warn!(group = %group.name, error = %e, "skipping DLC group with unreadable ownership");
+                false
+            }
+        })
         .map(|group| {
             let mut off_revision = Vec::new();
             let mut missing = Vec::new();

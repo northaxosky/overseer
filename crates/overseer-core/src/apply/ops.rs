@@ -187,7 +187,11 @@ fn capture_move(from: &Utf8Path, to: &Utf8Path) -> Result<(), ApplyError> {
     }
     if std::fs::rename(from, to).is_err() {
         std::fs::copy(from, to).map_err(|e| error::io_err(to, e))?;
-        std::fs::remove_file(from).map_err(|e| error::io_err(from, e))?;
+        // If the delete fails, undo the copy so a failed move doesn't leave an orphan
+        if let Err(e) = std::fs::remove_file(from) {
+            let _ = std::fs::remove_file(to);
+            return Err(error::io_err(from, e).into());
+        }
     }
     Ok(())
 }

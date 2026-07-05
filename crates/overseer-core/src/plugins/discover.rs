@@ -2,6 +2,7 @@
 
 use super::error::{PluginError, io_err};
 use super::metadata::{PluginMeta, is_plugin_file, read_metadata};
+use crate::error::non_utf8;
 use crate::instance::{Instance, Profile};
 use camino::Utf8Path;
 use walkdir::WalkDir;
@@ -56,12 +57,8 @@ fn find_plugin_files(dir: &Utf8Path) -> Result<Vec<camino::Utf8PathBuf>, PluginE
         if !entry.file_type().is_file() {
             continue;
         }
-        let path = Utf8Path::from_path(entry.path()).ok_or_else(|| {
-            io_err(
-                dir,
-                std::io::Error::new(std::io::ErrorKind::InvalidData, "non-UTF-8 path"),
-            )
-        })?;
+        let path = Utf8Path::from_path(entry.path())
+            .ok_or_else(|| PluginError::NonUtf8Path(non_utf8(entry.path())))?;
         if let Some(name) = path.file_name()
             && is_plugin_file(name)
         {

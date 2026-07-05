@@ -12,6 +12,7 @@ overseer-core = { path = "../overseer-core" }
 camino.workspace = true
 thiserror.workspace = true
 crc32fast.workspace = true
+tracing.workspace = true
 
 [dev-dependencies]
 overseer-core = { path = "../overseer-core", features = ["test-support"] }
