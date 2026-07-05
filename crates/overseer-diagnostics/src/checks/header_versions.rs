@@ -1,8 +1,7 @@
 //! Plugin `TES4`/`HEDR` module versions: flag any that Fallout 4 doesn't accept
 
-use super::Check;
 use crate::context::GameContext;
-use crate::finding::{Finding, Severity};
+use crate::finding::Finding;
 use overseer_core::plugins::PluginMeta;
 
 /// True if `v` is exactly one of the two `HEDR` versions Fallout 4 accepts (0.95 or 1.00)
@@ -12,16 +11,8 @@ fn is_known_hedr(v: f32) -> bool {
 }
 
 /// Flags plugins whose header version isn't one Fallout 4 recognizes
-pub struct HeaderVersions;
-
-impl Check for HeaderVersions {
-    fn id(&self) -> &'static str {
-        "header-versions"
-    }
-
-    fn run(&self, ctx: &GameContext) -> Vec<Finding> {
-        ctx.loaded_plugins.iter().filter_map(warn_unknown).collect()
-    }
+pub fn run(ctx: &GameContext) -> Vec<Finding> {
+    ctx.loaded_plugins.iter().filter_map(warn_unknown).collect()
 }
 
 /// Warn when a plugin's `HEDR` version is present but not one Fallout 4 accepts
@@ -30,17 +21,15 @@ fn warn_unknown(plugin: &PluginMeta) -> Option<Finding> {
     if is_known_hedr(v) {
         return None;
     }
-    Some(Finding::new(
-        Severity::Warning,
-        format!(
+    Some(
+        Finding::warning(format!(
             "`{}` has header version {v} (Fallout 4 uses 0.95 or 1.00)",
             plugin.name
+        ))
+        .detail(
+            "Resave it in the Creation Kit to update the header, then confirm the result in xEdit.",
         ),
-        Some(
-            "Resave it in the Creation Kit to update the header, then confirm the result in xEdit."
-                .to_owned(),
-        ),
-    ))
+    )
 }
 
 // ────────────────────────────────────────────────────────────────────────
@@ -50,6 +39,7 @@ fn warn_unknown(plugin: &PluginMeta) -> Option<Finding> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::finding::Severity;
 
     fn plugin(name: &str, header_version: Option<f32>) -> PluginMeta {
         PluginMeta {
@@ -59,7 +49,7 @@ mod tests {
     }
 
     fn run(plugins: Vec<PluginMeta>) -> Vec<Finding> {
-        HeaderVersions.run(&GameContext {
+        super::run(&GameContext {
             loaded_plugins: plugins,
             ..GameContext::default()
         })

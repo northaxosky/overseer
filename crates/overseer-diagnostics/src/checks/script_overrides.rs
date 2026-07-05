@@ -1,36 +1,23 @@
 //! Loose `Data/Scripts/*.pex` from a mod that overrides a base F4SE script
 
-use super::Check;
 use crate::context::{GameContext, ScriptOverrideScan};
-use crate::finding::{Finding, Severity};
+use crate::finding::Finding;
 
 /// Flags mods that override a base F4SE Papyrus script
-pub struct ScriptOverrides;
-
-impl Check for ScriptOverrides {
-    fn id(&self) -> &'static str {
-        "script-overrides"
-    }
-
-    fn run(&self, ctx: &GameContext) -> Vec<Finding> {
-        ctx.script_overrides.iter().map(warn).collect()
-    }
+pub fn run(ctx: &GameContext) -> Vec<Finding> {
+    ctx.script_overrides.iter().map(warn).collect()
 }
 
 /// A warning that a mod overrides a base F4SE script
 fn warn(scan: &ScriptOverrideScan) -> Finding {
-    Finding::new(
-        Severity::Warning,
-        format!(
-            "`{}` (from `{}`) overrides a base F4SE script",
-            scan.name, scan.mod_name
-        ),
-        Some(
-            "This isn't the mod that provides F4SE's scripts, so it's replacing one of them — which \
-             usually breaks F4SE unless the mod is built for your exact game version. If it isn't, \
-             remove this file."
-                .to_owned(),
-        ),
+    Finding::warning(format!(
+        "`{}` (from `{}`) overrides a base F4SE script",
+        scan.name, scan.mod_name
+    ))
+    .detail(
+        "This isn't the mod that provides F4SE's scripts, so it's replacing one of them — which \
+         usually breaks F4SE unless the mod is built for your exact game version. If it isn't, \
+         remove this file.",
     )
 }
 
@@ -41,6 +28,7 @@ fn warn(scan: &ScriptOverrideScan) -> Finding {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::finding::Severity;
 
     fn scan(name: &str, mod_name: &str) -> ScriptOverrideScan {
         ScriptOverrideScan {
@@ -50,7 +38,7 @@ mod tests {
     }
 
     fn run(scans: Vec<ScriptOverrideScan>) -> Vec<Finding> {
-        ScriptOverrides.run(&GameContext {
+        super::run(&GameContext {
             script_overrides: scans,
             ..GameContext::default()
         })

@@ -1,4 +1,4 @@
-//! The setup health checks: the `Check` trait and every check that implements it
+//! The setup health checks: the `Checkspec` registry and every check that implements it
 
 mod archive_names;
 mod archives;
@@ -19,49 +19,76 @@ use crate::context::GameContext;
 use crate::finding::Finding;
 use camino::Utf8Path;
 
-use archive_names::ArchiveNames;
-use archives::Archives;
-use binaries::Binaries;
-use creation_club::CreationClub;
-use dlc_consistency::DlcConsistency;
-use f4se::F4se;
-use header_versions::HeaderVersions;
-use ini_config::IniConfig;
-use loose_files::LooseFiles;
-use loose_folders::LooseFolders;
-use missing_masters::MissingMasters;
-use plugin_count::PluginCount;
-use race_subgraphs::RaceSubgraphs;
-use script_overrides::ScriptOverrides;
+/// Check: a pure function of the gathered context
+type CheckFn = fn(&GameContext) -> Vec<Finding>;
 
-/// A single setup/health check: pure function of the gathered context
-pub trait Check {
+/// One registered check: its stable id and its function
+pub struct CheckSpec {
     /// A stable identifier, used to group output and select checks
-    fn id(&self) -> &'static str;
-
-    /// Inspect the context and report any findings
-    fn run(&self, ctx: &GameContext) -> Vec<Finding>;
+    pub id: &'static str,
+    /// The check function itself
+    pub run: CheckFn,
 }
 
 /// Every check that runs, in display order
-pub fn all() -> Vec<Box<dyn Check>> {
-    vec![
-        Box::new(PluginCount),
-        Box::new(MissingMasters),
-        Box::new(RaceSubgraphs),
-        Box::new(LooseFiles),
-        Box::new(LooseFolders),
-        Box::new(CreationClub),
-        Box::new(IniConfig),
-        Box::new(Archives),
-        Box::new(F4se),
-        Box::new(HeaderVersions),
-        Box::new(ArchiveNames),
-        Box::new(ScriptOverrides),
-        Box::new(Binaries),
-        Box::new(DlcConsistency),
-    ]
-}
+pub const CHECKS: &[CheckSpec] = &[
+    CheckSpec {
+        id: "plugin-count",
+        run: plugin_count::run,
+    },
+    CheckSpec {
+        id: "missing-masters",
+        run: missing_masters::run,
+    },
+    CheckSpec {
+        id: "race-subgraphs",
+        run: race_subgraphs::run,
+    },
+    CheckSpec {
+        id: "loose-files",
+        run: loose_files::run,
+    },
+    CheckSpec {
+        id: "loose-folders",
+        run: loose_folders::run,
+    },
+    CheckSpec {
+        id: "creation-club",
+        run: creation_club::run,
+    },
+    CheckSpec {
+        id: "ini-config",
+        run: ini_config::run,
+    },
+    CheckSpec {
+        id: "archives",
+        run: archives::run,
+    },
+    CheckSpec {
+        id: "f4se",
+        run: f4se::run,
+    },
+    CheckSpec {
+        id: "header-versions",
+        run: header_versions::run,
+    },
+    CheckSpec {
+        id: "archive-names",
+        run: archive_names::run,
+    },
+    CheckSpec {
+        id: "script-overrides",
+        run: script_overrides::run,
+    },
+    CheckSpec {
+        id: "binaries",
+        run: binaries::run,
+    },
+    CheckSpec {
+        id: "dlc-consistency",
+        run: dlc_consistency::run,
+    },
+];
 
 /// True if `path`'s leading components match `prefix` case-insensitively, shared by loose-file/folder checks
 fn under(path: &Utf8Path, prefix: &[&str]) -> bool {
@@ -71,4 +98,46 @@ fn under(path: &Utf8Path, prefix: &[&str]) -> bool {
             .next()
             .is_some_and(|c| c.as_str().eq_ignore_ascii_case(d))
     })
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// Tests
+// ────────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::BTreeSet;
+
+    #[test]
+    fn every_check_id_is_non_empty_and_unique() {
+        let ids: Vec<&str> = CHECKS.iter().map(|c| c.id).collect();
+        assert!(ids.iter().all(|id| !id.is_empty()), "no check id is empty");
+        let unique: BTreeSet<&str> = ids.iter().copied().collect();
+        assert_eq!(unique.len(), ids.len(), "check ids are unique");
+    }
+
+    #[test]
+    fn the_registry_lists_every_check_in_display_order() {
+        let ids: Vec<&str> = CHECKS.iter().map(|c| c.id).collect();
+        assert_eq!(
+            ids,
+            vec![
+                "plugin-count",
+                "missing-masters",
+                "race-subgraphs",
+                "loose-files",
+                "loose-folders",
+                "creation-club",
+                "ini-config",
+                "archives",
+                "f4se",
+                "header-versions",
+                "archive-names",
+                "script-overrides",
+                "binaries",
+                "dlc-consistency",
+            ]
+        );
+    }
 }

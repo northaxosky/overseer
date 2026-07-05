@@ -1,8 +1,7 @@
 //! Top-level `Data/*.ba2` names: flag archives the game won't auto load because of their name
 
-use super::Check;
 use crate::context::{ArchiveInfo, GameContext};
-use crate::finding::{Finding, Severity};
+use crate::finding::Finding;
 use overseer_core::deploy::strip_data_prefix;
 use overseer_core::ini::GameInis;
 use std::collections::BTreeSet;
@@ -59,21 +58,13 @@ const INI_ARCHIVE_KEYS: &[&str] = &[
 ];
 
 /// Flags top-level `Data/*.ba2` archives the engine won't auto-load because of their name
-pub struct ArchiveNames;
-
-impl Check for ArchiveNames {
-    fn id(&self) -> &'static str {
-        "archive-names"
-    }
-
-    fn run(&self, ctx: &GameContext) -> Vec<Finding> {
-        let registered = ini_registered_archives(ctx.inis.as_ref());
-        ctx.archives
-            .iter()
-            .filter(|a| is_top_level_data(a))
-            .filter_map(|a| flag(a, &registered))
-            .collect()
-    }
+pub fn run(ctx: &GameContext) -> Vec<Finding> {
+    let registered = ini_registered_archives(ctx.inis.as_ref());
+    ctx.archives
+        .iter()
+        .filter(|a| is_top_level_data(a))
+        .filter_map(|a| flag(a, &registered))
+        .collect()
 }
 
 /// True if the archive deploys directly under `Data/` (not nested)
@@ -90,12 +81,16 @@ fn flag(archive: &ArchiveInfo, registered: &BTreeSet<String>) -> Option<Finding>
     {
         return None;
     }
-    Some(Finding::new(
-        Severity::Warning,
-        format!("`{}` (from `{}`) won't be loaded by the game", archive.name, archive.mod_name),
-        Some("Fallout 4 auto-loads an archive only when its named `<Plugin> - Main.ba2` or `<Plugin> \
-         - Textures.ba2`. Rename it to match its plugin, or register it in an INI archive list.".to_owned()),
-    ))
+    Some(
+        Finding::warning(format!(
+            "`{}` (from `{}`) won't be loaded by the game",
+            archive.name, archive.mod_name
+        ))
+        .detail(
+            "Fallout 4 auto-loads an archive only when its named `<Plugin> - Main.ba2` or `<Plugin> \
+         - Textures.ba2`. Rename it to match its plugin, or register it in an INI archive list.",
+        ),
+    )
 }
 
 /// True if a lowercased `*.ba2` filename follows Fallout 4's auto-load naming convention
@@ -140,6 +135,7 @@ fn ini_registered_archives(inis: Option<&GameInis>) -> BTreeSet<String> {
 mod tests {
     use super::*;
     use crate::context::ArchiveScan;
+    use crate::finding::Severity;
     use camino::Utf8Path;
     use overseer_core::ini::Ini;
 
@@ -155,14 +151,14 @@ mod tests {
     }
 
     fn run(archives: Vec<ArchiveInfo>) -> Vec<Finding> {
-        ArchiveNames.run(&GameContext {
+        super::run(&GameContext {
             archives,
             ..GameContext::default()
         })
     }
 
     fn run_with_ini(archives: Vec<ArchiveInfo>, settings: &str) -> Vec<Finding> {
-        ArchiveNames.run(&GameContext {
+        super::run(&GameContext {
             archives,
             inis: Some(GameInis {
                 settings: Ini::parse(settings),

@@ -1,64 +1,52 @@
 //! F4SE health: the loader must match the game's runtime, and deployed F4SE plugins need
 //! the matching Address Library.
 
-use super::Check;
 use crate::context::{AddressLibraryStatus, GameContext};
-use crate::finding::{Finding, Severity};
+use crate::finding::Finding;
 use overseer_core::detect::Generation;
 
 /// Reports F4SE setup problems: a loader for the wrong runtime, or a missing Address Library
-pub struct F4se;
+pub fn run(ctx: &GameContext) -> Vec<Finding> {
+    let mut findings = Vec::new();
 
-impl Check for F4se {
-    fn id(&self) -> &'static str {
-        "f4se"
+    // A loader for the wrong runtime fails to launch the game; only flag when both the game and loader families are known and disagree
+    if let (Some(game), Some(loader)) = (ctx.runtime_family, ctx.loader_family)
+        && game != loader
+    {
+        findings.push(
+            Finding::error(format!("F4SE is for {loader:?} but the game is {game:?}"))
+                .detail("F4SE won't launch; install the F4SE build for your game version"),
+        );
     }
 
-    fn run(&self, ctx: &GameContext) -> Vec<Finding> {
-        let mut findings = Vec::new();
+    if let AddressLibraryStatus::Missing { expected } = &ctx.address_library {
+        findings.push(
+            Finding::warning(format!("Address Library `{expected}` is missing"))
+                .detail("F4SE plugins need it; install Address Library (Nexus mod 47327)"),
+        );
+    }
 
-        // A loader for the wrong runtime fails to launch the game; only flag when both the game and loader families are known and disagree
-        if let (Some(game), Some(loader)) = (ctx.runtime_family, ctx.loader_family)
-            && game != loader
-        {
-            findings.push(Finding::new(
-                Severity::Error,
-                format!("F4SE is for {loader:?} but the game is {game:?}"),
-                Some("F4SE won't launch; install the F4SE build for your game version".to_owned()),
-            ));
-        }
-
-        if let AddressLibraryStatus::Missing { expected } = &ctx.address_library {
-            findings.push(Finding::new(
-                Severity::Warning,
-                format!("Address Library `{expected}` is missing"),
-                Some("F4SE plugins need it; install Address Library (Nexus mod 47327)".to_owned()),
-            ));
-        }
-
-        // A deployed F4SE plugin that doesn't advertise the installed runtime won't load
-        if let (Some(packed), Some(game)) = (ctx.runtime_packed, ctx.runtime_family) {
-            for p in &ctx.f4se_plugins {
-                let advertises = if p.plugin.supports_ngae {
-                    p.plugin.supports(packed) || p.plugin.version_independent_for(game)
-                } else {
-                    p.plugin.supports_og && game == Generation::OldGen // OG-only plugins (Query, no Version)
-                };
-                if !advertises {
-                    findings.push(Finding::new(
-                        Severity::Warning,
-                        format!(
-                            "`{}` (from `{}`) may not support {game:?}",
-                            p.name, p.mod_name
-                        ),
-                        Some("Update the plugin for your F4SE/runtime version".to_owned()),
-                    ));
-                }
+    // A deployed F4SE plugin that doesn't advertise the installed runtime won't load
+    if let (Some(packed), Some(game)) = (ctx.runtime_packed, ctx.runtime_family) {
+        for p in &ctx.f4se_plugins {
+            let advertises = if p.plugin.supports_ngae {
+                p.plugin.supports(packed) || p.plugin.version_independent_for(game)
+            } else {
+                p.plugin.supports_og && game == Generation::OldGen // OG-only plugins (Query, no Version)
+            };
+            if !advertises {
+                findings.push(
+                    Finding::warning(format!(
+                        "`{}` (from `{}`) may not support {game:?}",
+                        p.name, p.mod_name
+                    ))
+                    .detail("Update the plugin for your F4SE/runtime version"),
+                );
             }
         }
-
-        findings
     }
+
+    findings
 }
 
 // ────────────────────────────────────────────────────────────────────────
@@ -69,6 +57,7 @@ impl Check for F4se {
 mod tests {
     use super::*;
     use crate::context::F4sePluginScan;
+    use crate::finding::Severity;
     use overseer_core::detect::Generation;
     use overseer_core::f4se::F4sePlugin;
 
@@ -77,7 +66,7 @@ mod tests {
         loader: Option<Generation>,
         address: AddressLibraryStatus,
     ) -> Vec<Finding> {
-        F4se.run(&GameContext {
+        super::run(&GameContext {
             runtime_family: game,
             loader_family: loader,
             address_library: address,
@@ -183,12 +172,12 @@ mod tests {
             vec![scan("ok.dll", true, &[0x010B_0DD0])],
             Some(0x010B_0DD0),
         );
-        assert!(F4se.run(&findings).is_empty());
+        assert!(super::run(&findings).is_empty());
     }
 
     #[test]
     fn a_plugin_missing_the_runtime_warns() {
-        let findings = F4se.run(&plugin_ctx(
+        let findings = super::run(&plugin_ctx(
             vec![scan("old.dll", true, &[0x010A_3D80])],
             Some(0x010B_0DD0),
         ));
@@ -199,7 +188,7 @@ mod tests {
 
     #[test]
     fn an_og_only_plugin_warns_on_anniversary() {
-        let findings = F4se.run(&plugin_ctx(
+        let findings = super::run(&plugin_ctx(
             vec![scan("legacy.dll", false, &[])],
             Some(0x010B_0DD0),
         ));
@@ -210,8 +199,7 @@ mod tests {
     #[test]
     fn plugins_are_silent_when_runtime_unknown() {
         assert!(
-            F4se.run(&plugin_ctx(vec![scan("x.dll", true, &[0x010A_3D80])], None))
-                .is_empty()
+            super::run(&plugin_ctx(vec![scan("x.dll", true, &[0x010A_3D80])], None)).is_empty()
         );
     }
 
@@ -221,7 +209,7 @@ mod tests {
         let mut s = scan("indep.dll", true, &[0x010A_3D80]);
         s.plugin.address_independence = 0x4; // Address Library 1.11.137
         s.plugin.structure_independence = 0x4; // 1.11.137 struct layout
-        assert!(F4se.run(&plugin_ctx(vec![s], Some(0x010B_0DD0))).is_empty());
+        assert!(super::run(&plugin_ctx(vec![s], Some(0x010B_0DD0))).is_empty());
     }
 
     #[test]
@@ -230,7 +218,7 @@ mod tests {
         let mut s = scan("ng.dll", true, &[]);
         s.plugin.address_independence = 0x2;
         s.plugin.structure_independence = 0x2;
-        let findings = F4se.run(&plugin_ctx(vec![s], Some(0x010B_0DD0)));
+        let findings = super::run(&plugin_ctx(vec![s], Some(0x010B_0DD0)));
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].severity, Severity::Warning);
     }
@@ -248,7 +236,7 @@ mod tests {
             }],
             ..GameContext::default()
         };
-        let findings = F4se.run(&ctx);
+        let findings = super::run(&ctx);
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].severity, Severity::Warning);
         assert!(findings[0].title.contains("loadonly.dll"));
@@ -263,6 +251,6 @@ mod tests {
             f4se_plugins: vec![scan("legacy.dll", false, &[])],
             ..GameContext::default()
         };
-        assert!(F4se.run(&ctx).is_empty());
+        assert!(super::run(&ctx).is_empty());
     }
 }

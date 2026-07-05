@@ -1,6 +1,6 @@
 //! Folders that shouldn't sit loose in `Data/`: previs/precombines, AnimTextData, FOMOD leftovers
 
-use super::{Check, under};
+use super::under;
 use crate::context::GameContext;
 use crate::finding::{Finding, Severity};
 use std::collections::BTreeSet;
@@ -46,38 +46,30 @@ const LOOSE_FOLDERS: &[LooseFolder] = &[
 ];
 
 /// Flags folders that shouldn't be deployed loose into `Data/`
-pub struct LooseFolders;
+pub fn run(ctx: &GameContext) -> Vec<Finding> {
+    let mut findings = Vec::new();
+    for folder in LOOSE_FOLDERS {
+        let mods: BTreeSet<&str> = ctx
+            .data_files
+            .iter()
+            .filter(|file| under(&file.path, folder.prefix))
+            .map(|file| file.mod_name.as_str())
+            .collect();
 
-impl Check for LooseFolders {
-    fn id(&self) -> &'static str {
-        "loose-folders"
+        findings.extend(mods.into_iter().map(|name| {
+            Finding::new(
+                folder.severity,
+                format!(
+                    "`{}` {} (from `{}`)",
+                    folder.prefix.join("/"),
+                    folder.summary,
+                    name
+                ),
+            )
+            .detail(folder.fix)
+        }));
     }
-
-    fn run(&self, ctx: &GameContext) -> Vec<Finding> {
-        let mut findings = Vec::new();
-        for folder in LOOSE_FOLDERS {
-            let mods: BTreeSet<&str> = ctx
-                .data_files
-                .iter()
-                .filter(|file| under(&file.path, folder.prefix))
-                .map(|file| file.mod_name.as_str())
-                .collect();
-
-            findings.extend(mods.into_iter().map(|name| {
-                Finding::new(
-                    folder.severity,
-                    format!(
-                        "`{}` {} (from `{}`)",
-                        folder.prefix.join("/"),
-                        folder.summary,
-                        name
-                    ),
-                    Some(folder.fix.to_owned()),
-                )
-            }));
-        }
-        findings
-    }
+    findings
 }
 
 // ────────────────────────────────────────────────────────────────────────
@@ -102,7 +94,7 @@ mod tests {
             data_files: files,
             ..GameContext::default()
         };
-        LooseFolders.run(&ctx)
+        super::run(&ctx)
     }
 
     #[test]

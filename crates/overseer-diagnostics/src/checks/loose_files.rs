@@ -1,8 +1,8 @@
 //! Loose files in the deployed `Data` tree: high-confidence mistakes worth flagging.
 
-use super::{Check, under};
+use super::under;
 use crate::context::{DataFile, GameContext};
-use crate::finding::{Finding, Severity};
+use crate::finding::Finding;
 use camino::Utf8Path;
 
 /// Tool-output folders that aren't game data, so we leave their contents alone
@@ -18,81 +18,63 @@ fn wrong_format(ext: &str) -> Option<&'static str> {
 }
 
 /// Flags deployed files that are almost certainly a mistake
-pub struct LooseFiles;
+pub fn run(ctx: &GameContext) -> Vec<Finding> {
+    let mut findings: Vec<Finding> = ctx.data_files.iter().filter_map(inspect).collect();
 
-impl Check for LooseFiles {
-    fn id(&self) -> &'static str {
-        "loose-files"
+    if findings.is_empty() {
+        findings.push(Finding::info("No loose-file problems found"));
     }
-
-    fn run(&self, ctx: &GameContext) -> Vec<Finding> {
-        let mut findings: Vec<Finding> = ctx
-            .data_files
-            .iter()
-            .filter_map(|f| self.inspect(f))
-            .collect();
-
-        if findings.is_empty() {
-            findings.push(Finding::new(
-                Severity::Info,
-                "No loose-file problems found",
-                None,
-            ));
-        }
-        findings
-    }
+    findings
 }
 
-impl LooseFiles {
-    /// Flag one deployed `Data/` file if it's a confident mistake, otherwise `None`
-    fn inspect(&self, file: &DataFile) -> Option<Finding> {
-        let path = file.path.as_path();
+/// Flag one deployed `Data/` file if it's a confident mistake, otherwise `None`
+fn inspect(file: &DataFile) -> Option<Finding> {
+    let path = file.path.as_path();
 
-        // Leave tool output and hidden subtrees alone
-        if in_skipped_folder(path) {
-            return None;
-        }
-
-        let name = path.file_name().unwrap_or_default();
-        if name.starts_with('.') {
-            return Some(self.warn(
-                file,
-                "is a hidden metadata file",
-                "Delete it: the game and mod managers ignore dotfiles",
-            ));
-        }
-
-        let ext = path.extension()?;
-
-        // The only DLL the game loads is an F4SE plugin from `F4SE/Plugins/`
-        if ext.eq_ignore_ascii_case("dll") && !under(path, &["f4se", "plugins"]) {
-            return Some(self.warn(
-                file,
-                "is a DLL outside `F4SE/Plugins/`",
-                "Script-extender plugins load only from `F4SE/Plugins/`",
-            ));
-        }
-
-        // A source texture/audio format the game can't load, anywhere in the tree
-        if let Some(proper) = wrong_format(&ext.to_lowercase()) {
-            return Some(self.warn(
-                file,
-                &format!("is a `.{ext}` the game won't load"),
-                &format!("Convert to `.{proper}` or remove it"),
-            ));
-        }
-
-        None
+    // Leave tool output and hidden subtrees alone
+    if in_skipped_folder(path) {
+        return None;
     }
 
-    /// A warning naming the offending file and its mod
-    fn warn(&self, file: &DataFile, problem: &str, fix: &str) -> Finding {
-        Finding::new(
-            Severity::Warning,
-            format!("`{}` {problem} (from `{}`)", file.path, file.mod_name),
-            Some(fix.to_owned()),
-        )
+    let name = path.file_name().unwrap_or_default();
+    if name.starts_with('.') {
+        return Some(warn(
+            file,
+            "is a hidden metadata file",
+            "Delete it: the game and mod managers ignore dotfiles",
+        ));
     }
+
+    let ext = path.extension()?;
+
+    // The only DLL the game loads is an F4SE plugin from `F4SE/Plugins/`
+    if ext.eq_ignore_ascii_case("dll") && !under(path, &["f4se", "plugins"]) {
+        return Some(warn(
+            file,
+            "is a DLL outside `F4SE/Plugins/`",
+            "Script-extender plugins load only from `F4SE/Plugins/`",
+        ));
+    }
+
+    // A source texture/audio format the game can't load, anywhere in the tree
+    if let Some(proper) = wrong_format(&ext.to_lowercase()) {
+        return Some(warn(
+            file,
+            &format!("is a `.{ext}` the game won't load"),
+            &format!("Convert to `.{proper}` or remove it"),
+        ));
+    }
+
+    None
+}
+
+/// A warning naming the offending file and its mod
+fn warn(file: &DataFile, problem: &str, fix: &str) -> Finding {
+    Finding::warning(format!(
+        "`{}` {problem} (from `{}`)",
+        file.path, file.mod_name
+    ))
+    .detail(fix)
 }
 
 /// True if a directory in the path is a tool-output (`bodyslide`, …) or hidden (`.git`) folder
@@ -112,6 +94,7 @@ fn in_skipped_folder(path: &Utf8Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::finding::Severity;
 
     fn df(path: &str) -> DataFile {
         DataFile {
@@ -128,7 +111,7 @@ mod tests {
     }
 
     fn run(files: Vec<DataFile>) -> Vec<Finding> {
-        LooseFiles.run(&ctx(files))
+        super::run(&ctx(files))
     }
 
     /// Run, asserting exactly one warning came out, and return it
@@ -252,7 +235,7 @@ mod tests {
 
     #[test]
     fn the_warning_names_the_mod() {
-        let findings = LooseFiles.run(&ctx(vec![DataFile {
+        let findings = super::run(&ctx(vec![DataFile {
             path: Utf8Path::new("loose.dll").to_owned(),
             mod_name: "Cool Mod".to_owned(),
         }]));

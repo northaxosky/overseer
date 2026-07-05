@@ -1,48 +1,29 @@
 //! The game's Creation Club load-order manifest (`Fallout4.ccc`)
 
-use super::Check;
 use crate::context::{CccStatus, GameContext};
-use crate::finding::{Finding, Severity};
+use crate::finding::Finding;
 
 /// Reports on the game's CC manifest
-pub struct CreationClub;
+pub fn run(ctx: &GameContext) -> Vec<Finding> {
+    let finding = match &ctx.ccc {
+        CccStatus::NotApplicable => return Vec::new(),
 
-impl Check for CreationClub {
-    fn id(&self) -> &'static str {
-        "creation-club"
-    }
+        CccStatus::Missing { file } => {
+            Finding::warning(format!("`{file}` is missing from the game folder"))
+                .detail("The install may be incomplete; Creation Club content won't load in order")
+        }
 
-    fn run(&self, ctx: &GameContext) -> Vec<Finding> {
-        let finding = match &ctx.ccc {
-            CccStatus::NotApplicable => return Vec::new(),
+        CccStatus::Unreadable { file, error } => {
+            Finding::warning(format!("`{file}` could not be read")).detail(error.clone())
+        }
 
-            CccStatus::Missing { file } => Finding::new(
-                Severity::Warning,
-                format!("`{file}` is missing from the game folder"),
-                Some(
-                    "The install may be incomplete; Creation Club content won't load in order"
-                        .to_owned(),
-                ),
-            ),
-
-            CccStatus::Unreadable { file, error } => Finding::new(
-                Severity::Warning,
-                format!("`{file}` could not be read"),
-                Some(error.clone()),
-            ),
-
-            CccStatus::Present { file, entries } => Finding::new(
-                Severity::Info,
-                format!(
-                    "`{file}` lists {} Creation Club plugin{}",
-                    entries.len(),
-                    if entries.len() == 1 { "" } else { "s" }
-                ),
-                None,
-            ),
-        };
-        vec![finding]
-    }
+        CccStatus::Present { file, entries } => Finding::info(format!(
+            "`{file}` lists {} Creation Club plugin{}",
+            entries.len(),
+            if entries.len() == 1 { "" } else { "s" }
+        )),
+    };
+    vec![finding]
 }
 
 // ────────────────────────────────────────────────────────────────────────
@@ -52,6 +33,7 @@ impl Check for CreationClub {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::finding::Severity;
 
     fn ctx(ccc: CccStatus) -> GameContext {
         GameContext {
@@ -69,12 +51,12 @@ mod tests {
 
     #[test]
     fn a_game_without_a_manifest_is_silent() {
-        assert!(CreationClub.run(&ctx(CccStatus::NotApplicable)).is_empty());
+        assert!(super::run(&ctx(CccStatus::NotApplicable)).is_empty());
     }
 
     #[test]
     fn a_missing_manifest_warns() {
-        let findings = CreationClub.run(&ctx(CccStatus::Missing {
+        let findings = super::run(&ctx(CccStatus::Missing {
             file: "Fallout4.ccc",
         }));
         assert_eq!(findings.len(), 1);
@@ -85,7 +67,7 @@ mod tests {
 
     #[test]
     fn an_unreadable_manifest_warns() {
-        let findings = CreationClub.run(&ctx(CccStatus::Unreadable {
+        let findings = super::run(&ctx(CccStatus::Unreadable {
             file: "Fallout4.ccc",
             error: "access denied".to_owned(),
         }));
@@ -102,14 +84,14 @@ mod tests {
 
     #[test]
     fn a_present_manifest_reports_its_count() {
-        let findings = CreationClub.run(&ctx(present(&["ccA.esl", "ccB.esl"])));
+        let findings = super::run(&ctx(present(&["ccA.esl", "ccB.esl"])));
         assert_eq!(findings[0].severity, Severity::Info);
         assert!(findings[0].title.contains("2 Creation Club plugins"));
     }
 
     #[test]
     fn a_single_entry_is_singular() {
-        let findings = CreationClub.run(&ctx(present(&["ccA.esl"])));
+        let findings = super::run(&ctx(present(&["ccA.esl"])));
         assert!(
             findings[0].title.ends_with("Creation Club plugin"),
             "got: {}",
@@ -119,7 +101,7 @@ mod tests {
 
     #[test]
     fn an_empty_manifest_reports_zero() {
-        let findings = CreationClub.run(&ctx(present(&[])));
+        let findings = super::run(&ctx(present(&[])));
         assert_eq!(findings[0].severity, Severity::Info);
         assert!(findings[0].title.contains("0 Creation Club plugins"));
     }

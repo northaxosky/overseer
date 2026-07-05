@@ -25,13 +25,34 @@ pub struct Finding {
 }
 
 impl Finding {
-    /// A finding without a check id; `diagnose` stamps id
-    pub fn new(severity: Severity, title: impl Into<String>, detail: Option<String>) -> Self {
+    /// A finding with an explicit severity and no detail; `diagnose` stamps the check id
+    pub fn new(severity: Severity, title: impl Into<String>) -> Self {
         Self {
             check: "",
             severity,
             title: title.into(),
-            detail,
+            detail: None,
         }
+    }
+
+    /// Info finding: nothing wrong was identified
+    pub fn info(title: impl Into<String>) -> Self {
+        Self::new(Severity::Info, title)
+    }
+
+    /// Warning finding: a potential problem worth attention
+    pub fn warning(title: impl Into<String>) -> Self {
+        Self::new(Severity::Warning, title)
+    }
+
+    /// Error finding: a real problem that might brick the setup
+    pub fn error(title: impl Into<String>) -> Self {
+        Self::new(Severity::Error, title)
+    }
+
+    /// Attach the guidance the UI shows for warnings and errors
+    pub fn detail(mut self, detail: impl Into<String>) -> Self {
+        self.detail = Some(detail.into());
+        self
     }
 }
