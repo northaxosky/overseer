@@ -254,22 +254,14 @@ fn render_conflicts(app: &mut App, frame: &mut Frame, area: Rect) {
         .and_then(|i| found.get(i))
         .unwrap_or(&found[0]);
 
-    let block = Block::bordered()
-        .border_type(if focused {
-            BorderType::Thick
-        } else {
-            BorderType::Plain
-        })
-        .title(CONFLICTS_TITLE);
+    let block = pane_block(CONFLICTS_TITLE, focused);
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
     let panes = Layout::vertical([Constraint::Fill(1), Constraint::Length(8)]).split(inner);
     let mut list = List::new(rows);
     if focused {
-        list = list
-            .highlight_symbol("> ")
-            .highlight_style(theme::selection_style());
+        list = highlighted(list);
     }
     frame.render_stateful_widget(list, panes[0], &mut app.conflicts.list);
 
@@ -401,13 +393,7 @@ fn saves_title(app: &App) -> String {
 
 /// A short, centered message inside a workspace pane frame (stale / error / empty)
 fn render_workspace_message(frame: &mut Frame, area: Rect, title: &str, msg: &str, focused: bool) {
-    let block = Block::bordered()
-        .border_type(if focused {
-            BorderType::Thick
-        } else {
-            BorderType::Plain
-        })
-        .title(title.to_owned());
+    let block = pane_block(title.to_owned(), focused);
     frame.render_widget(
         Paragraph::new(msg.to_owned())
             .block(block)
@@ -504,6 +490,30 @@ fn status_summary(status: Option<&DeploymentStatus>) -> String {
     }
 }
 
+/// A modal frame: a double-bordered box titled `title`; callers add padding as needed
+pub(super) fn modal_block(title: impl Into<Line<'static>>) -> Block<'static> {
+    Block::bordered()
+        .border_type(BorderType::Double)
+        .title(title)
+}
+
+/// Main-view pane frame: a thick border when focused, plain otherwise
+pub(super) fn pane_block(title: impl Into<Line<'static>>, focused: bool) -> Block<'static> {
+    Block::bordered()
+        .border_type(if focused {
+            BorderType::Thick
+        } else {
+            BorderType::Plain
+        })
+        .title(title)
+}
+
+/// Apply the shared selection cursor (`> ` marker + selection style) to a list
+pub(super) fn highlighted(list: List<'_>) -> List<'_> {
+    list.highlight_symbol("> ")
+        .highlight_style(theme::selection_style())
+}
+
 /// Render one selectable list pane
 fn render_pane(
     frame: &mut Frame,
@@ -513,18 +523,10 @@ fn render_pane(
     state: &mut ListState,
     focused: bool,
 ) {
-    let block = Block::bordered()
-        .border_type(if focused {
-            BorderType::Thick
-        } else {
-            BorderType::Plain
-        })
-        .title(title);
+    let block = pane_block(title, focused);
     let mut list = List::new(items).block(block);
     if focused {
-        list = list
-            .highlight_symbol("> ")
-            .highlight_style(theme::selection_style());
+        list = highlighted(list);
     }
     frame.render_stateful_widget(list, area, state);
 }
@@ -536,9 +538,7 @@ fn render_overlay_list(
     items: Vec<ListItem<'static>>,
     state: &mut ListState,
 ) {
-    let list = List::new(items)
-        .highlight_symbol("> ")
-        .highlight_style(theme::selection_style());
+    let list = highlighted(List::new(items));
     frame.render_stateful_widget(list, area, state);
 }
 

@@ -4,12 +4,13 @@ use overseer_frontend::style::Role;
 use ratatui::{
     Frame,
     layout::{Alignment, Constraint, Layout},
-    widgets::{Block, BorderType, Clear, List, ListItem, Padding, Paragraph, Wrap},
+    widgets::{Clear, List, ListItem, Padding, Paragraph, Wrap},
 };
 
 use super::centered_rect;
 use super::centered_rect_lines;
 use super::doctor::render_doctor_modal;
+use super::{highlighted, modal_block};
 use crate::app::{App, Confirm, Info, Modal, Prompt, Select};
 use crate::theme;
 
@@ -31,10 +32,7 @@ pub(super) fn render_modal(app: &mut App, frame: &mut Frame) {
 fn render_info(info: &mut Info, frame: &mut Frame) {
     let area = centered_rect(60, 60, frame.area());
     frame.render_widget(Clear, area);
-    let block = Block::bordered()
-        .border_type(BorderType::Double)
-        .title(format!("  {}  ", info.title))
-        .padding(Padding::horizontal(1));
+    let block = modal_block(format!("  {}  ", info.title)).padding(Padding::horizontal(1));
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
@@ -50,9 +48,7 @@ fn render_info(info: &mut Info, frame: &mut Frame) {
         .iter()
         .map(|(keys, desc)| ListItem::new(format!("  {keys:<16}{desc}")))
         .collect();
-    let list = List::new(items)
-        .highlight_symbol("> ")
-        .highlight_style(theme::selection_style());
+    let list = highlighted(List::new(items));
     frame.render_stateful_widget(list, rows[0], &mut info.state);
 
     let hint = Paragraph::new(" j/k scroll · Esc close ").style(theme::style(Role::Muted));
@@ -62,10 +58,7 @@ fn render_info(info: &mut Info, frame: &mut Frame) {
 fn render_select(select: &mut Select, frame: &mut Frame) {
     let area = centered_rect(60, 40, frame.area());
     frame.render_widget(Clear, area);
-    let block = Block::bordered()
-        .border_type(BorderType::Double)
-        .title("  Overseer  ")
-        .padding(Padding::horizontal(1));
+    let block = modal_block("  Overseer  ").padding(Padding::horizontal(1));
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
@@ -98,10 +91,7 @@ fn render_select(select: &mut Select, frame: &mut Frame) {
 fn render_prompt(prompt: &Prompt, frame: &mut Frame) {
     let area = centered_rect_lines(50, 9, frame.area());
     frame.render_widget(Clear, area);
-    let block = Block::bordered()
-        .border_type(BorderType::Double)
-        .title(format!("  {}  ", prompt.kind.title()))
-        .padding(Padding::horizontal(1));
+    let block = modal_block(format!("  {}  ", prompt.kind.title())).padding(Padding::horizontal(1));
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
@@ -140,10 +130,7 @@ fn render_prompt(prompt: &Prompt, frame: &mut Frame) {
 fn render_confirm(confirm: &Confirm, frame: &mut Frame) {
     let area = centered_rect(60, 30, frame.area());
     frame.render_widget(Clear, area);
-    let block = Block::bordered()
-        .border_type(BorderType::Double)
-        .title("  Confirm  ")
-        .padding(Padding::horizontal(1));
+    let block = modal_block("  Confirm  ").padding(Padding::horizontal(1));
     let inner = block.inner(area);
     frame.render_widget(block, area);
 

@@ -7,10 +7,10 @@ use ratatui::{
     Frame,
     layout::{Constraint, Layout},
     text::{Line, Span},
-    widgets::{Block, BorderType, Borders, Clear, ListItem, Paragraph, Wrap},
+    widgets::{Block, Borders, Clear, ListItem, Paragraph, Wrap},
 };
 
-use super::{centered_rect, render_overlay_list, wrap_text};
+use super::{centered_rect, modal_block, render_overlay_list, wrap_text};
 use crate::app::DoctorReport;
 use crate::theme;
 
@@ -21,9 +21,7 @@ const DOCTOR_TITLE: &str = "  Doctor — setup health  ";
 pub(super) fn render_doctor_modal(doctor: &mut DoctorReport, profile: &str, frame: &mut Frame) {
     let area = centered_rect(75, 75, frame.area());
     frame.render_widget(Clear, area);
-    let block = Block::bordered()
-        .border_type(BorderType::Double)
-        .title(DOCTOR_TITLE);
+    let block = modal_block(DOCTOR_TITLE);
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
