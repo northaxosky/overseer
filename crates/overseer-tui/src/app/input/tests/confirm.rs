@@ -27,3 +27,21 @@ fn esc_cancels_the_confirm() {
     app.handle_key(key(KeyCode::Esc));
     assert!(app.modal.is_none(), "Esc closes the confirm");
 }
+
+#[test]
+fn enter_accepts_the_confirm_and_runs_its_action() {
+    let mut app = App::sample();
+    // A RemoveExe confirm whose target is absent: accepting runs the action and reports it
+    app.modal = Some(Modal::Confirm(Confirm {
+        message: "Remove launch target FO4Edit?".to_owned(),
+        action: ConfirmAction::RemoveExe("FO4Edit".to_owned()),
+    }));
+
+    app.handle_key(key(KeyCode::Enter));
+
+    assert!(app.modal.is_none(), "Enter accepts and closes the confirm");
+    assert!(
+        app.message.is_some(),
+        "Enter runs the staged action, unlike n/Esc which do nothing"
+    );
+}

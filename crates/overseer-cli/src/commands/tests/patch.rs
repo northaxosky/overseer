@@ -109,3 +109,58 @@ fn a_bare_tool_name_is_searched_on_path_not_absolutized() {
         "the error must come from the PATH lookup branch"
     );
 }
+
+#[test]
+fn repair_mode_allows_a_partial_group() {
+    // --allow-incomplete-repair converts only the delta-supplied file, not refusing the group
+    let plans: Vec<_> = COAST
+        .iter()
+        .map(|r| dlc_plan_for(r, ItemState::NeedsConversion))
+        .collect();
+    let (jobs, noop) = build_jobs(
+        "the DLC consistency revision",
+        &plans,
+        &deltas(&["Data/DLCCoast.esm"]),
+        true,
+    )
+    .unwrap();
+    assert!(!noop);
+    assert_eq!(jobs.len(), 1);
+    assert_eq!(jobs[0].item.rel_path, "Data/DLCCoast.esm");
+}
+
+#[test]
+fn repair_mode_skips_a_missing_file() {
+    // A Missing file no longer refuses the group under repair; the rest still convert
+    let mut plans = vec![dlc_plan_for("Data/DLCCoast.esm", ItemState::Missing)];
+    plans.extend(
+        COAST[1..]
+            .iter()
+            .map(|r| dlc_plan_for(r, ItemState::NeedsConversion)),
+    );
+    let (jobs, noop) = build_jobs(
+        "the DLC consistency revision",
+        &plans,
+        &deltas(&COAST[1..]),
+        true,
+    )
+    .unwrap();
+    assert!(!noop);
+    assert_eq!(jobs.len(), COAST.len() - 1);
+    assert!(jobs.iter().all(|j| j.item.rel_path != "Data/DLCCoast.esm"));
+}
+
+#[test]
+fn a_name_with_a_directory_is_absolutized() {
+    // A path with a directory component resolves against the CWD, never PATH-searched
+    let path = resolve_executable(Utf8Path::new("tools/overseer-fake-xdelta3.exe"))
+        .expect("a relative path with a directory must absolutize, not error");
+    assert!(
+        path.is_absolute(),
+        "the resolved tool path must be absolute"
+    );
+    assert!(
+        path.ends_with("tools/overseer-fake-xdelta3.exe"),
+        "absolutizing must preserve the supplied relative path"
+    );
+}

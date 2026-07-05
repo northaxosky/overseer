@@ -523,3 +523,41 @@ fn a_relative_path_is_absolutized_before_it_is_stored() {
         .expect("the target was added under its derived name");
     assert!(exe.path.is_absolute(), "the stored path is absolutized");
 }
+
+#[test]
+fn typing_q_edits_the_prompt_instead_of_quitting() {
+    let mut app = App::sample();
+    open_prompt_and_type(&mut app, "q"); // a profile name may start with q
+    assert_eq!(
+        prompt_state(&app),
+        Some(("q", None)),
+        "q is typed into the input, not treated as a quit"
+    );
+    assert!(
+        !app.should_quit,
+        "quitting is suppressed while a prompt is open"
+    );
+}
+
+#[test]
+fn esc_on_a_rename_mod_prompt_returns_to_the_main_view() {
+    let mut app = App::sample();
+    app.mods_state.select(Some(1)); // display 1 = CoolMod, a managed mod
+    app.handle_key(key(KeyCode::Char('R'))); // rename-mod prompt, opened from the main view
+    assert!(
+        matches!(
+            app.modal,
+            Some(Modal::Prompt(Prompt {
+                kind: PromptKind::RenameMod { .. },
+                ..
+            }))
+        ),
+        "R opens a rename-mod prompt"
+    );
+
+    app.handle_key(key(KeyCode::Esc));
+    assert!(
+        app.modal.is_none(),
+        "Esc on a main-view prompt closes to the main view, not back to a picker"
+    );
+}

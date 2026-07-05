@@ -107,3 +107,38 @@ fn sort(key: SavesSortKey, dir: SortDir) -> SavesSort {
 fn names(entries: &[SaveInfo]) -> Vec<&str> {
     entries.iter().map(|e| e.file_name.as_str()).collect()
 }
+
+#[test]
+fn equal_keys_keep_a_name_ascending_tiebreak_regardless_of_direction() {
+    // Same mtime so Date can't decide the order: the file-name tiebreak must
+    let mut entries = vec![save_info("B.fos", 5, None), save_info("A.fos", 5, None)];
+    sort_saves(&mut entries, sort(SavesSortKey::Date, SortDir::Desc));
+    assert_eq!(
+        names(&entries),
+        ["A.fos", "B.fos"],
+        "the tiebreak stays ascending under Desc"
+    );
+    sort_saves(&mut entries, sort(SavesSortKey::Date, SortDir::Asc));
+    assert_eq!(names(&entries), ["A.fos", "B.fos"], "and under Asc");
+}
+
+#[test]
+fn download_date_ties_break_on_case_insensitive_name() {
+    // Equal mtime forces the tiebreak; "apple" < "banana" only case-insensitively
+    let mut entries = vec![
+        download_entry("Banana.zip", 0, 1, false),
+        download_entry("apple.zip", 0, 1, false),
+    ];
+    sort_downloads(
+        &mut entries,
+        DownloadsSort {
+            key: DownloadsSortKey::Date,
+            dir: SortDir::Desc,
+        },
+    );
+    assert_eq!(
+        entries[0].name, "apple.zip",
+        "case-insensitive name breaks the tie, ascending"
+    );
+    assert_eq!(entries[1].name, "Banana.zip");
+}

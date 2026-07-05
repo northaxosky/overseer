@@ -555,3 +555,29 @@ fn changing_session_clears_collapse_state() {
         "a session swap resets ephemeral collapse"
     );
 }
+
+#[test]
+fn an_open_modal_swallows_main_view_keys() {
+    use crate::app::{Confirm, ConfirmAction};
+    let mut app = App::sample();
+    app.modal = Some(Modal::Confirm(Confirm {
+        message: "Delete Save1.fos?".to_owned(),
+        action: ConfirmAction::DeleteSave(camino::Utf8PathBuf::from("Save1.fos")),
+    }));
+
+    // Main-view keys must not leak past an open modal: no quit, no switch, no deploy
+    for c in ['q', '2', 'D'] {
+        app.handle_key(key(KeyCode::Char(c)));
+    }
+
+    assert!(!app.should_quit, "q must not quit while a modal is open");
+    assert_eq!(
+        app.workspace,
+        Workspace::Plugins,
+        "2 must not switch workspace"
+    );
+    assert!(
+        matches!(app.modal, Some(Modal::Confirm(_))),
+        "the confirm stays open, unaffected by main-view keys"
+    );
+}

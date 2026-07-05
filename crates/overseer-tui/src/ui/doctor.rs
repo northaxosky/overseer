@@ -129,3 +129,7 @@ fn severity_style(severity: Severity) -> (Role, &'static str) {
 fn plural(n: usize, noun: &str) -> String {
     format!("{n} {noun}{}", if n == 1 { "" } else { "s" })
 }
+
+#[cfg(test)]
+#[path = "tests/doctor.rs"]
+mod tests;
