@@ -45,7 +45,10 @@ impl App {
         if q < 0 || q >= rows.len() as isize {
             return false;
         }
-        let (a, b) = (rows[p], rows[q as usize]);
+        let Some(&a) = rows.get(p) else {
+            return false;
+        };
+        let b = rows[q as usize];
         let mods = &self.session.profile.mods;
         if mods[a].kind != ModKind::Managed {
             self.note("Only mods can be reordered");

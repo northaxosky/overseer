@@ -65,15 +65,11 @@ fn init(
 fn show(path: Utf8PathBuf) -> Result<()> {
     let path = absolutize(&path)?;
     let instance = Instance::load(&path).with_context(|| format!("loading instance at {path}"))?;
-    let local = instance.config.local_dir.as_deref().map_or_else(
-        || {
-            format!(
-                "(auto: %LOCALAPPDATA%\\{})",
-                instance.config.game.local_appdata_dir()
-            )
-        },
-        std::string::ToString::to_string,
-    );
+    let local = match instance.local_dir() {
+        Ok(dir) if instance.config.local_dir.is_some() => dir.to_string(),
+        Ok(dir) => format!("(auto: {dir})"),
+        Err(_) => "(auto: unresolved; set local_dir in overseer.toml)".to_owned(),
+    };
     let mods = instance.installed_mods().context("listing mods")?;
     let profiles = instance.profiles().context("listing profiles")?;
 

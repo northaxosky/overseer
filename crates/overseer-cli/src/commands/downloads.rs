@@ -17,7 +17,7 @@ pub fn run(instance: &InstanceArgs) -> Result<()> {
     heading(format!("{} installable archive(s)", downloads.len()));
     for (i, entry) in downloads.iter().enumerate() {
         let suffix = if entry.installed { "  (installed)" } else { "" };
-        list_item(i + 1, !entry.installed, &entry.name, suffix);
+        list_item(i + 1, entry.installed, &entry.name, suffix);
     }
     Ok(())
 }

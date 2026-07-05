@@ -103,13 +103,16 @@ impl App {
         }
         // Any key stroke clears the last message, toggle sets a fresh one
         self.message = None;
+        // A toggle key opens its Select modal, resolved once before the literal-key match
+        if let KeyCode::Char(c) = key.code
+            && let Some(kind) = SelectKind::from_toggle_key(c)
+        {
+            self.open_select(kind);
+            return;
+        }
         match key.code {
             // Modal-opening keys
             KeyCode::Char('?') => self.open_help(),
-            KeyCode::Char(c) if SelectKind::from_toggle_key(c).is_some() => {
-                let kind = SelectKind::from_toggle_key(c).expect("guard ensured a select key");
-                self.open_select(kind);
-            }
             KeyCode::Char('R') => self.open_rename_mod(),
             KeyCode::Char('A') => self.open_new_separator(),
 

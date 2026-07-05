@@ -25,6 +25,9 @@ pub enum VcdiffError {
     #[error("delta `{path}` does not contain an app-header basename; pass an explicit delta flag")]
     MissingAppHeaderName { path: Utf8PathBuf },
 
+    #[error("delta `{path}` app-header names a target outside the allowed set")]
+    OffScopeTarget { path: Utf8PathBuf },
+
     #[error("delta `{path}` app-header names more than one known target: {names}")]
     AmbiguousAppHeader { path: Utf8PathBuf, names: String },
 
@@ -109,7 +112,7 @@ pub fn map_deltas(dir: &Utf8Path, allowed: &[&str]) -> Result<DeltaMap, VcdiffEr
 pub fn target_from_header(path: &Utf8Path, allowed: &[&str]) -> Result<String, VcdiffError> {
     match header_target(path, allowed)? {
         Some(name) => Ok(name),
-        None => Err(VcdiffError::MissingAppHeaderName {
+        None => Err(VcdiffError::OffScopeTarget {
             path: path.to_owned(),
         }),
     }
@@ -318,6 +321,18 @@ mod tests {
         assert!(matches!(
             target_from_header(&path, CORE),
             Err(VcdiffError::MissingAppHeaderName { .. })
+        ));
+    }
+
+    #[test]
+    fn an_off_scope_header_is_distinct_from_a_missing_one() {
+        let (_tmp, root) = temp();
+        let path = root.join("dlc.vcdiff");
+        let header = br"old\DLCCoast.esm//new\Data\DLCCoast.esm/";
+        std::fs::write(&path, header_delta(Some(header))).unwrap();
+        assert!(matches!(
+            target_from_header(&path, CORE),
+            Err(VcdiffError::OffScopeTarget { .. })
         ));
     }
 

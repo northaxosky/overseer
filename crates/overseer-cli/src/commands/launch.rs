@@ -5,7 +5,7 @@ use overseer_core::instance::Instance;
 use overseer_core::launch;
 
 use crate::cli::InstanceArgs;
-use crate::ui::{heading, success};
+use crate::ui::{Role, heading, styled, success};
 
 pub fn run(name: Option<String>, instance: &InstanceArgs) -> Result<()> {
     let instance = instance.load_instance()?;
@@ -20,13 +20,25 @@ pub fn run(name: Option<String>, instance: &InstanceArgs) -> Result<()> {
 }
 
 fn list(instance: &Instance) {
-    let targets = launch::targets(instance);
-    if targets.is_empty() {
+    let exes = &instance.config.executables;
+    if exes.is_empty() {
         println!("No launch targets configured.");
         return;
     }
-    heading(format!("{} launch targets", targets.len()));
-    for (i, name) in targets.iter().enumerate() {
-        println!("{:>3}. {name}", i + 1);
+    heading(format!("{} launch targets", exes.len()));
+    for exe in exes {
+        let status = if exe.path.exists() {
+            styled(Role::Success, "installed")
+        } else {
+            styled(Role::Warning, "missing")
+        };
+        println!("  {} [{status}]", exe.name);
+        println!("      {}", styled(Role::Muted, &exe.path));
+        if !exe.args.is_empty() {
+            println!(
+                "      {}",
+                styled(Role::Muted, format!("args: {}", exe.args.join(" ")))
+            );
+        }
     }
 }
