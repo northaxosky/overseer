@@ -18,10 +18,7 @@ use app::App;
 
 fn main() -> Result<()> {
     // A TUI owns the terminal, so logging is silent on failure (stderr would corrupt the display)
-    overseer_frontend::logging::init(overseer_frontend::logging::Config {
-        default_filter: "warn,overseer_tui=info,overseer_core=info",
-        warn_on_error: false,
-    });
+    let _ = overseer_frontend::logging::init("warn,overseer_tui=info,overseer_core=info");
     tracing::info!("overseer-tui starting");
 
     let (explicit, profile) = cli::parse_args()?;

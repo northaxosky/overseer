@@ -125,7 +125,6 @@ mod tests {
     #[test]
     fn xdelta3_round_trip_is_byte_exact() {
         let Ok(exe) = std::env::var("OVERSEER_XDELTA3") else {
-            eprintln!("skipping xdelta3 round-trip: set OVERSEER_XDELTA3 to an xdelta3 binary");
             return;
         };
         let (_tmp, root) = temp();

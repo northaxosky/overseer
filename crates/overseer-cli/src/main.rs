@@ -11,10 +11,9 @@ use clap::Parser;
 use cli::{Cli, Command};
 
 fn main() -> Result<()> {
-    overseer_frontend::logging::init(overseer_frontend::logging::Config {
-        default_filter: "warn,overseer=info,overseer_core=info",
-        warn_on_error: true,
-    });
+    if let Err(e) = overseer_frontend::logging::init("warn,overseer=info,overseer_core=info") {
+        eprintln!("warning: file logging disabled: {e}");
+    }
     tracing::info!("overseer-cli starting");
     let cli = Cli::parse();
     ui::apply_color_choice(cli.color);
