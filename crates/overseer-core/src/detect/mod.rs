@@ -162,6 +162,19 @@ mod tests {
         );
     }
 
+    /// A GOG install drops goggame-<id>.info in the game root; detect() reads the store from it
+    #[test]
+    fn detect_reads_the_store_from_a_gog_marker_file() {
+        use crate::game::GameKind;
+        let (_t, game_dir) = temp();
+        let gog_id = GameKind::Fallout4.gog_appid().expect("fo4 is on gog");
+        std::fs::write(game_dir.join(format!("goggame-{gog_id}.info")), "{}").unwrap();
+
+        let install = detect(GameKind::Fallout4, &game_dir);
+        assert_eq!(install.store, Store::Gog);
+        assert_eq!(install.version, None);
+    }
+
     #[test]
     fn both_steam_and_gog_markers_conflict() {
         assert_eq!(

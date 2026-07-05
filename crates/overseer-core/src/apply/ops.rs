@@ -736,6 +736,65 @@ mod tests {
         );
     }
 
+    /// During purge, capture must skip our own deployed files and move only foreign runtime output into overwrite/
+    #[test]
+    fn purge_capture_never_vacuums_our_own_deployed_files() {
+        let (_tmp, instance) = temp_instance();
+        // A mod whose plugin forces creating Data/F4SE/Plugins/
+        install_mod(
+            &instance,
+            "Buffout",
+            &[("F4SE/Plugins/Buffout4.dll", "plugin")],
+        );
+        save_profile(&instance, "Default", &[("Buffout", true)]);
+        deploy_profile(&instance, "Default", &NullSink).expect("deploy");
+
+        // The game drops a log beside our plugin, in the same directory we created
+        let generated = instance
+            .config
+            .game_dir
+            .join("Data/F4SE/Plugins/Buffout4.log");
+        std::fs::write(&generated, "crashlog").expect("simulate runtime write");
+
+        purge(&instance, &NullSink).expect("purge");
+
+        let overwrite = instance.overwrite_dir();
+        assert!(
+            overwrite.join("F4SE/Plugins/Buffout4.log").exists(),
+            "the generated foreign file is captured"
+        );
+        assert!(
+            !overwrite.join("F4SE/Plugins/Buffout4.dll").exists(),
+            "our own deployed file is excluded from capture"
+        );
+        assert!(
+            instance
+                .mods_dir()
+                .join("Buffout/F4SE/Plugins/Buffout4.dll")
+                .exists(),
+            "the deployed file's staging source is untouched"
+        );
+    }
+
+    /// overwrite_staging_path is the exact inverse of the Root/Data deploy mapping
+    #[test]
+    fn overwrite_staging_path_inverts_the_root_data_mapping() {
+        // Data/ content sheds the Data/ prefix, back into the mod's staging layout
+        assert_eq!(
+            overwrite_staging_path(&Utf8Path::new("Data").join("F4SE").join("Buffout4.log")),
+            Utf8Path::new("F4SE").join("Buffout4.log")
+        );
+        // A game-root file (outside Data/) is attributed to the mod's Root/ folder
+        assert_eq!(
+            overwrite_staging_path(Utf8Path::new("f4se_loader.exe")),
+            Utf8Path::new(ROOT_DIR).join("f4se_loader.exe")
+        );
+        assert_eq!(
+            overwrite_staging_path(&Utf8Path::new("enbseries").join("cache.bin")),
+            Utf8Path::new("Root").join("enbseries").join("cache.bin")
+        );
+    }
+
     #[test]
     fn purge_leaves_generated_files_in_preexisting_dirs() {
         let (_tmp, instance) = temp_instance();
@@ -1060,6 +1119,52 @@ mod tests {
         assert_eq!(
             Deployment::load(&instance).expect("load").status,
             Status::RecoveryFailed
+        );
+    }
+
+    /// A RecoveryFailed journal retries and clears once the obstruction (a stray backup file) is removed
+    #[test]
+    fn a_recovery_failed_journal_resolves_on_retry_once_the_obstruction_is_cleared() {
+        let (_tmp, instance) = temp_instance();
+        // A vanilla file is backed up on deploy, so a backup dir lives alongside the deployment
+        let data_file = deployed(&instance, "conflict.txt");
+        std::fs::create_dir_all(data_file.parent().expect("parent")).expect("mk Data");
+        std::fs::write(&data_file, "vanilla").expect("seed vanilla");
+        install_mod(&instance, "Overwriter", &[("conflict.txt", "modded")]);
+        save_profile(&instance, "Default", &[("Overwriter", true)]);
+        deploy_profile(&instance, "Default", &NullSink).expect("deploy");
+
+        // Plant a stray backup file no entry claims, so the first reversal is left RecoveryFailed
+        let backup_root = instance.config.game_dir.join(".overseer-backup");
+        std::fs::write(backup_root.join("stray.bin"), b"junk").expect("plant stray");
+        purge(&instance, &NullSink).expect_err("first purge cannot fully resolve");
+        assert_eq!(
+            Deployment::load(&instance).expect("load").status,
+            Status::RecoveryFailed
+        );
+
+        // The user clears the obstruction as the error instructs, then re-runs a command
+        std::fs::remove_file(backup_root.join("stray.bin")).expect("clear the obstruction");
+
+        // The next lock-held entry retries the reversal, which now resolves and clears the journal
+        assert!(
+            status(&instance)
+                .expect("status retries recovery")
+                .is_none(),
+            "the retried reversal resolves and reports nothing live"
+        );
+        assert!(
+            !Deployment::exists(&instance),
+            "the journal is cleared on a resolved retry"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&data_file).expect("read"),
+            "vanilla",
+            "the vanilla original stays restored across the retry"
+        );
+        assert!(
+            !backup_root.exists(),
+            "the emptied backup root is swept away"
         );
     }
 

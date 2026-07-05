@@ -98,6 +98,20 @@ mod tests {
     use crate::test_support::{ba2_bytes, temp};
     use camino::{Utf8Path, Utf8PathBuf};
 
+    /// Generation maps to a BA2 edition, with Anniversary deliberately mapping to None (AE reuses Next-Gen archives)
+    #[test]
+    fn generation_maps_to_edition_with_anniversary_excluded() {
+        assert_eq!(
+            Ba2Edition::from_generation(Generation::OldGen),
+            Some(Ba2Edition::OldGen)
+        );
+        assert_eq!(
+            Ba2Edition::from_generation(Generation::NextGen),
+            Some(Ba2Edition::NextGen)
+        );
+        assert_eq!(Ba2Edition::from_generation(Generation::Anniversary), None);
+    }
+
     fn header(version: u32, kind: Ba2Kind) -> Ba2Header {
         Ba2Header {
             version,

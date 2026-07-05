@@ -870,6 +870,101 @@ mod tests {
         assert!(scan_script_overrides(&plan).is_empty());
     }
 
+    /// Without a deployed F4SE/Plugins/*.dll, the Address Library requirement does not apply
+    #[test]
+    fn address_library_is_not_applicable_without_a_deployed_f4se_plugin() {
+        let version = overseer_core::detect::ExeVersion {
+            major: 1,
+            minor: 10,
+            patch: 163,
+            build: 0,
+        };
+        let files = vec![DataFile {
+            path: Utf8PathBuf::from("textures/armor.dds"),
+            mod_name: "ArmorMod".to_owned(),
+        }];
+        assert!(matches!(
+            address_library_status(&files, Some(version)),
+            AddressLibraryStatus::NotApplicable
+        ));
+    }
+
+    /// A deployed plugin needs the Address Library, but an undetectable runtime can't name the expected bin
+    #[test]
+    fn address_library_is_not_applicable_when_the_game_version_is_unknown() {
+        let files = vec![DataFile {
+            path: Utf8PathBuf::from("F4SE/Plugins/Buffout4.dll"),
+            mod_name: "Buffout".to_owned(),
+        }];
+        assert!(matches!(
+            address_library_status(&files, None),
+            AddressLibraryStatus::NotApplicable
+        ));
+    }
+
+    /// read_ccc parses the manifest's plugin lines, trimming whitespace and dropping blank lines
+    #[test]
+    fn read_ccc_parses_entries_and_drops_blank_lines() {
+        let (_tmp, base) = temp_base();
+        let mut instance = Instance::new(base.join("instance"), base.join("game"));
+        instance.config.game = GameKind::Fallout4;
+        std::fs::create_dir_all(&instance.config.game_dir).unwrap();
+        std::fs::write(
+            instance.config.game_dir.join("Fallout4.ccc"),
+            "ccOne.esl\n\n  ccTwo.esl  \n\n",
+        )
+        .unwrap();
+
+        match read_ccc(&instance) {
+            CccStatus::Present { file, entries } => {
+                assert_eq!(file, "Fallout4.ccc");
+                assert_eq!(
+                    entries,
+                    vec!["ccOne.esl".to_owned(), "ccTwo.esl".to_owned()]
+                );
+            }
+            _ => panic!("a readable manifest reads as Present"),
+        }
+    }
+
+    /// A game folder with no Fallout4.ccc reads as a missing manifest
+    #[test]
+    fn read_ccc_reports_a_missing_manifest() {
+        let (_tmp, base) = temp_base();
+        let mut instance = Instance::new(base.join("instance"), base.join("game"));
+        instance.config.game = GameKind::Fallout4;
+        std::fs::create_dir_all(&instance.config.game_dir).unwrap();
+        assert!(matches!(
+            read_ccc(&instance),
+            CccStatus::Missing {
+                file: "Fallout4.ccc"
+            }
+        ));
+    }
+
+    /// A corrupt .ba2 (right extension, wrong bytes) surfaces through scan_archives as Invalid
+    #[test]
+    fn scan_archives_flags_a_corrupt_ba2_as_invalid() {
+        let (_tmp, base) = temp_base();
+        let mod_dir = base.join("mods/A");
+        std::fs::create_dir_all(&mod_dir).unwrap();
+        std::fs::write(
+            mod_dir.join("Broken - Main.ba2"),
+            b"this is not a valid BA2 header",
+        )
+        .unwrap();
+
+        let plan =
+            DeployPlan::from_rooted_mods(base.join("game"), &[ModSource::new("A", &mod_dir)])
+                .unwrap();
+
+        let archives = scan_archives(&plan);
+        assert_eq!(archives.len(), 1);
+        assert_eq!(archives[0].name, "Broken - Main.ba2");
+        assert_eq!(archives[0].mod_name, "A");
+        assert!(matches!(archives[0].scan, ArchiveScan::Invalid));
+    }
+
     /// An F4SE plugin DLL that can't be read is skipped, not scanned
     #[test]
     fn scan_f4se_plugins_skips_an_unreadable_dll() {

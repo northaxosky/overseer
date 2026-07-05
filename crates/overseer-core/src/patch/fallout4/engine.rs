@@ -972,6 +972,106 @@ mod tests {
         }
     }
 
+    /// A source rewritten between prepare and commit (antivirus, Steam, another tool) aborts the swap and rolls back
+    #[test]
+    fn a_source_changing_before_commit_rolls_back_and_refuses() {
+        const ONE: TargetSpec = TargetSpec {
+            rel_path: "one.bin",
+            expected: ExpectedFingerprint {
+                size: 9,
+                crc32: 0xCBF4_3926,
+                sha256: Some("15e2b0d3c33891ebb0f1ef609ec419420c20e320ce94c65fbc8c3312448eb225"),
+            },
+        };
+        const TWO: TargetSpec = TargetSpec {
+            rel_path: "two.bin",
+            expected: ExpectedFingerprint {
+                size: 9,
+                crc32: 0xCBF4_3926,
+                sha256: Some("15e2b0d3c33891ebb0f1ef609ec419420c20e320ce94c65fbc8c3312448eb225"),
+            },
+        };
+        let (_tmp, root) = temp();
+        std::fs::write(root.join("one.bin"), b"original1").unwrap();
+        std::fs::write(root.join("two.bin"), b"original2").unwrap();
+        let jobs = [
+            ConvertJob {
+                item: ConvertItem {
+                    rel_path: "one.bin",
+                    target: ONE,
+                    group: "test",
+                },
+                delta: Utf8PathBuf::from("d.vcdiff"),
+            },
+            ConvertJob {
+                item: ConvertItem {
+                    rel_path: "two.bin",
+                    target: TWO,
+                    group: "test",
+                },
+                delta: Utf8PathBuf::from("d.vcdiff"),
+            },
+        ];
+        let mut ready = Vec::new();
+        for job in &jobs {
+            match prepare(&root, job, &FakeDecoder::Writes(b"123456789".to_vec())).unwrap() {
+                Prepared::Ready {
+                    item,
+                    tmp,
+                    source,
+                    verified_by,
+                } => ready.push(PreparedReady {
+                    item,
+                    tmp,
+                    source,
+                    verified_by,
+                }),
+                _ => panic!("both jobs should prepare"),
+            }
+        }
+        // A concurrent writer rewrites the second source after it was fingerprinted
+        std::fs::write(root.join("two.bin"), b"changed!!").unwrap();
+
+        let err = commit_batch(&root, &ready).expect_err("source changed");
+        assert!(matches!(err, ConvertError::SourceChanged { item } if item == "two.bin"));
+        // The first swap is rolled back; both originals stand and no sidecars leak
+        assert_eq!(std::fs::read(root.join("one.bin")).unwrap(), b"original1");
+        assert_eq!(std::fs::read(root.join("two.bin")).unwrap(), b"changed!!");
+        for name in ["one.bin", "two.bin"] {
+            assert!(!root.join(format!("{name}.overseer-tmp")).exists());
+            assert!(!root.join(format!("{name}.overseer-bak")).exists());
+        }
+    }
+
+    /// A group with any unknown-target file is skipped whole, so an incomplete edition (e.g. NextGen) plans nothing
+    #[test]
+    fn items_skips_a_group_with_an_unrecorded_target() {
+        static GROUPS: &[GroupSpec] = &[
+            GroupSpec {
+                name: "known",
+                ownership: Ownership::Mandatory,
+                files: &["check.bin"],
+            },
+            GroupSpec {
+                name: "partial",
+                ownership: Ownership::Mandatory,
+                files: &["check.bin", "unrecorded.bin"],
+            },
+        ];
+        let policy = Policy {
+            groups: GROUPS,
+            target_for: &test_target,
+            any_known_size: &test_any_known_size,
+            known_source: &test_known_source,
+        };
+        let (_tmp, root) = temp();
+        std::fs::write(root.join("check.bin"), b"123456789").unwrap();
+
+        let resolved = items(&root, &policy).unwrap();
+        let groups: Vec<&str> = resolved.iter().map(|i| i.group).collect();
+        assert_eq!(groups, ["known"]);
+    }
+
     #[test]
     fn leftover_temp_is_removed_before_retry() {
         let (_tmp, root) = seed_source(b"AE-version");

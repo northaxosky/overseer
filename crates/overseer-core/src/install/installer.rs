@@ -264,6 +264,19 @@ mod tests {
         );
     }
 
+    /// A truncated or empty archive extracts to nothing installable and is refused, staging nothing
+    #[test]
+    fn refuses_an_empty_archive_and_stages_nothing() {
+        let (_t, base) = temp();
+        let instance = instance_in(&base);
+        let archive = base.join("Empty.zip");
+        make_zip(&archive, &[]);
+
+        let err = install(&instance, &archive, "Empty").expect_err("should refuse");
+        assert!(matches!(err, InstallError::EmptyArchive), "got {err:?}");
+        assert!(!instance.mods_dir().join("Empty").exists());
+    }
+
     #[test]
     fn fomod_detection_is_case_insensitive() {
         let (_t, base) = temp();

@@ -425,4 +425,47 @@ mod tests {
         assert!(relatives.contains(&Utf8Path::new("x.dll")));
         assert!(relatives.contains(&Utf8Path::new("Data").join("x.dll").as_path()));
     }
+
+    /// A conflict between two mods on the same Root/ file resolves before the Root->game-root remap
+    #[test]
+    fn rooted_plan_resolves_a_conflict_among_root_content() {
+        let (_tmp, base) = temp();
+        let a = base.join("mods/A");
+        let b = base.join("mods/B");
+        // Two stacked root-mods ship the same game-root DLL
+        write(&a.join("Root/dxgi.dll"), "from-a");
+        write(&b.join("Root/dxgi.dll"), "from-b");
+        let game = base.join("Game");
+
+        let plan = DeployPlan::from_rooted_mods(
+            &game,
+            &[ModSource::new("A", &a), ModSource::new("B", &b)],
+        )
+        .expect("plan");
+
+        // The conflict collapses to one winner, resolved before the Root/ remap, then mapped to the game root
+        assert_eq!(plan.len(), 1);
+        let winner = &plan.files()[0];
+        assert_eq!(winner.winner, "B");
+        assert_eq!(winner.relative, Utf8Path::new("dxgi.dll"));
+        assert!(winner.source.starts_with(&b));
+    }
+
+    /// MO2 stamps a meta.ini into every mod root; the deploy plan must never link it into the game
+    #[test]
+    fn plan_excludes_a_mods_meta_ini() {
+        let (_tmp, base) = temp();
+        let m = base.join("mods/A");
+        // MO2 metadata, not game content
+        write(&m.join("meta.ini"), "[General]");
+        write(&m.join("Textures/x.dds"), "pix");
+        let data = base.join("Data");
+
+        let plan = DeployPlan::from_mods(&data, &[ModSource::new("A", &m)]).expect("plan");
+        assert_eq!(plan.len(), 1, "only the real asset is planned");
+        assert_eq!(
+            plan.files()[0].relative,
+            Utf8Path::new("Textures").join("x.dds")
+        );
+    }
 }

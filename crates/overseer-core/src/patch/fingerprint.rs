@@ -126,6 +126,23 @@ mod tests {
         assert!(fingerprint_file(&root.join("nope.bin")).unwrap().is_none());
     }
 
+    /// fingerprint_file measures size, CRC32 and SHA-256 in one pass, and the result clears a matching SHA gate
+    #[test]
+    fn fingerprint_file_measures_size_crc32_and_sha256() {
+        let (_tmp, root) = temp();
+        let path = root.join("bytes.bin");
+        std::fs::write(&path, b"abc").unwrap();
+
+        let fp = fingerprint_file(&path).unwrap().expect("present");
+        assert_eq!(fp.size, 3);
+        assert_eq!(fp.crc32, 0x3524_41C2);
+        assert_eq!(
+            fp.sha256,
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+        assert!(SHA_GATED.matches(&fp));
+    }
+
     #[test]
     fn sha_tier_clears_when_the_hash_matches_even_if_crc32_differs() {
         let f = file(

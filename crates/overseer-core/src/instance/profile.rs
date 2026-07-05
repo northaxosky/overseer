@@ -417,6 +417,101 @@ mod tests {
         profile.mods.iter().map(|e| e.name.as_str()).collect()
     }
 
+    // --- separators ---
+
+    #[test]
+    fn insert_separator_adds_an_inert_separator_at_the_given_index() {
+        let mut profile = profile_of(&["Top", "Bottom"]);
+        profile
+            .insert_separator(1, "Gameplay")
+            .expect("insert separator");
+        // The display name is stored in MO2's `<name>_separator` form
+        assert_eq!(names_of(&profile), ["Top", "Gameplay_separator", "Bottom"]);
+        let sep = &profile.mods[1];
+        assert_eq!(sep.kind, ModKind::Separator);
+        assert!(!sep.enabled, "a separator is never enabled/deployed");
+    }
+
+    #[test]
+    fn insert_separator_rejects_invalid_display_names() {
+        let mut profile = profile_of(&["A"]);
+        // Empty/whitespace, path separators, control chars, `#`/`*` leads, and a redundant suffix
+        for bad in [
+            "",
+            "   ",
+            "load/order",
+            "load\\order",
+            "bell\u{7}here",
+            "#comment",
+            "*star",
+            "Zone_separator",
+        ] {
+            let err = profile
+                .insert_separator(0, bad)
+                .expect_err("invalid separator name must be rejected");
+            assert!(
+                matches!(err, InstanceError::InvalidSeparatorName(_)),
+                "{bad:?} should be rejected"
+            );
+        }
+        // A rejected insert never mutates the list
+        assert_eq!(names_of(&profile), ["A"]);
+    }
+
+    #[test]
+    fn insert_separator_rejects_a_duplicate_name() {
+        let mut profile = profile_of(&["A"]);
+        profile
+            .insert_separator(0, "Gameplay")
+            .expect("first insert");
+        let err = profile
+            .insert_separator(0, "Gameplay")
+            .expect_err("duplicate separator must be rejected");
+        assert!(matches!(err, InstanceError::ModAlreadyInList(n) if n == "Gameplay_separator"));
+    }
+
+    #[test]
+    fn rename_separator_updates_the_stored_name() {
+        let mut profile = Profile {
+            name: "P".to_owned(),
+            mods: vec![separator_entry("Gameplay_separator"), entry("A", true)],
+            local_saves: false,
+        };
+        profile.rename_separator(0, "Overhauls").expect("rename");
+        assert_eq!(profile.mods[0].name, "Overhauls_separator");
+        assert_eq!(profile.mods[0].kind, ModKind::Separator);
+    }
+
+    #[test]
+    fn rename_separator_rejects_a_non_separator_index_and_a_colliding_name() {
+        let mut profile = Profile {
+            name: "P".to_owned(),
+            mods: vec![
+                separator_entry("Gameplay_separator"),
+                separator_entry("Visuals_separator"),
+                entry("A", true),
+            ],
+            local_saves: false,
+        };
+        // Index 2 is a managed mod, not a separator
+        assert!(matches!(
+            profile
+                .rename_separator(2, "Nope")
+                .expect_err("not a separator"),
+            InstanceError::InvalidSeparatorName(_)
+        ));
+        // Renaming Gameplay -> Visuals would collide with the sibling separator
+        assert!(matches!(
+            profile
+                .rename_separator(0, "Visuals")
+                .expect_err("colliding name"),
+            InstanceError::ModAlreadyInList(n) if n == "Visuals_separator"
+        ));
+        // Both separators are left untouched
+        assert_eq!(profile.mods[0].name, "Gameplay_separator");
+        assert_eq!(profile.mods[1].name, "Visuals_separator");
+    }
+
     // --- parsing ---
 
     #[test]

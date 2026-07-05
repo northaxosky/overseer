@@ -298,6 +298,32 @@ mod tests {
         assert_eq!(header.as_deref(), Some(r"C:\new\Fallout4.exe/"));
     }
 
+    /// A truncated or mislabeled .vcdiff (partial download, wrong file) is rejected, not misparsed
+    #[test]
+    fn malformed_delta_headers_are_rejected() {
+        assert!(matches!(
+            parse_app_header(Utf8Path::new("x.vcdiff"), b"VC"),
+            Err(VcdiffError::TooShort { .. })
+        ));
+        assert!(matches!(
+            parse_app_header(Utf8Path::new("x.vcdiff"), b"NOPE-"),
+            Err(VcdiffError::BadMagic { .. })
+        ));
+    }
+
+    /// The VCD_DECOMPRESS indicator inserts a secondary-compressor id byte; the parser skips it to reach the app-header
+    #[test]
+    fn skips_the_secondary_compressor_byte_to_reach_the_app_header() {
+        let mut bytes = vec![0xD6, 0xC3, 0xC4, 0x00, VCD_DECOMPRESS | VCD_APPHEADER];
+        bytes.push(0x00);
+        let app = br"C:\new\Fallout4.exe/";
+        write_varint(&mut bytes, app.len());
+        bytes.extend_from_slice(app);
+
+        let header = parse_app_header(Utf8Path::new("patch.vcdiff"), &bytes).unwrap();
+        assert_eq!(header.as_deref(), Some(r"C:\new\Fallout4.exe/"));
+    }
+
     #[test]
     fn maps_a_dlc_delta_to_its_data_rel_path() {
         let (_tmp, root) = temp();

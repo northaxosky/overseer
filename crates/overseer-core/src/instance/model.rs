@@ -847,6 +847,23 @@ mod tests {
         }
     }
 
+    /// Windows device names and trailing dot/space make broken, undeletable dirs, so profile creation refuses them
+    #[test]
+    fn create_profile_rejects_windows_reserved_and_trailing_dot_names() {
+        let (_tmp, instance) = temp_instance();
+        for name in ["CON", "nul", "Com1", "trailing.", "trailing "] {
+            let err = instance
+                .create_profile(name)
+                .expect_err("unsafe name must be rejected");
+            assert!(
+                matches!(err, InstanceError::InvalidProfileName(_)),
+                "{name:?} should be rejected"
+            );
+        }
+        // Validation runs before any directory is created
+        assert!(instance.profiles().expect("profiles").is_empty());
+    }
+
     #[test]
     fn rename_mod_rejects_case_only_and_noop_renames() {
         let (_tmp, instance) = temp_instance();

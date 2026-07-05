@@ -23,3 +23,29 @@ impl Report {
         self.worst() == Some(Severity::Error)
     }
 }
+
+// ────────────────────────────────────────────────────────────────────────
+// Tests
+// ────────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// worst() is the max severity and has_errors() only trips on an Error finding
+    #[test]
+    fn worst_is_the_max_severity_and_has_errors_detects_error() {
+        // No findings: nothing to report
+        assert_eq!(Report::new(vec![]).worst(), None);
+
+        // A warning outranks an info but isn't an error
+        let warned = Report::new(vec![Finding::info("ok"), Finding::warning("hmm")]);
+        assert_eq!(warned.worst(), Some(Severity::Warning));
+        assert!(!warned.has_errors());
+
+        // An error is the worst and trips has_errors
+        let errored = Report::new(vec![Finding::warning("hmm"), Finding::error("boom")]);
+        assert_eq!(errored.worst(), Some(Severity::Error));
+        assert!(errored.has_errors());
+    }
+}
