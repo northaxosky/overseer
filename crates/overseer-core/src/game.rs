@@ -53,7 +53,7 @@ impl GameKind {
                 ccc_file: Some("Skyrim.ccc"),
                 display_name: "Skyrim Special Edition",
                 steam_appid: 489830,
-                gog_appid: None, // TODO: verify if Skyrim SE is on GOG
+                gog_appid: Some(1207658944),
             },
             Self::Starfield => GameSpecs {
                 load_order_id: GameId::Starfield,

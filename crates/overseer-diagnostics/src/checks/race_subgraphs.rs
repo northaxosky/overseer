@@ -10,7 +10,9 @@ const STUTTER_THRESHOLD: usize = 100;
 pub fn run(ctx: &GameContext) -> Vec<Finding> {
     let total: usize = ctx.sadd_records.iter().map(|r| r.count).sum();
     if total <= STUTTER_THRESHOLD {
-        return Vec::new();
+        return vec![Finding::info(
+            "Race-subgraph record counts are within the safe range",
+        )];
     }
     vec![
         Finding::warning(format!(
@@ -48,15 +50,18 @@ mod tests {
     }
 
     #[test]
-    fn under_the_threshold_is_silent() {
+    fn under_the_threshold_reports_a_clean_info() {
         let findings = super::run(&ctx(vec![sadd("A.esp", 50), sadd("B.esp", 40)]));
-        assert!(findings.is_empty());
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].severity, Severity::Info);
+        assert!(findings[0].title.contains("within the safe range"));
     }
 
     #[test]
-    fn exactly_at_the_threshold_is_silent() {
+    fn exactly_at_the_threshold_reports_a_clean_info() {
         let findings = super::run(&ctx(vec![sadd("A.esp", 100)]));
-        assert!(findings.is_empty(), "the threshold is exclusive");
+        assert_eq!(findings.len(), 1, "the threshold is exclusive");
+        assert_eq!(findings[0].severity, Severity::Info);
     }
 
     #[test]
@@ -69,7 +74,9 @@ mod tests {
     }
 
     #[test]
-    fn no_records_is_silent() {
-        assert!(super::run(&ctx(Vec::new())).is_empty());
+    fn no_records_reports_a_clean_info() {
+        let findings = super::run(&ctx(Vec::new()));
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].severity, Severity::Info);
     }
 }

@@ -12,7 +12,11 @@ fn is_known_hedr(v: f32) -> bool {
 
 /// Flags plugins whose header version isn't one Fallout 4 recognizes
 pub fn run(ctx: &GameContext) -> Vec<Finding> {
-    ctx.loaded_plugins.iter().filter_map(warn_unknown).collect()
+    let mut findings: Vec<Finding> = ctx.loaded_plugins.iter().filter_map(warn_unknown).collect();
+    if findings.is_empty() {
+        findings.push(Finding::info("All plugin header versions are recognized"));
+    }
+    findings
 }
 
 /// Warn when a plugin's `HEDR` version is present but not one Fallout 4 accepts
@@ -83,19 +87,20 @@ mod tests {
     }
 
     #[test]
-    fn the_accepted_versions_are_silent() {
-        assert!(
-            run(vec![
-                plugin("Ok95.esp", Some(0.95)),
-                plugin("Ok1.esp", Some(1.0))
-            ])
-            .is_empty()
-        );
+    fn the_accepted_versions_report_a_clean_info() {
+        let findings = run(vec![
+            plugin("Ok95.esp", Some(0.95)),
+            plugin("Ok1.esp", Some(1.0)),
+        ]);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].severity, Severity::Info);
     }
 
     #[test]
-    fn a_missing_header_version_is_skipped() {
-        assert!(run(vec![plugin("NoHeader.esp", None)]).is_empty());
+    fn a_missing_header_version_is_not_flagged() {
+        let findings = run(vec![plugin("NoHeader.esp", None)]);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].severity, Severity::Info);
     }
 
     #[test]

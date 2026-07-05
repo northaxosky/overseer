@@ -31,7 +31,7 @@ pub(crate) const HELP_ENTRIES: &[(&str, &str)] = &[
         "Space / Enter",
         "toggle enabled · collapse separator · install",
     ),
-    ("x", "delete save"),
+    ("X", "delete save"),
     ("L", "toggle local saves"),
     ("J / K", "reorder mod (priority)"),
     ("R", "rename selected mod"),
@@ -267,6 +267,9 @@ pub(crate) fn separator_display(name: &str) -> &str {
     name.strip_suffix("_separator").unwrap_or(name)
 }
 
+// ────────────────────────────────────────────────────────────────────────
+// Tests
+// ────────────────────────────────────────────────────────────────────────
 #[cfg(test)]
 mod tests {
     use super::*;

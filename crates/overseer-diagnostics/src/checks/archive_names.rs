@@ -60,11 +60,16 @@ const INI_ARCHIVE_KEYS: &[&str] = &[
 /// Flags top-level `Data/*.ba2` archives the engine won't auto-load because of their name
 pub fn run(ctx: &GameContext) -> Vec<Finding> {
     let registered = ini_registered_archives(ctx.inis.as_ref());
-    ctx.archives
+    let mut findings: Vec<Finding> = ctx
+        .archives
         .iter()
         .filter(|a| is_top_level_data(a))
         .filter_map(|a| flag(a, &registered))
-        .collect()
+        .collect();
+    if findings.is_empty() {
+        findings.push(Finding::info("No archive-name problems found"));
+    }
+    findings
 }
 
 /// True if the archive deploys directly under `Data/` (not nested)
@@ -168,6 +173,12 @@ mod tests {
         })
     }
 
+    /// Assert a run produced only the clean-bill Info line
+    fn assert_clean(findings: Vec<Finding>) {
+        assert_eq!(findings.len(), 1, "expected only the clean-bill Info");
+        assert_eq!(findings[0].severity, Severity::Info);
+    }
+
     // --- name_auto_loads (pure) ---
 
     #[test]
@@ -196,14 +207,11 @@ mod tests {
     // --- run ---
 
     #[test]
-    fn valid_names_are_silent() {
-        assert!(
-            run(vec![
-                archive("Data/MyMod - Main.ba2", "CoolMod"),
-                archive("Data/MyMod - Textures.ba2", "CoolMod"),
-            ])
-            .is_empty()
-        );
+    fn valid_names_report_a_clean_info() {
+        assert_clean(run(vec![
+            archive("Data/MyMod - Main.ba2", "CoolMod"),
+            archive("Data/MyMod - Textures.ba2", "CoolMod"),
+        ]));
     }
 
     #[test]
@@ -223,15 +231,12 @@ mod tests {
     }
 
     #[test]
-    fn base_game_whitelisted_names_are_silent() {
-        assert!(
-            run(vec![
-                archive("Data/Fallout4 - Textures1.ba2", "M"),
-                archive("Data/DLCUltraHighResolution - Textures16.ba2", "M"),
-                archive("Data/CreationKit - Shaders.ba2", "M"),
-            ])
-            .is_empty()
-        );
+    fn base_game_whitelisted_names_report_a_clean_info() {
+        assert_clean(run(vec![
+            archive("Data/Fallout4 - Textures1.ba2", "M"),
+            archive("Data/DLCUltraHighResolution - Textures16.ba2", "M"),
+            archive("Data/CreationKit - Shaders.ba2", "M"),
+        ]));
     }
 
     #[test]
@@ -247,27 +252,27 @@ mod tests {
 
     #[test]
     fn nested_and_root_archives_are_out_of_scope() {
-        assert!(
-            run(vec![
-                // Nested under Data/ never auto-loads regardless of name
-                archive("Data/textures/bad.ba2", "M"),
-                // Not under Data/ at all
-                archive("Root/bad.ba2", "M"),
-            ])
-            .is_empty()
-        );
+        assert_clean(run(vec![
+            // Nested under Data/ never auto-loads regardless of name
+            archive("Data/textures/bad.ba2", "M"),
+            // Not under Data/ at all
+            archive("Root/bad.ba2", "M"),
+        ]));
     }
 
     #[test]
     fn matching_is_case_insensitive() {
-        assert!(run(vec![archive("Data/MYMOD - MAIN.BA2", "M")]).is_empty());
-        assert!(run(vec![archive("Data/FALLOUT4 - TEXTURES1.BA2", "M")]).is_empty());
+        assert_clean(run(vec![archive("Data/MYMOD - MAIN.BA2", "M")]));
+        assert_clean(run(vec![archive("Data/FALLOUT4 - TEXTURES1.BA2", "M")]));
     }
 
     #[test]
     fn an_ini_registered_archive_is_exempt() {
         let settings = "[Archive]\nsResourceArchiveList2=CustomStuff.ba2, Other - Main.ba2\n";
-        assert!(run_with_ini(vec![archive("Data/CustomStuff.ba2", "M")], settings).is_empty());
+        assert_clean(run_with_ini(
+            vec![archive("Data/CustomStuff.ba2", "M")],
+            settings,
+        ));
     }
 
     #[test]

@@ -99,6 +99,9 @@ impl App {
     }
 }
 
+// ────────────────────────────────────────────────────────────────────────
+// Tests
+// ────────────────────────────────────────────────────────────────────────
 #[cfg(test)]
 mod tests {
     use crate::app::input::test_helpers::key;
@@ -140,7 +143,7 @@ mod tests {
     }
 
     #[test]
-    fn x_on_a_save_opens_a_confirm_without_deleting() {
+    fn capital_x_on_a_save_opens_a_confirm_without_deleting() {
         let (_tmp, mut app) = app_with_saves("Default", 1);
         let save = app
             .session
@@ -151,7 +154,7 @@ mod tests {
 
         app.handle_key(key(KeyCode::Char('4')));
         app.focus = Focus::Workspace;
-        app.handle_key(key(KeyCode::Char('x')));
+        app.handle_key(key(KeyCode::Char('X')));
 
         match &app.modal {
             Some(Modal::Confirm(c)) => assert!(
@@ -174,7 +177,7 @@ mod tests {
         app.saves.list.select(Some(1)); // the second, newest-ordered row
 
         let doomed = app.saves.entries[1].path.clone();
-        app.handle_key(key(KeyCode::Char('x')));
+        app.handle_key(key(KeyCode::Char('X')));
         app.handle_key(key(KeyCode::Char('y')));
 
         assert!(app.modal.is_none(), "the confirm closes after accepting");
@@ -202,7 +205,7 @@ mod tests {
 
         app.handle_key(key(KeyCode::Char('4')));
         app.focus = Focus::Workspace;
-        app.handle_key(key(KeyCode::Char('x')));
+        app.handle_key(key(KeyCode::Char('X')));
         app.handle_key(key(KeyCode::Char('y')));
 
         assert!(

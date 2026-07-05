@@ -69,6 +69,9 @@ pub fn run(ctx: &GameContext) -> Vec<Finding> {
             .detail(folder.fix)
         }));
     }
+    if findings.is_empty() {
+        findings.push(Finding::info("No loose-folder problems found"));
+    }
     findings
 }
 
@@ -98,9 +101,10 @@ mod tests {
     }
 
     #[test]
-    fn a_clean_tree_reports_nothing() {
+    fn a_clean_tree_reports_a_clean_info() {
         let findings = run(vec![df("meshes/armor.nif", "A"), df("textures/x.dds", "A")]);
-        assert!(findings.is_empty());
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].severity, Severity::Info);
     }
 
     #[test]
@@ -164,6 +168,7 @@ mod tests {
     #[test]
     fn a_normal_meshes_subfolder_is_not_flagged() {
         let findings = run(vec![df("meshes/architecture/a.nif", "A")]);
-        assert!(findings.is_empty());
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].severity, Severity::Info);
     }
 }

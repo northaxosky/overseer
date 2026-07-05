@@ -138,8 +138,8 @@ impl App {
                 ws.toggle_sort_dir(self);
             }
 
-            // `x` deletes the selected save; self-guards to the focused Saves pane
-            KeyCode::Char('x') => self.begin_delete_selected_save(),
+            // `X` deletes the selected save; self-guards to the focused Saves pane
+            KeyCode::Char('X') => self.begin_delete_selected_save(),
             // `L` toggles the profile's LocalSaves; self-guards to the focused Saves pane
             KeyCode::Char('L') => self.toggle_local_saves(),
 
@@ -360,6 +360,9 @@ pub(crate) mod test_helpers {
     }
 }
 
+// ────────────────────────────────────────────────────────────────────────
+// Tests
+// ────────────────────────────────────────────────────────────────────────
 #[cfg(test)]
 mod tests {
     use super::test_helpers::key;

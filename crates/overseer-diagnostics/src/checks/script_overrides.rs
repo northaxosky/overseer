@@ -5,7 +5,11 @@ use crate::finding::Finding;
 
 /// Flags mods that override a base F4SE Papyrus script
 pub fn run(ctx: &GameContext) -> Vec<Finding> {
-    ctx.script_overrides.iter().map(warn).collect()
+    let mut findings: Vec<Finding> = ctx.script_overrides.iter().map(warn).collect();
+    if findings.is_empty() {
+        findings.push(Finding::info("No base F4SE script overrides found"));
+    }
+    findings
 }
 
 /// A warning that a mod overrides a base F4SE script
@@ -63,7 +67,9 @@ mod tests {
     }
 
     #[test]
-    fn no_overrides_reports_nothing() {
-        assert!(run(vec![]).is_empty());
+    fn no_overrides_reports_a_clean_info() {
+        let findings = run(vec![]);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].severity, Severity::Info);
     }
 }
