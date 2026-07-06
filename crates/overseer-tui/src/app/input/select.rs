@@ -23,6 +23,7 @@ impl App {
             KeyCode::Char('r') if select.kind == SelectKind::Profile => self.open_rename_profile(),
             KeyCode::Char('a') if select.kind == SelectKind::Launch => self.open_add_exe(),
             KeyCode::Char('x') if select.kind == SelectKind::Launch => self.begin_remove_exe(),
+            KeyCode::Char('e') if select.kind == SelectKind::Launch => self.begin_edit_exe(),
             KeyCode::Char(c) if c == toggle => self.modal = None,
             KeyCode::Down | KeyCode::Char('j') => self.move_in_modal_list(1),
             KeyCode::Up | KeyCode::Char('k') => self.move_in_modal_list(-1),
@@ -113,6 +114,18 @@ impl App {
             message: format!("Remove launch target {name}?"),
             action: ConfirmAction::RemoveExe(name),
         }));
+    }
+
+    /// Start editing the highlighted launch target: its name, then its args
+    fn begin_edit_exe(&mut self) {
+        let Some(Modal::Select(select)) = &self.modal else {
+            return;
+        };
+        let Some(index) = select.state.selected() else {
+            self.note("No launch target to edit");
+            return;
+        };
+        self.open_edit_exe_name(index);
     }
 
     /// Remove the launch target named `name`, persist, then reopen the picker

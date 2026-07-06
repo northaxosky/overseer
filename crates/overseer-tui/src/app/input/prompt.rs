@@ -19,6 +19,8 @@ impl App {
                 Some(PromptKind::NewProfile) => self.submit_new_profile(),
                 Some(PromptKind::RenameProfile { old }) => self.submit_rename_profile(old),
                 Some(PromptKind::AddExe) => self.submit_add_exe(),
+                Some(PromptKind::EditExeArgs { index }) => self.submit_edit_exe_args(index),
+                Some(PromptKind::EditExeName { index }) => self.submit_edit_exe_name(index),
                 Some(PromptKind::RenameMod { old }) => self.submit_rename_mod(old),
                 Some(PromptKind::NewSeparator) => self.submit_new_separator(),
                 None => {}
@@ -97,6 +99,97 @@ impl App {
             input: String::new(),
             error: None,
         }));
+    }
+
+    /// Open the name step of editing the target at `index`, prefilled with curr name
+    pub(super) fn open_edit_exe_name(&mut self, index: usize) {
+        let Some(exe) = self.session.instance.config.executables.get(index) else {
+            self.note("That launch target is gone");
+            return;
+        };
+        self.modal = Some(Modal::Prompt(Prompt {
+            kind: PromptKind::EditExeName { index },
+            input: exe.name.clone(),
+            error: None,
+        }));
+    }
+
+    /// Apply the new name, then advance to the args step; stay open on error
+    fn submit_edit_exe_name(&mut self, index: usize) {
+        let Some(Modal::Prompt(prompt)) = self.modal.as_ref() else {
+            return;
+        };
+        let name = prompt.input.trim().to_owned();
+        match self.rename_exe(index, &name) {
+            Ok(()) => self.open_edit_exe_args(index),
+            Err(msg) => self.set_prompt_error(msg),
+        }
+    }
+
+    /// Rename the target at `index`, validating uniqueness and persisting with rollback
+    fn rename_exe(&mut self, index: usize, name: &str) -> Result<(), String> {
+        validate_name(name)?;
+        let exes = &self.session.instance.config.executables;
+        if index >= exes.len() {
+            return Err("That launch target is gone".to_owned());
+        }
+        if exes
+            .iter()
+            .enumerate()
+            .any(|(i, e)| i != index && e.name == name)
+        {
+            return Err(format!("A launch target named {name} already exists"));
+        }
+        let prev = self.session.instance.config.executables[index].name.clone();
+        self.session.instance.config.executables[index].name = name.to_owned();
+        if let Err(e) = self.session.instance.save() {
+            self.session.instance.config.executables[index].name = prev;
+            return Err(format!("Could not save instance: {e}"));
+        }
+        Ok(())
+    }
+
+    /// Open the args step of editing the target at `index`, prefilled with curr args
+    fn open_edit_exe_args(&mut self, index: usize) {
+        let Some(exe) = self.session.instance.config.executables.get(index) else {
+            self.note("That launch target is gone");
+            return;
+        };
+        self.modal = Some(Modal::Prompt(Prompt {
+            kind: PromptKind::EditExeArgs { index },
+            input: exe.args.join(" "),
+            error: None,
+        }));
+    }
+
+    /// Apply the edited args, persist, and reopen picker
+    fn submit_edit_exe_args(&mut self, index: usize) {
+        let Some(Modal::Prompt(prompt)) = self.modal.as_ref() else {
+            return;
+        };
+        let args: Vec<String> = prompt.input.split_whitespace().map(str::to_owned).collect();
+        match self.set_exe_args(index, args) {
+            Ok(name) => {
+                self.reopen_select(SelectKind::Launch, &name);
+                self.ok(format!("Updated launch target: {name}"));
+            }
+            Err(msg) => self.set_prompt_error(msg),
+        }
+    }
+
+    /// Set the args on the target at `index`, persist on rollback, return name
+    fn set_exe_args(&mut self, index: usize, args: Vec<String>) -> Result<String, String> {
+        if index >= self.session.instance.config.executables.len() {
+            return Err("That launch target is gone".to_owned());
+        }
+        let prev = self.session.instance.config.executables[index].args.clone();
+        self.session.instance.config.executables[index].args = args;
+        let name = self.session.instance.config.executables[index].name.clone();
+        if let Err(e) = self.session.instance.save() {
+            self.session.instance.config.executables[index].args = prev;
+            return Err(format!("Could not save instance: {e}"));
+        }
+        Ok(name)
     }
 
     /// Create the profile named in the open prompt; stay open on any error

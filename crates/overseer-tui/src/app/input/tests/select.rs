@@ -304,3 +304,148 @@ fn switching_to_a_missing_instance_keeps_the_picker_open() {
     );
     assert!(app.message.is_some(), "the failure is reported");
 }
+
+fn instance_with_one_target() -> (tempfile::TempDir, crate::app::App) {
+    let (tmp, instance) = overseer_core::test_support::temp_instance();
+    let mut app = App::sample();
+    app.session.instance = instance;
+    std::fs::create_dir_all(&app.session.instance.root).unwrap();
+    app.session.instance.config.executables = vec![overseer_core::instance::Executable {
+        name: "FO4Edit".to_owned(),
+        path: Utf8PathBuf::from("C:/Tools/FO4Edit.exe"),
+        args: Vec::new(),
+    }];
+    app.session.instance.save().unwrap();
+    (tmp, app)
+}
+
+#[test]
+fn e_edits_a_targets_name_then_args_and_persists_both() {
+    let (_tmp, mut app) = instance_with_one_target();
+
+    app.handle_key(key(KeyCode::Char('l'))); // picker on FO4Edit
+    app.handle_key(key(KeyCode::Char('e'))); // edit -> name step (prefilled)
+    for _ in 0.."FO4Edit".len() {
+        app.handle_key(key(KeyCode::Backspace));
+    }
+    for c in "xEdit".chars() {
+        app.handle_key(key(KeyCode::Char(c)));
+    }
+    app.handle_key(key(KeyCode::Enter)); // apply name -> args step
+    for c in "-IKnowWhatImDoing -foo".chars() {
+        app.handle_key(key(KeyCode::Char(c)));
+    }
+    app.handle_key(key(KeyCode::Enter)); // apply args -> reopen picker
+
+    let reloaded =
+        overseer_core::instance::Instance::load(app.session.instance.root.clone()).unwrap();
+    let exe = &reloaded.config.executables[0];
+    assert_eq!(exe.name, "xEdit", "the rename persisted");
+    assert_eq!(
+        exe.args,
+        vec!["-IKnowWhatImDoing".to_owned(), "-foo".to_owned()],
+        "the whitespace-split args persisted"
+    );
+    match &app.modal {
+        Some(Modal::Select(s)) => {
+            let i = s.items.iter().position(|p| p == "xEdit").expect("listed");
+            assert_eq!(
+                s.state.selected(),
+                Some(i),
+                "the renamed target is selected"
+            );
+        }
+        _ => panic!("editing reopens the launch picker"),
+    }
+}
+
+#[test]
+fn editing_the_name_to_an_existing_target_keeps_the_prompt_with_an_error() {
+    let (_tmp, mut app) = instance_with_one_target();
+    app.session
+        .instance
+        .config
+        .executables
+        .push(overseer_core::instance::Executable {
+            name: "game".to_owned(),
+            path: Utf8PathBuf::from("game.exe"),
+            args: Vec::new(),
+        });
+    app.session.instance.save().unwrap();
+
+    app.handle_key(key(KeyCode::Char('l')));
+    app.handle_key(key(KeyCode::Char('j'))); // move to "game"
+    app.handle_key(key(KeyCode::Char('e'))); // edit "game"
+    for _ in 0.."game".len() {
+        app.handle_key(key(KeyCode::Backspace));
+    }
+    for c in "FO4Edit".chars() {
+        app.handle_key(key(KeyCode::Char(c)));
+    }
+    app.handle_key(key(KeyCode::Enter)); // collides with the other target
+
+    match &app.modal {
+        Some(Modal::Prompt(p)) => assert!(
+            p.error
+                .as_deref()
+                .is_some_and(|e| e.contains("already exists")),
+            "a colliding rename keeps the prompt with an error"
+        ),
+        _ => panic!("a rejected rename stays on the name prompt"),
+    }
+}
+
+#[test]
+fn editing_args_to_empty_clears_them() {
+    let (_tmp, instance) = overseer_core::test_support::temp_instance();
+    let mut app = App::sample();
+    app.session.instance = instance;
+    std::fs::create_dir_all(&app.session.instance.root).unwrap();
+    app.session.instance.config.executables = vec![overseer_core::instance::Executable {
+        name: "FO4Edit".to_owned(),
+        path: Utf8PathBuf::from("C:/Tools/FO4Edit.exe"),
+        args: vec!["-old".to_owned()],
+    }];
+    app.session.instance.save().unwrap();
+
+    app.handle_key(key(KeyCode::Char('l')));
+    app.handle_key(key(KeyCode::Char('e'))); // name step
+    app.handle_key(key(KeyCode::Enter)); // keep the name -> args step (prefilled "-old")
+    for _ in 0.."-old".len() {
+        app.handle_key(key(KeyCode::Backspace));
+    }
+    app.handle_key(key(KeyCode::Enter)); // empty args
+
+    let reloaded =
+        overseer_core::instance::Instance::load(app.session.instance.root.clone()).unwrap();
+    assert!(
+        reloaded.config.executables[0].args.is_empty(),
+        "clearing the args prompt removes all launch args"
+    );
+}
+
+#[test]
+fn e_on_an_empty_launch_picker_just_notes_it() {
+    let mut app = App::sample();
+    app.session.instance.config.executables = Vec::new();
+
+    app.handle_key(key(KeyCode::Char('l'))); // empty picker
+    app.handle_key(key(KeyCode::Char('e')));
+
+    assert!(
+        matches!(
+            app.modal,
+            Some(Modal::Select(Select {
+                kind: SelectKind::Launch,
+                ..
+            }))
+        ),
+        "e on an empty picker opens no prompt"
+    );
+    assert!(
+        app.message
+            .as_ref()
+            .is_some_and(|n| n.text.contains("No launch target")),
+        "the user is told there is nothing to edit"
+    );
+}

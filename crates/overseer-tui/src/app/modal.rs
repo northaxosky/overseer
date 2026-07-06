@@ -30,6 +30,8 @@ pub(crate) enum PromptKind {
     RenameMod { old: String },
     RenameProfile { old: String },
     AddExe,
+    EditExeName { index: usize },
+    EditExeArgs { index: usize },
 }
 
 impl PromptKind {
@@ -41,13 +43,15 @@ impl PromptKind {
             PromptKind::RenameProfile { old } => format!("Rename profile: {old}"),
             PromptKind::AddExe => "Add launch target — full path".to_owned(),
             PromptKind::NewSeparator => "New separator".to_owned(),
+            PromptKind::EditExeName { .. } => "Edit target — name".to_owned(),
+            PromptKind::EditExeArgs { .. } => "Edit target — launch args".to_owned(),
         }
     }
 
     /// Cap on the prompt's input length: a path needs more room than a name
     pub(crate) fn max_len(&self) -> usize {
         match self {
-            PromptKind::AddExe => 260, // Windows MAX_PATH
+            PromptKind::AddExe | PromptKind::EditExeArgs { .. } => 260, // Windows MAX_PATH
             _ => 64,
         }
     }
@@ -56,7 +60,9 @@ impl PromptKind {
     pub(crate) fn cancel_to(&self) -> Option<SelectKind> {
         match self {
             PromptKind::NewProfile | PromptKind::RenameProfile { .. } => Some(SelectKind::Profile),
-            PromptKind::AddExe => Some(SelectKind::Launch),
+            PromptKind::AddExe
+            | PromptKind::EditExeArgs { .. }
+            | PromptKind::EditExeName { .. } => Some(SelectKind::Launch),
             PromptKind::RenameMod { .. } | PromptKind::NewSeparator => None,
         }
     }
@@ -119,7 +125,7 @@ impl SelectKind {
     /// Extra hint appended after the close hint, for kinds with a side-action
     pub(crate) fn extra_hint(self) -> &'static str {
         match self {
-            SelectKind::Launch => " · a add · x remove",
+            SelectKind::Launch => " · a add · e edit · x remove",
             SelectKind::Profile => " · n new · r rename",
             SelectKind::Instance => "",
         }
