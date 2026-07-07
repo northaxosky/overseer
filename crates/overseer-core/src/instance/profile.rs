@@ -236,6 +236,13 @@ impl Profile {
         Ok(())
     }
 
+    /// Remove the separator at `index`, merge its members to the group above
+    pub fn remove_separator(&mut self, index: usize) -> Result<(), InstanceError> {
+        self.ensure_separator(index)?;
+        self.mods.remove(index);
+        Ok(())
+    }
+
     /// Confirm `index` points at a separator entry
     fn ensure_separator(&self, index: usize) -> Result<(), InstanceError> {
         match self.mods.get(index) {

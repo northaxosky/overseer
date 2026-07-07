@@ -5,6 +5,7 @@ mod error;
 mod gamestate;
 mod load_order;
 mod metadata;
+mod separator;
 
 pub use discover::discover_plugins;
 pub use error::PluginError;
@@ -13,3 +14,4 @@ pub use gamestate::{
 };
 pub use load_order::{PluginEntry, PluginLoadOrder};
 pub use metadata::{PluginMeta, is_plugin_file, read_metadata};
+pub use separator::{PluginRow, PluginSeparators, Separator, SeparatorError, merge_rows};
