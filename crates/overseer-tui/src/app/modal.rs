@@ -27,6 +27,9 @@ pub(crate) struct Prompt {
 pub(crate) enum PromptKind {
     NewProfile,
     NewSeparator,
+    NewPluginSeparator,
+    RenameSeparator { index: usize, name: String },
+    RenamePluginSeparator { index: usize, name: String },
     RenameMod { old: String },
     RenameProfile { old: String },
     AddExe,
@@ -43,6 +46,11 @@ impl PromptKind {
             PromptKind::RenameProfile { old } => format!("Rename profile: {old}"),
             PromptKind::AddExe => "Add launch target — full path".to_owned(),
             PromptKind::NewSeparator => "New separator".to_owned(),
+            PromptKind::NewPluginSeparator => "New plugin separator".to_owned(),
+            PromptKind::RenameSeparator { name, .. } => format!("Rename separator: {name}"),
+            PromptKind::RenamePluginSeparator { name, .. } => {
+                format!("Rename plugin separator: {name}")
+            }
             PromptKind::EditExeName { .. } => "Edit target — name".to_owned(),
             PromptKind::EditExeArgs { .. } => "Edit target — launch args".to_owned(),
         }
@@ -63,7 +71,11 @@ impl PromptKind {
             PromptKind::AddExe
             | PromptKind::EditExeArgs { .. }
             | PromptKind::EditExeName { .. } => Some(SelectKind::Launch),
-            PromptKind::RenameMod { .. } | PromptKind::NewSeparator => None,
+            PromptKind::RenameMod { .. }
+            | PromptKind::NewSeparator
+            | PromptKind::RenameSeparator { .. }
+            | PromptKind::NewPluginSeparator
+            | PromptKind::RenamePluginSeparator { .. } => None,
         }
     }
 }
@@ -160,6 +172,10 @@ pub(crate) enum ConfirmAction {
     DeleteSave(Utf8PathBuf),
     /// Remove the launch target with this name from the instance config
     RemoveExe(String),
+    /// Delete the mod-list separator at this index
+    DeleteModSeparator { index: usize },
+    /// Delete the plugin separator at this index
+    DeletePluginSeparator { index: usize },
 }
 
 /// A dismiss-only reference modal with a title and key/description rows

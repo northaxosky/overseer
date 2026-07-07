@@ -3,6 +3,7 @@
 use super::*;
 use crate::app::Select;
 use crate::app::input::test_helpers::*;
+use overseer_core::instance::{ModListEntry, Profile};
 use overseer_core::test_support::{install_mod, save_profile};
 use ratatui::widgets::ListState;
 
@@ -285,7 +286,7 @@ fn r_on_a_managed_mod_opens_an_empty_rename_prompt() {
 }
 
 #[test]
-fn r_on_unrenameable_rows_or_plugins_pane_is_a_note() {
+fn r_on_a_foreign_row_or_the_plugins_pane_is_a_note() {
     let mut app = App::sample();
     app.session
         .profile
@@ -302,17 +303,120 @@ fn r_on_unrenameable_rows_or_plugins_pane_is_a_note() {
     assert!(app.modal.is_none());
     assert!(app.message.is_some());
 
-    app.session.profile.mods[2].kind = ModKind::Separator;
-    app.message = None;
-    app.handle_key(key(KeyCode::Char('R')));
-    assert!(app.modal.is_none());
-    assert!(app.message.is_some());
-
     app.focus = Focus::Workspace;
     app.message = None;
     app.handle_key(key(KeyCode::Char('R')));
     assert!(app.modal.is_none());
     assert!(app.message.is_some());
+}
+
+#[test]
+fn r_on_a_separator_opens_a_rename_separator_prompt_prefilled_with_its_display_name() {
+    let mut app = App::sample();
+    app.session
+        .profile
+        .mods
+        .push(overseer_core::instance::ModListEntry {
+            name: "Gameplay_separator".to_owned(),
+            enabled: false,
+            kind: ModKind::Separator,
+        });
+    app.mods_state.select(Some(0)); // display 0 = the pushed separator (model 2) under reversal
+
+    app.handle_key(key(KeyCode::Char('R')));
+
+    match &app.modal {
+        Some(Modal::Prompt(Prompt {
+            kind: PromptKind::RenameSeparator { index, name },
+            input,
+            error,
+        })) => {
+            assert_eq!(*index, 2);
+            assert_eq!(name, "Gameplay");
+            assert_eq!(input, "");
+            assert!(error.is_none());
+        }
+        other => panic!("expected a rename-separator prompt, got {other:?}"),
+    }
+}
+
+#[test]
+fn submitting_a_valid_separator_rename_persists_and_reselects() {
+    let (_tmp, instance) = overseer_core::test_support::temp_instance();
+    let mut app = App::sample();
+    app.session.instance = instance;
+    app.session.profile.mods = vec![
+        ModListEntry {
+            name: "A".to_owned(),
+            enabled: true,
+            kind: ModKind::Managed,
+        },
+        ModListEntry {
+            name: "Zone_separator".to_owned(),
+            enabled: false,
+            kind: ModKind::Separator,
+        },
+    ];
+    app.session
+        .profile
+        .save(&app.session.instance)
+        .expect("seed the profile");
+    app.mods_state.select(Some(0)); // display 0 = the separator (model 1) under reversal
+
+    app.handle_key(key(KeyCode::Char('R')));
+    for c in "Areas".chars() {
+        app.handle_key(key(KeyCode::Char(c)));
+    }
+    app.handle_key(key(KeyCode::Enter));
+
+    assert!(app.modal.is_none(), "a successful rename closes the prompt");
+    assert_eq!(app.session.profile.mods[1].name, "Areas_separator");
+    assert_eq!(
+        app.selected_mod(),
+        Some(1),
+        "the renamed separator stays selected"
+    );
+    let reloaded = Profile::load(&app.session.instance, "Default").expect("reload");
+    assert_eq!(
+        reloaded.mods[1].name, "Areas_separator",
+        "persisted to disk"
+    );
+}
+
+#[test]
+fn submitting_a_colliding_separator_rename_keeps_the_prompt_with_error() {
+    let (_tmp, instance) = overseer_core::test_support::temp_instance();
+    let mut app = App::sample();
+    app.session.instance = instance;
+    app.session.profile.mods = vec![
+        ModListEntry {
+            name: "Alpha_separator".to_owned(),
+            enabled: false,
+            kind: ModKind::Separator,
+        },
+        ModListEntry {
+            name: "Beta_separator".to_owned(),
+            enabled: false,
+            kind: ModKind::Separator,
+        },
+    ];
+    app.session
+        .profile
+        .save(&app.session.instance)
+        .expect("seed the profile");
+    app.mods_state.select(Some(1)); // display 1 = Alpha (model 0) under reversal
+
+    app.handle_key(key(KeyCode::Char('R')));
+    for c in "Beta".chars() {
+        app.handle_key(key(KeyCode::Char(c)));
+    }
+    app.handle_key(key(KeyCode::Enter));
+
+    assert!(
+        matches!(prompt_state(&app), Some(("Beta", Some(_)))),
+        "a colliding name keeps the prompt open with an inline error"
+    );
+    assert_eq!(app.session.profile.mods[0].name, "Alpha_separator");
 }
 
 #[test]

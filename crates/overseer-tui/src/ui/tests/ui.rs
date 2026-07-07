@@ -91,6 +91,19 @@ fn a_separator_renders_as_a_header_rule_not_a_checkbox_row() {
 }
 
 #[test]
+fn a_plugin_separator_renders_as_a_header_in_the_plugins_pane() {
+    use overseer_core::plugins::Separator;
+    let mut app = App::sample();
+    app.session.plugin_separators.items.push(Separator {
+        name: "Endgame".to_owned(),
+        anchor: Some("Cool.esp".to_owned()),
+    });
+    let out = render(&mut app, 80, 12);
+    assert!(out.contains("Endgame"), "the plugin separator's name shows");
+    assert!(out.contains("──"), "it renders as a header rule");
+}
+
+#[test]
 fn both_panes_render_their_contents() {
     let mut app = App::sample();
     let out = render(&mut app, 60, 10);

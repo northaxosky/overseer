@@ -5,6 +5,7 @@ mod confirm;
 mod doctor;
 mod downloads;
 mod info;
+mod plugins;
 mod prompt;
 mod saves;
 mod select;
@@ -27,7 +28,7 @@ enum RefreshCause {
     Explicit,
 }
 
-// Known limitation: two separators with the same display name share one collapse key, and renaming a separator drops its state; accepted while collapse state is session-only
+// Known limitation: two separators with the same display name share one collapse key, and renaming a separator drops its state
 /// A separator's collapse key: its display name, lowercased
 fn group_key(separator_name: &str) -> String {
     separator_display(separator_name).to_ascii_lowercase()
@@ -141,6 +142,8 @@ impl App {
 
             // `X` deletes the selected save; self-guards to the focused Saves pane
             KeyCode::Char('X') => self.begin_delete_selected_save(),
+            // `x` / `Del` delete the selected separator; self-guard to the focused Mods pane
+            KeyCode::Char('x') | KeyCode::Delete => self.begin_delete_selected_separator(),
             // `L` toggles the profile's LocalSaves; self-guards to the focused Saves pane
             KeyCode::Char('L') => self.toggle_local_saves(),
 
@@ -223,8 +226,9 @@ impl App {
     /// After replacing `self.session`, reset the per-pane selection and refresh workspace
     pub(super) fn after_session_changed(&mut self) {
         self.collapsed.clear();
+        self.plugins_collapsed.clear();
         self.mods_state = initial_selection(self.session.profile.mods.len());
-        self.plugins_state = initial_selection(self.session.order.plugins.len());
+        self.plugins_state = initial_selection(self.plugins_visible_rows().len());
         self.mark_conflicts_stale();
         self.refresh_visible_lazy_data();
     }
@@ -276,7 +280,7 @@ impl Workspace {
     fn selection(self, app: &mut App) -> (&mut ListState, usize) {
         match self {
             Workspace::Plugins => {
-                let len = app.session.order.plugins.len();
+                let len = app.plugins_visible_rows().len();
                 (&mut app.plugins_state, len)
             }
             Workspace::Conflicts => {

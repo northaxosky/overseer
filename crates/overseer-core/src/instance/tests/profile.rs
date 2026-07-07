@@ -136,6 +136,37 @@ fn rename_separator_rejects_a_non_separator_index_and_a_colliding_name() {
     assert_eq!(profile.mods[1].name, "Visuals_separator");
 }
 
+#[test]
+fn remove_separator_drops_the_divider_and_keeps_its_members() {
+    let mut profile = Profile {
+        name: "P".to_owned(),
+        mods: vec![
+            entry("A", true),
+            separator_entry("Gameplay_separator"),
+            entry("B", true),
+        ],
+        local_saves: false,
+    };
+    profile.remove_separator(1).expect("remove separator");
+    assert_eq!(names_of(&profile), ["A", "B"]);
+}
+
+#[test]
+fn remove_separator_rejects_a_non_separator_index() {
+    let mut profile = Profile {
+        name: "P".to_owned(),
+        mods: vec![separator_entry("Gameplay_separator"), entry("A", true)],
+        local_saves: false,
+    };
+    assert!(matches!(
+        profile
+            .remove_separator(1)
+            .expect_err("index 1 is a managed mod, not a separator"),
+        InstanceError::InvalidSeparatorName(_)
+    ));
+    assert_eq!(names_of(&profile), ["Gameplay_separator", "A"]);
+}
+
 // --- parsing ---
 
 #[test]

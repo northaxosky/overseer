@@ -15,7 +15,9 @@ use overseer_core::apply::{self, DeploymentStatus};
 use overseer_core::deploy::FileConflict;
 use overseer_core::install::DownloadEntry;
 use overseer_core::instance::{Instance, Profile};
-use overseer_core::plugins::{PluginLoadOrder, PluginMeta, discover_plugins};
+use overseer_core::plugins::{
+    PluginLoadOrder, PluginMeta, PluginSeparators, discover_plugins, merge_rows,
+};
 use overseer_core::saves::SaveInfo;
 use overseer_core::settings::Settings;
 use overseer_frontend::style::Role;
@@ -34,8 +36,9 @@ pub(crate) const HELP_ENTRIES: &[(&str, &str)] = &[
     ("X", "delete save"),
     ("L", "toggle local saves"),
     ("J / K", "reorder mod (priority)"),
-    ("R", "rename selected mod"),
+    ("R", "rename mod / separator"),
     ("A", "add separator"),
+    ("x / Del", "delete separator"),
     ("1 / 2 / 3 / 4", "switch workspace"),
     ("[ / ]", "cycle workspace"),
     ("r", "scan conflicts · refresh downloads"),
@@ -137,6 +140,7 @@ pub(crate) struct Session {
     pub(crate) instance: Instance,
     pub(crate) profile: Profile,
     pub(crate) order: PluginLoadOrder,
+    pub(crate) plugin_separators: PluginSeparators,
     pub(crate) discovered: Vec<PluginMeta>,
     pub(crate) status: Option<DeploymentStatus>,
 }
@@ -153,12 +157,14 @@ impl Session {
         let mut order = PluginLoadOrder::load(&instance, profile_name)?;
         order.reconcile(&discovered);
 
+        let plugin_separators = PluginSeparators::load(&instance.profile_dir(profile_name))?;
         let status = apply::status(&instance)?;
 
         Ok(Self {
             instance,
             profile,
             order,
+            plugin_separators,
             discovered,
             status,
         })
@@ -181,6 +187,7 @@ pub(crate) struct App {
     pub(crate) mods_state: ListState,
     pub(crate) plugins_state: ListState,
     pub(crate) collapsed: HashSet<String>,
+    pub(crate) plugins_collapsed: HashSet<String>,
 }
 
 impl App {
@@ -197,6 +204,7 @@ impl App {
         if let Err(e) = settings.save() {
             tracing::warn!(error = %e, "could not save settings");
         }
+        let plugin_rows = merge_rows(&session.order.plugins, &session.plugin_separators.items);
 
         Ok(Self {
             should_quit: false,
@@ -208,10 +216,11 @@ impl App {
             saves: SavesState::default(),
             message: None,
             mods_state: initial_selection(session.profile.mods.len()),
-            plugins_state: initial_selection(session.order.plugins.len()),
+            plugins_state: initial_selection(plugin_rows.len()),
             settings,
             session,
             collapsed: HashSet::new(),
+            plugins_collapsed: HashSet::new(),
         })
     }
 

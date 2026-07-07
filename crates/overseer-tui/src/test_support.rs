@@ -6,7 +6,7 @@ use crate::app::{
 use camino::{Utf8Path, Utf8PathBuf};
 use overseer_core::install::DownloadEntry;
 use overseer_core::instance::{Instance, ModKind, ModListEntry, Profile};
-use overseer_core::plugins::{PluginEntry, PluginLoadOrder, PluginMeta};
+use overseer_core::plugins::{PluginEntry, PluginLoadOrder, PluginMeta, PluginSeparators};
 use overseer_core::saves::{SaveInfo, SaveMeta};
 use overseer_core::settings::Settings;
 use std::time::{Duration, SystemTime};
@@ -65,11 +65,13 @@ impl App {
                     masters: Vec::new(),
                     header_version: None,
                 }],
+                plugin_separators: PluginSeparators::default(),
                 status: None,
             },
             mods_state: initial_selection(2),
             plugins_state: initial_selection(2),
             collapsed: std::collections::HashSet::new(),
+            plugins_collapsed: std::collections::HashSet::new(),
             conflicts: ConflictsState::default(),
             downloads: DownloadsState::default(),
             saves: SavesState::default(),

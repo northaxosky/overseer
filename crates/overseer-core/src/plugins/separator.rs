@@ -63,7 +63,7 @@ impl PluginSeparators {
         out
     }
 
-    /// Insert a separator anchored above `anchor` at display positon `at`, clamped to the end
+    /// Insert a separator anchored above `anchor` at display position `at`, clamped to the end
     pub fn insert(
         &mut self,
         at: usize,

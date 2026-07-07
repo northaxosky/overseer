@@ -5,7 +5,7 @@ use overseer_core::apply;
 use overseer_core::instance::{Executable, InstanceError, ModKind};
 use ratatui::crossterm::event::{KeyCode, KeyEvent};
 
-use crate::app::{App, Focus, Modal, Prompt, PromptKind, SelectKind, Session};
+use crate::app::{App, Focus, Modal, Prompt, PromptKind, SelectKind, Session, separator_display};
 
 impl App {
     /// Keys for Prompt modal: edit the line, submit, or cancel
@@ -22,7 +22,14 @@ impl App {
                 Some(PromptKind::EditExeArgs { index }) => self.submit_edit_exe_args(index),
                 Some(PromptKind::EditExeName { index }) => self.submit_edit_exe_name(index),
                 Some(PromptKind::RenameMod { old }) => self.submit_rename_mod(old),
+                Some(PromptKind::RenameSeparator { index, .. }) => {
+                    self.submit_rename_separator(index)
+                }
                 Some(PromptKind::NewSeparator) => self.submit_new_separator(),
+                Some(PromptKind::NewPluginSeparator) => self.submit_new_plugin_separator(),
+                Some(PromptKind::RenamePluginSeparator { index, .. }) => {
+                    self.submit_rename_plugin_separator(index);
+                }
                 None => {}
             },
             KeyCode::Backspace => {
@@ -60,26 +67,43 @@ impl App {
     }
 
     pub(super) fn open_new_separator(&mut self) {
-        if self.focus != Focus::Mods {
-            self.note("Switch to the mods pane to add a separator");
-            return;
+        if self.focus == Focus::Mods {
+            self.modal = Some(Modal::Prompt(Prompt {
+                kind: PromptKind::NewSeparator,
+                input: String::new(),
+                error: None,
+            }));
+        } else if self.on_plugins_pane() {
+            self.open_new_plugin_separator();
+        } else {
+            self.note("Switch to the mods or plugins pane to add a separator");
         }
-        self.modal = Some(Modal::Prompt(Prompt {
-            kind: PromptKind::NewSeparator,
-            input: String::new(),
-            error: None,
-        }));
     }
 
     pub(super) fn open_rename_mod(&mut self) {
+        if self.on_plugins_pane() {
+            self.open_rename_plugin_separator();
+            return;
+        }
         if self.focus != Focus::Mods {
-            self.note("Switch to the mods pane to rename a mod");
+            self.note("Switch to the mods or plugins pane to rename");
             return;
         }
         let Some(i) = self.selected_mod() else {
             return;
         };
         let entry = &self.session.profile.mods[i];
+        if entry.kind == ModKind::Separator {
+            self.modal = Some(Modal::Prompt(Prompt {
+                kind: PromptKind::RenameSeparator {
+                    index: i,
+                    name: separator_display(&entry.name).to_owned(),
+                },
+                input: String::new(),
+                error: None,
+            }));
+            return;
+        }
         if entry.kind != ModKind::Managed {
             self.note("Only managed mods can be renamed");
             return;
@@ -340,6 +364,43 @@ impl App {
         Ok(())
     }
 
+    /// Rename the separator named in the open prompt; stay open on any error
+    fn submit_rename_separator(&mut self, index: usize) {
+        let Some(Modal::Prompt(prompt)) = self.modal.as_ref() else {
+            return;
+        };
+        let name = prompt.input.trim().to_owned();
+        match self.rename_selected_separator(index, &name) {
+            Ok(()) => {
+                self.modal = None;
+                self.ok(format!("Renamed separator: {name}"));
+            }
+            Err(msg) => self.set_prompt_error(msg),
+        }
+    }
+
+    /// Rename the separator at `index` and persist; revert the in memory rename if the save fails
+    fn rename_selected_separator(&mut self, index: usize, name: &str) -> Result<(), String> {
+        let prev = self
+            .session
+            .profile
+            .mods
+            .get(index)
+            .map(|m| m.name.clone())
+            .ok_or_else(|| "That separator is gone".to_owned())?;
+        self.session
+            .profile
+            .rename_separator(index, name)
+            .map_err(|e| e.to_string())?;
+        if let Err(e) = self.session.profile.save(&self.session.instance) {
+            self.session.profile.mods[index].name = prev;
+            return Err(format!("Could not save: {e}"));
+        }
+        let display = self.visible_rows().iter().position(|&i| i == index);
+        self.mods_state.select(display);
+        Ok(())
+    }
+
     /// Open a rename prompt for the profile highlighted in the open Profile picker
     pub(super) fn open_rename_profile(&mut self) {
         let Some(Modal::Select(select)) = &self.modal else {
@@ -421,7 +482,7 @@ impl App {
     }
 
     /// Show an inline error on the open prompt (no-op if no prompt is open)
-    fn set_prompt_error(&mut self, msg: String) {
+    pub(super) fn set_prompt_error(&mut self, msg: String) {
         if let Some(Modal::Prompt(prompt)) = self.modal.as_mut() {
             prompt.error = Some(msg);
         }

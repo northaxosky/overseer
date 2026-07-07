@@ -9,7 +9,7 @@ mod modal;
 use overseer_core::apply::DeploymentStatus;
 use overseer_core::deploy::FileConflict;
 use overseer_core::instance::{ModKind, ModListEntry};
-use overseer_core::plugins::PluginMeta;
+use overseer_core::plugins::{PluginMeta, PluginRow};
 use overseer_frontend::style::Role;
 use ratatui::{
     Frame,
@@ -195,19 +195,30 @@ fn render_plugins(app: &mut App, frame: &mut Frame, area: Rect) {
     let focused = app.focus == Focus::Workspace;
     let title = format!(" plugins — {} ", app.session.order.plugins.len());
     let items: Vec<ListItem<'static>> = app
-        .session
-        .order
-        .plugins
+        .plugins_visible_rows()
         .iter()
-        .map(|p| {
-            let tag = if is_master(&app.session.discovered, &p.name) {
-                " (master)"
-            } else {
-                ""
-            };
-            let role = if p.active { Role::Success } else { Role::Muted };
-            ListItem::new(format!("{} {}{}", marker(p.active), p.name, tag))
-                .style(theme::style(role))
+        .map(|&row| match row {
+            PluginRow::Separator(s) => {
+                let sep = &app.session.plugin_separators.items[s];
+                let header = separator_header(
+                    &sep.name,
+                    area.width,
+                    app.is_plugin_collapsed(s),
+                    app.plugin_group_members(s),
+                );
+                ListItem::new(header).style(theme::style(Role::Heading))
+            }
+            PluginRow::Plugin(i) => {
+                let p = &app.session.order.plugins[i];
+                let tag = if is_master(&app.session.discovered, &p.name) {
+                    " (master)"
+                } else {
+                    ""
+                };
+                let role = if p.active { Role::Success } else { Role::Muted };
+                ListItem::new(format!("{} {}{}", marker(p.active), p.name, tag))
+                    .style(theme::style(role))
+            }
         })
         .collect();
     render_pane(frame, area, title, items, &mut app.plugins_state, focused);

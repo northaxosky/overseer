@@ -6,7 +6,6 @@ use overseer_core::deploy::NullSink;
 use overseer_core::instance::ModKind;
 use overseer_core::plugins::discover_plugins;
 
-use super::clamp_selection;
 use crate::app::{App, Focus, Workspace};
 
 impl App {
@@ -103,7 +102,7 @@ impl App {
         self.session.discovered = discover_plugins(&self.session.instance, &self.session.profile)?;
         self.session.order.reconcile(&self.session.discovered);
         self.session.order.save(&self.session.instance)?;
-        clamp_selection(&mut self.plugins_state, self.session.order.plugins.len());
+        self.clamp_plugins_selection();
         Ok(())
     }
 
@@ -142,14 +141,7 @@ impl Workspace {
     /// The Enter/Space primary action; returns `true` when persistent state changed and should be saved
     fn primary(self, app: &mut App) -> bool {
         match self {
-            Workspace::Plugins => {
-                if let Some(i) = app.plugins_state.selected() {
-                    let p = &mut app.session.order.plugins[i];
-                    p.active = !p.active;
-                    return true;
-                }
-                false
-            }
+            Workspace::Plugins => app.toggle_selected_plugin_row(),
             Workspace::Conflicts => {
                 app.note("Conflicts are read-only");
                 false
