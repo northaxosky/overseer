@@ -5,6 +5,7 @@
 
 pub mod apply;
 pub mod archive;
+pub mod ba2;
 pub mod deploy;
 pub mod detect;
 mod error;

@@ -213,6 +213,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "btdx"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "199ceb9c66eded58726fa746c33bcb19f8b0208932cec29d5374c1d896bb5096"
+dependencies = [
+ "flate2",
+ "lz4_flex",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "bumpalo"
 version = "3.20.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -823,6 +834,7 @@ version = "1.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "843fba2746e448b37e26a819579957415c8cef339bf08564fe8b7ddbd959573c"
 dependencies = [
+ "crc32fast",
  "miniz_oxide",
  "zlib-rs",
 ]
@@ -1217,6 +1229,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "lz4_flex"
+version = "0.11.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "373f5eceeeab7925e0c1098212f2fbc4d416adec9d35051a6ab251e824c1854a"
+
+[[package]]
 name = "lzma-rust2"
 version = "0.16.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1440,6 +1458,7 @@ name = "overseer-core"
 version = "0.0.0"
 dependencies = [
  "atomicwrites",
+ "btdx",
  "camino",
  "crc32fast",
  "dirs",
