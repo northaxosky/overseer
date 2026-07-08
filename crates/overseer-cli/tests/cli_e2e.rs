@@ -2,7 +2,10 @@
 //! asserting both its output and the resulting on-disk state.
 
 use assert_cmd::Command;
+use camino::Utf8Path;
+use overseer_core::test_support::{FLAG_MASTER, tes4_bytes, write_zip};
 use predicates::prelude::*;
+use std::path::Path;
 use tempfile::TempDir;
 
 /// Run `overseer` with `args`; `--color never` keeps output plain for stable assertions
@@ -496,6 +499,11 @@ fn init_instance(tmp: &TempDir) -> std::path::PathBuf {
     inst
 }
 
+fn zip(path: &Path, entries: &[(&str, &[u8])]) {
+    let path = Utf8Path::from_path(path).expect("utf8 archive path");
+    write_zip(path, entries);
+}
+
 #[test]
 fn conflicts_lists_files_provided_by_two_mods() {
     let tmp = TempDir::new().unwrap();
@@ -541,6 +549,139 @@ fn downloads_lists_installable_archives() {
     overseer(&["downloads", "--instance", inst.to_str().unwrap()])
         .success()
         .stdout(predicate::str::contains("CoolMod.7z"));
+}
+
+#[test]
+fn install_zip_stages_enables_and_deploys_a_mod() {
+    let tmp = TempDir::new().unwrap();
+    let inst = init_instance(&tmp);
+    let inst_s = inst.to_str().unwrap();
+    let archive = tmp.path().join("TexturePack.zip");
+    zip(
+        &archive,
+        &[("Data/Textures/installed.dds", b"installed-bytes")],
+    );
+
+    overseer(&[
+        "install",
+        archive.to_str().unwrap(),
+        "--name",
+        "TexturePack",
+        "--instance",
+        inst_s,
+    ])
+    .success()
+    .stdout(predicate::str::contains("Installed `TexturePack`"));
+
+    assert!(
+        inst.join("mods")
+            .join("TexturePack")
+            .join("Textures")
+            .join("installed.dds")
+            .exists()
+    );
+
+    overseer(&["mod", "enable", "TexturePack", "--instance", inst_s]).success();
+    overseer(&["deploy", "--instance", inst_s]).success();
+
+    let deployed = tmp
+        .path()
+        .join("game")
+        .join("Data")
+        .join("Textures")
+        .join("installed.dds");
+    assert_eq!(
+        std::fs::read_to_string(deployed).unwrap(),
+        "installed-bytes"
+    );
+}
+
+#[test]
+fn install_reports_duplicates_and_fomod_archives() {
+    let tmp = TempDir::new().unwrap();
+    let inst = init_instance(&tmp);
+    let inst_s = inst.to_str().unwrap();
+    let plain = tmp.path().join("Plain.zip");
+    let scripted = tmp.path().join("Scripted.zip");
+    zip(&plain, &[("Textures/a.dds", b"x")]);
+    zip(
+        &scripted,
+        &[
+            ("fomod/ModuleConfig.xml", b"<config/>"),
+            ("Textures/a.dds", b"x"),
+        ],
+    );
+
+    overseer(&[
+        "install",
+        plain.to_str().unwrap(),
+        "--name",
+        "Plain",
+        "--instance",
+        inst_s,
+    ])
+    .success();
+    overseer(&[
+        "install",
+        plain.to_str().unwrap(),
+        "--name",
+        "Plain",
+        "--instance",
+        inst_s,
+    ])
+    .failure()
+    .stderr(predicate::str::contains("already installed"));
+
+    overseer(&[
+        "install",
+        scripted.to_str().unwrap(),
+        "--name",
+        "Scripted",
+        "--instance",
+        inst_s,
+    ])
+    .failure()
+    .stderr(predicate::str::contains("FOMOD installers"));
+    assert!(!inst.join("mods").join("Scripted").exists());
+}
+
+#[test]
+fn plugin_list_activate_deactivate_and_deploy_updates_plugins_txt() {
+    let tmp = TempDir::new().unwrap();
+    let inst = init_instance(&tmp);
+    let inst_s = inst.to_str().unwrap();
+    let mods = inst.join("mods");
+    let base = mods.join("BaseMod");
+    let patch = mods.join("PatchMod");
+    std::fs::create_dir_all(&base).unwrap();
+    std::fs::create_dir_all(&patch).unwrap();
+    std::fs::write(base.join("Base.esm"), tes4_bytes(FLAG_MASTER, &[])).unwrap();
+    std::fs::write(patch.join("Patch.esp"), tes4_bytes(0, &["Base.esm"])).unwrap();
+
+    overseer(&["mod", "enable", "PatchMod", "--instance", inst_s]).success();
+    overseer(&["mod", "enable", "BaseMod", "--instance", inst_s]).success();
+
+    overseer(&["plugin", "list", "--instance", inst_s])
+        .success()
+        .stdout(predicate::str::contains("Base.esm").and(predicate::str::contains("master")))
+        .stdout(predicate::str::contains("Patch.esp"));
+
+    overseer(&["plugin", "deactivate", "Patch.esp", "--instance", inst_s])
+        .success()
+        .stdout(predicate::str::contains("Deactivated `Patch.esp`"));
+    let profile_plugins =
+        std::fs::read_to_string(inst.join("profiles").join("Default").join("plugins.txt")).unwrap();
+    assert!(profile_plugins.contains("Patch.esp\n"));
+    assert!(!profile_plugins.contains("*Patch.esp"));
+
+    overseer(&["plugin", "activate", "Patch.esp", "--instance", inst_s])
+        .success()
+        .stdout(predicate::str::contains("Activated `Patch.esp`"));
+    overseer(&["deploy", "--instance", inst_s]).success();
+
+    let live_plugins =
+        std::fs::read_to_string(tmp.path().join("local").join("Plugins.txt")).unwrap();
+    assert_eq!(live_plugins, "*Base.esm\n*Patch.esp\n");
 }
 
 #[test]

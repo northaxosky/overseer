@@ -1,6 +1,6 @@
 //! Opt-in **destructive** end-to-end tests that deploy mods into a real Fallout 4
-//! install and then purge, proving the transaction leaves the game directory
-//! byte-for-byte as it found it.
+//! install and then purge, proving the transaction leaves the game directory's
+//! file set and sizes as it found them.
 //!
 //! These are `#[ignore]`d and gated on `OVERSEER_FO4_TESTBED`, so they never run in the
 //! normal suite. Run them deliberately against a **disposable copy** (single-threaded, since
@@ -330,7 +330,7 @@ fn deploy_purge_roundtrip_leaves_testbed_pristine() {
         "a deployment journal survived purge"
     );
 
-    // The headline guarantee: Data/ is byte-identical (by path+len) to before we touched it
+    // The headline guarantee: Data/ has the same file set and sizes as before
     let after = snapshot_data(&data);
     assert_pristine(&before, &after);
 
@@ -586,7 +586,7 @@ fn deploy_purge_roundtrip_with_real_mods_leaves_testbed_pristine() {
         "a deployment journal survived purge"
     );
 
-    // The headline guarantee: Data/ is byte-identical (by path+len) to before we touched it
+    // The headline guarantee: Data/ has the same file set and sizes as before
     let after = snapshot_data(&data);
     assert_pristine(&before, &after);
 

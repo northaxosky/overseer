@@ -54,9 +54,28 @@ git config core.hooksPath .githooks
 - **Errors:** `thiserror` in library crates (attach context such as the offending path);
   `anyhow` with `.context(...)` in binaries. Avoid `unwrap()`/`expect()` outside tests.
 - **Paths:** use `camino::Utf8Path` / `Utf8PathBuf` at API and serde boundaries.
-- **Tests:** every non-trivial subsystem gets tests; use `tempfile` and fixtures — never
-  depend on a real game install.
+- **Tests:** every non-trivial subsystem gets tests; use `tempfile` and fixtures. The
+  default `cargo test` gate is hermetic and does not depend on a real game install.
 - **Vocabulary:** mods are *enabled* / *disabled*; plugins are *active* / *inactive*.
+
+## Opt-in test harnesses
+
+The normal test suite is install-free:
+
+```sh
+cargo test
+```
+
+Local smoke tests that need real Fallout 4 or Mod Organizer 2 paths are `#[ignore]`d and
+configured through `.env` variables documented in [`.env.example`](.env.example):
+
+```sh
+cargo test -p overseer-core --test live_install -- --ignored --nocapture
+cargo test -p overseer-core --test live_mo2 -- --ignored --nocapture
+cargo test -p overseer-core --test testbed_e2e -- --ignored --nocapture --test-threads=1
+```
+
+Only run `testbed_e2e` against a disposable Fallout 4 copy with the required marker file.
 
 ## Commits & pull requests
 

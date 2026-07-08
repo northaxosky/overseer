@@ -583,6 +583,76 @@ fn status_detects_a_missing_deployed_file() {
 }
 
 #[test]
+fn status_treats_a_replaced_deployed_file_as_present() {
+    let (_tmp, instance) = temp_instance();
+    install_mod(&instance, "CoolMod", &[("Textures/a.dds", "ours")]);
+    save_profile(&instance, "Default", &[("CoolMod", true)]);
+    deploy_profile(&instance, "Default", &NullSink).expect("deploy");
+
+    let dest = deployed(&instance, "Textures/a.dds");
+    std::fs::remove_file(&dest).expect("remove our link");
+    std::fs::write(&dest, "tool output").expect("replace");
+
+    let report = status(&instance).expect("status").expect("deployed");
+    assert!(
+        report.verified.is_ok(),
+        "status verifies path presence, not hard-link identity"
+    );
+}
+
+#[test]
+fn deploy_rolls_back_created_files_when_save_redirect_fails() {
+    let (_tmp, mut instance) = temp_instance();
+    deploy_profile_with_local_saves(&instance);
+    let bad_ini_dir = instance.root.join("bad-ini-dir");
+    std::fs::write(&bad_ini_dir, "not a directory").expect("bad ini dir");
+    instance.config.ini_dir = Some(bad_ini_dir);
+
+    let err = deploy_profile(&instance, "Default", &NullSink).expect_err("save redirect must fail");
+
+    assert!(matches!(err, ApplyError::Io(_)));
+    assert!(
+        !deployed(&instance, "Textures/a.dds").exists(),
+        "rollback removes files created before the save redirect failed"
+    );
+    assert!(
+        status(&instance).expect("status").is_none(),
+        "rollback clears the deployment journal"
+    );
+}
+
+#[test]
+fn deploy_rolls_back_overwritten_files_when_save_redirect_fails() {
+    let (_tmp, mut instance) = temp_instance();
+    let data_file = deployed(&instance, "Textures/a.dds");
+    std::fs::create_dir_all(data_file.parent().expect("parent")).expect("mk Data");
+    std::fs::write(&data_file, "vanilla").expect("seed vanilla");
+
+    install_mod(&instance, "CoolMod", &[("Textures/a.dds", "modded")]);
+    save_profile(&instance, "Default", &[("CoolMod", true)]);
+    let mut profile = Profile::load(&instance, "Default").expect("load");
+    profile.local_saves = true;
+    profile.save(&instance).expect("save");
+
+    let bad_ini_dir = instance.root.join("bad-ini-dir");
+    std::fs::write(&bad_ini_dir, "not a directory").expect("bad ini dir");
+    instance.config.ini_dir = Some(bad_ini_dir);
+
+    let err = deploy_profile(&instance, "Default", &NullSink).expect_err("save redirect must fail");
+
+    assert!(matches!(err, ApplyError::Io(_)));
+    assert_eq!(
+        std::fs::read_to_string(&data_file).expect("read"),
+        "vanilla",
+        "rollback restores the file that deploy overwrote"
+    );
+    assert!(
+        status(&instance).expect("status").is_none(),
+        "rollback clears the deployment journal"
+    );
+}
+
+#[test]
 fn an_interrupted_deployment_is_recovered_so_the_next_deploy_proceeds() {
     let (_tmp, instance) = temp_instance();
     install_plugin(&instance, "CoolMod", "Cool.esp");

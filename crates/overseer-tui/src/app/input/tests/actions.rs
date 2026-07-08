@@ -206,3 +206,69 @@ fn a_move_past_a_collapsed_separator_is_refused() {
         "nothing moved"
     );
 }
+
+fn deployable_app() -> (tempfile::TempDir, App, camino::Utf8PathBuf) {
+    use overseer_core::instance::Profile;
+    use overseer_core::plugins::{PluginLoadOrder, PluginSeparators};
+    use overseer_core::test_support::{install_mod, save_profile, temp_instance};
+
+    let (tmp, instance) = temp_instance();
+    install_mod(&instance, "CoolMod", &[("Textures/a.dds", "pixels")]);
+    save_profile(&instance, "Default", &[("CoolMod", true)]);
+    let deployed = instance.config.game_dir.join("Data").join("Textures/a.dds");
+    let profile = Profile::load(&instance, "Default").expect("load profile");
+    let order = PluginLoadOrder::load(&instance, "Default").expect("load order");
+
+    let mut app = App::sample();
+    app.session.instance = instance;
+    app.session.profile = profile;
+    app.session.order = order;
+    app.session.plugin_separators = PluginSeparators::default();
+    app.session.discovered = Vec::new();
+    app.session.status = None;
+    app.mods_state = crate::app::initial_selection(app.session.profile.mods.len());
+    (tmp, app, deployed)
+}
+
+#[test]
+fn deploy_action_deploys_profile_and_refreshes_status() {
+    let (_tmp, mut app, deployed) = deployable_app();
+
+    app.deploy();
+
+    assert_eq!(
+        std::fs::read_to_string(&deployed).expect("deployed file"),
+        "pixels"
+    );
+    assert!(
+        app.session.status.is_some(),
+        "deploy refreshes the cached deployment status"
+    );
+    assert!(
+        app.message
+            .as_ref()
+            .is_some_and(|m| m.text.starts_with("Deployed ")),
+        "deploy reports success"
+    );
+}
+
+#[test]
+fn purge_action_removes_deployment_and_refreshes_status() {
+    let (_tmp, mut app, deployed) = deployable_app();
+    app.deploy();
+    assert!(deployed.exists());
+
+    app.purge();
+
+    assert!(!deployed.exists(), "purge removes the deployed file");
+    assert!(
+        app.session.status.is_none(),
+        "purge refreshes the cached deployment status"
+    );
+    assert!(
+        app.message
+            .as_ref()
+            .is_some_and(|m| m.text == "Purged the live deployment"),
+        "purge reports success"
+    );
+}
