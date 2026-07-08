@@ -82,6 +82,7 @@ fn deployable_sources(instance: &Instance, profile: &Profile) -> Vec<ModSource> 
 }
 
 #[test]
+#[ignore = "read-only live harness; run with OVERSEER_MO2_INSTANCE set"]
 fn loads_a_real_mo2_profile() {
     let Some(root) = mo2_instance_or_skip() else {
         return;
@@ -124,6 +125,7 @@ fn loads_a_real_mo2_profile() {
 }
 
 #[test]
+#[ignore = "read-only live harness; run with OVERSEER_MO2_INSTANCE set"]
 fn detects_conflicts_across_real_mods() {
     let Some(root) = mo2_instance_or_skip() else {
         return;
@@ -145,6 +147,7 @@ fn detects_conflicts_across_real_mods() {
 }
 
 #[test]
+#[ignore = "read-only live harness; run with OVERSEER_MO2_INSTANCE set"]
 fn diagnoses_a_real_mo2_instance() {
     let Some(root) = mo2_instance_or_skip() else {
         return;

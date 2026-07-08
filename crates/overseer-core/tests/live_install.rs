@@ -30,6 +30,7 @@ fn fo4_dir_or_skip() -> Option<Utf8PathBuf> {
 }
 
 #[test]
+#[ignore = "read-only live harness; run with OVERSEER_FO4_DIR set"]
 fn detects_a_real_fallout4_install() {
     let Some(dir) = fo4_dir_or_skip() else {
         return;
@@ -50,6 +51,7 @@ fn detects_a_real_fallout4_install() {
 }
 
 #[test]
+#[ignore = "read-only live harness; run with OVERSEER_FO4_DIR set"]
 fn the_store_is_not_contradictory() {
     let Some(dir) = fo4_dir_or_skip() else {
         return;
@@ -62,6 +64,7 @@ fn the_store_is_not_contradictory() {
 }
 
 #[test]
+#[ignore = "read-only live harness; run with OVERSEER_FO4_DIR set"]
 fn base_game_archives_parse() {
     let Some(dir) = fo4_dir_or_skip() else {
         return;
@@ -91,6 +94,7 @@ fn base_game_archives_parse() {
 }
 
 #[test]
+#[ignore = "read-only live harness; run with OVERSEER_FO4_DIR set"]
 fn patching_a_real_base_archive_changes_only_the_version_field() {
     let Some(dir) = fo4_dir_or_skip() else {
         return;
