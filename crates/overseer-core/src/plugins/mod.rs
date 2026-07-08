@@ -1,5 +1,6 @@
 //! Plugin metadata and per-profile load order
 
+mod carrier;
 mod discover;
 mod error;
 mod gamestate;
@@ -7,6 +8,7 @@ mod load_order;
 mod metadata;
 mod separator;
 
+pub use carrier::carrier_esl;
 pub use discover::discover_plugins;
 pub use error::PluginError;
 pub use gamestate::{
