@@ -4,6 +4,7 @@
 //! generic mechanisms.
 
 pub mod ba2;
+pub mod cc;
 pub mod convert;
 pub mod dlc;
 pub mod engine;
