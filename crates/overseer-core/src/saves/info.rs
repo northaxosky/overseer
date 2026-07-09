@@ -2,11 +2,9 @@
 
 use super::SaveParseError;
 use crate::error::{IoError, io_err};
+use crate::game::GameKind;
 use camino::{Utf8Path, Utf8PathBuf};
 use std::time::SystemTime;
-
-/// The 12-byte magic every Fallout 4 save begins with
-const MAGIC: &[u8] = b"FO4_SAVEGAME";
 
 /// Read at most this many bytes of a save to parse its header
 const MAX_HEADER_BYTES: usize = 64 * 1024;
@@ -87,10 +85,10 @@ impl<'a> Cursor<'a> {
 }
 
 /// Parse the metadata fields of an uncompressed Fallout 4 `.fos` header
-fn parse_header(bytes: &[u8]) -> Result<SaveMeta, SaveParseError> {
+fn parse_header(bytes: &[u8], magic: &[u8]) -> Result<SaveMeta, SaveParseError> {
     let mut cur = Cursor::new(bytes);
 
-    if cur.take(MAGIC.len())? != MAGIC {
+    if cur.take(magic.len())? != magic {
         return Err(SaveParseError::BadMagic);
     }
 
@@ -126,14 +124,17 @@ fn read_header_prefix(path: &Utf8Path) -> Result<Vec<u8>, IoError> {
     Ok(buf)
 }
 
-/// Whether `path` is a Fallout 4 `.fos` save, not a co-save
-fn is_fos(path: &Utf8Path) -> bool {
+/// Whether `path` is a save of the game (by extension), not a co-save
+fn is_save(path: &Utf8Path, ext: &str) -> bool {
     path.extension()
-        .is_some_and(|e| e.eq_ignore_ascii_case("fos"))
+        .is_some_and(|e| e.eq_ignore_ascii_case(ext))
 }
 
-/// List a profile's `.fos` saves in `dir`, newest first
-pub fn list_saves(dir: &Utf8Path) -> Result<Vec<SaveInfo>, IoError> {
+/// List a profile's saves in `dir`, newest first; empty when the game has no save support
+pub fn list_saves(dir: &Utf8Path, game: GameKind) -> Result<Vec<SaveInfo>, IoError> {
+    let Some(fmt) = game.save_format() else {
+        return Ok(Vec::new());
+    };
     let Some(entries) = crate::fs::read_dir_opt(dir)? else {
         return Ok(Vec::new());
     };
@@ -165,7 +166,7 @@ pub fn list_saves(dir: &Utf8Path) -> Result<Vec<SaveInfo>, IoError> {
         let path = dir.join(&file_name);
 
         // Only `.fos` saves; ignore cosaves
-        if !is_fos(&path) {
+        if !is_save(&path, fmt.ext) {
             continue;
         }
 
@@ -179,7 +180,7 @@ pub fn list_saves(dir: &Utf8Path) -> Result<Vec<SaveInfo>, IoError> {
             });
 
         let meta = match read_header_prefix(&path) {
-            Ok(bytes) => parse_header(&bytes)
+            Ok(bytes) => parse_header(&bytes, fmt.magic)
                 .inspect_err(
                     |e| tracing::debug!(path = %path, error = %e, "could not parse save header"),
                 )
@@ -207,22 +208,31 @@ pub fn list_saves(dir: &Utf8Path) -> Result<Vec<SaveInfo>, IoError> {
     Ok(saves)
 }
 
-/// Delete a save and its script extender co-save, refusing anything but a `.fos`
-pub fn delete_save(path: &Utf8Path) -> Result<(), IoError> {
-    // Safety guard: never delete anything but a Fallout 4 save
-    if !is_fos(path) {
+/// Delete a save and its script extender co-save, refusing anything but a savegame
+pub fn delete_save(path: &Utf8Path, game: GameKind) -> Result<(), IoError> {
+    let Some(fmt) = game.save_format() else {
+        return Err(io_err(
+            path,
+            std::io::Error::new(
+                std::io::ErrorKind::Unsupported,
+                "saves are not supported for this game yet",
+            ),
+        ));
+    };
+
+    if !is_save(path, fmt.ext) {
         return Err(io_err(
             path,
             std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
-                "refusing to delete a non-.fos file",
+                "refusing to delete a non-save file",
             ),
         ));
     }
 
     std::fs::remove_file(path).map_err(|e| io_err(path, e))?;
 
-    if let Err(e) = crate::fs::remove_file_opt(&path.with_extension("f4se")) {
+    if let Err(e) = crate::fs::remove_file_opt(&path.with_extension(fmt.cosave_ext)) {
         tracing::debug!(error = %e, "could not remove co-save");
     }
     Ok(())

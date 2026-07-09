@@ -17,7 +17,7 @@ fn list(target: &ProfileArgs) -> Result<()> {
     let dir = instance
         .saves_dir(&target.profile)
         .context("resolving the saves directory")?;
-    let saves = saves::list_saves(&dir).context("listing saves")?;
+    let saves = saves::list_saves(&dir, instance.config.game).context("listing saves")?;
 
     if saves.is_empty() {
         println!("No saves for profile `{}`.", target.profile);
@@ -49,7 +49,8 @@ fn delete(target: &ProfileArgs, file: &str) -> Result<()> {
     let dir = instance
         .saves_dir(&target.profile)
         .context("resolving the saves directory")?;
-    saves::delete_save(&dir.join(file)).with_context(|| format!("deleting save `{file}`"))?;
+    saves::delete_save(&dir.join(file), instance.config.game)
+        .with_context(|| format!("deleting save `{file}`"))?;
     success(format!("Deleted save `{file}` and its co-save"));
     Ok(())
 }

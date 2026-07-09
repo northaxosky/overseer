@@ -7,8 +7,6 @@ use super::{LimitTier, limit_tier};
 
 /// BA2 header versions Fallout 4 can read: 1 = OG, 7/8 = NG/AE. Starfield's v2/v3 are not FO4-readable
 const SUPPORTED_VERSIONS: &[u32] = &[1, 7, 8];
-const MAX_ARCHIVES_GNRL: usize = 256;
-const MAX_ARCHIVES_DX10: usize = 255;
 
 /// Reports the BA2 archive types/counts and flags ones the engine can't use
 pub fn run(ctx: &GameContext) -> Vec<Finding> {
@@ -45,18 +43,24 @@ pub fn run(ctx: &GameContext) -> Vec<Finding> {
     }
 
     let counts = &ctx.loaded_archive_counts;
-    if let Some(finding) = limit_finding(counts.gnrl, MAX_ARCHIVES_GNRL, "General") {
-        findings.push(finding);
-    }
-    if let Some(finding) = limit_finding(counts.dx10, MAX_ARCHIVES_DX10, "Texture") {
-        findings.push(finding);
-    }
-
-    if counts.gnrl + counts.dx10 > 0 {
-        findings.push(Finding::info(format!(
-            "{}/{} general + {}/{} texture BA2 loaded · versions: {} v1, {} v7/8",
-            counts.gnrl, MAX_ARCHIVES_GNRL, counts.dx10, MAX_ARCHIVES_DX10, counts.v1, counts.vng
-        )));
+    if let Some(limits) = ctx.game.engine_limits() {
+        if let Some(finding) = limit_finding(counts.gnrl, limits.archives_gnrl, "General") {
+            findings.push(finding);
+        }
+        if let Some(finding) = limit_finding(counts.dx10, limits.archives_dx10, "Texture") {
+            findings.push(finding);
+        }
+        if counts.gnrl + counts.dx10 > 0 {
+            findings.push(Finding::info(format!(
+                "{}/{} general + {}/{} texture BA2 loaded · versions: {} v1, {} v7/8",
+                counts.gnrl,
+                limits.archives_gnrl,
+                counts.dx10,
+                limits.archives_dx10,
+                counts.v1,
+                counts.vng
+            )));
+        }
     }
     findings
 }

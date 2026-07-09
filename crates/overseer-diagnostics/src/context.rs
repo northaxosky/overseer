@@ -4,7 +4,7 @@ use crate::binaries::{self, BinaryScan};
 use crate::error::DiagnosticError;
 use camino::{Utf8Path, Utf8PathBuf};
 use overseer_core::archive::{Ba2Error, Ba2Header, Ba2Kind};
-use overseer_core::deploy::{DATA_DIR, DeployPlan, F4SE_PLUGINS_DIR, strip_data_prefix};
+use overseer_core::deploy::{DATA_DIR, DeployPlan, strip_data_prefix};
 use overseer_core::detect::{
     self, Edition, Generation, address_library_name, file_version, loader_family,
 };
@@ -54,6 +54,8 @@ const BASE_SCRIPT_NAMES: &[&str] = &[
 /// The state a diagnostic run inspects. Gathered once using [`GameContext::gather`]
 #[derive(Default)]
 pub(crate) struct GameContext {
+    /// The game this profile targets, for per-game limits and format facts
+    pub game: GameKind,
     /// The active mod plugins to inspect (with their masters)
     pub active_plugins: Vec<PluginMeta>,
     /// The real load-order budget: active mod plugins plus force-loaded base/DLC/Creation Club plugins
@@ -271,8 +273,18 @@ impl GameContext {
                 .join(instance.config.game.script_extender_loader()),
         )
         .and_then(loader_family);
-        let address_library = address_library_status(&data_files, install.version);
-        let f4se_plugins = scan_f4se_plugins(&plan);
+        let address_library = instance
+            .config
+            .game
+            .script_extender_plugins_dir()
+            .map(|dir| address_library_status(&data_files, install.version, dir))
+            .unwrap_or(AddressLibraryStatus::NotApplicable);
+        let f4se_plugins = instance
+            .config
+            .game
+            .script_extender_plugins_dir()
+            .map(|dir| scan_f4se_plugins(&plan, dir))
+            .unwrap_or_default();
         let runtime_packed = install.version.map(detect::packed_runtime);
         let script_overrides = scan_script_overrides(&plan);
 
@@ -294,6 +306,7 @@ impl GameContext {
         };
 
         Ok(Self {
+            game: instance.config.game,
             active_plugins,
             data_files,
             ccc: read_ccc(instance),
@@ -317,14 +330,14 @@ impl GameContext {
 }
 
 /// Parse every `F4SE/Plugins/*.dll` the profile would deploy, attributed to its mod
-fn scan_f4se_plugins(plan: &DeployPlan) -> Vec<F4sePluginScan> {
+fn scan_f4se_plugins(plan: &DeployPlan, se_plugins_dir: &str) -> Vec<F4sePluginScan> {
     plan.files()
         .iter()
         .filter(|f| {
             f.relative
                 .extension()
                 .is_some_and(|e| e.eq_ignore_ascii_case("dll"))
-                && strip_data_prefix(&f.relative).is_some_and(|p| p.starts_with(F4SE_PLUGINS_DIR))
+                && strip_data_prefix(&f.relative).is_some_and(|p| p.starts_with(se_plugins_dir))
         })
         .filter_map(|f| {
             let bytes = match std::fs::read(&f.source) {
@@ -350,8 +363,9 @@ fn scan_f4se_plugins(plan: &DeployPlan) -> Vec<F4sePluginScan> {
 fn address_library_status(
     data_files: &[DataFile],
     version: Option<overseer_core::detect::ExeVersion>,
+    se_plugins_dir: &str,
 ) -> AddressLibraryStatus {
-    let under_plugins = |f: &DataFile| f.path.starts_with(F4SE_PLUGINS_DIR);
+    let under_plugins = |f: &DataFile| f.path.starts_with(se_plugins_dir);
     let has_plugin = data_files.iter().any(|f| {
         under_plugins(f)
             && f.path

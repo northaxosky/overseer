@@ -1,8 +1,12 @@
 //! Tests for parsing save-file info
 
 use super::*;
+use crate::game::GameKind;
 use crate::test_support::{fos_bytes, set_mtime, temp, write_fos};
 use std::time::Duration;
+
+/// The Fallout 4 save magic, for exercising the parser directly
+const FO4_MAGIC: &[u8] = b"FO4_SAVEGAME";
 
 // --- parse_header ---
 
@@ -10,7 +14,7 @@ use std::time::Duration;
 fn parses_a_valid_header_into_exact_metadata() {
     let bytes = fos_bytes(7, "Nora", 42, "Sanctuary Hills", "Sundas, 12 Last Seed");
     assert_eq!(
-        parse_header(&bytes).expect("parse"),
+        parse_header(&bytes, FO4_MAGIC).expect("parse"),
         SaveMeta {
             save_number: 7,
             character: "Nora".to_owned(),
@@ -24,14 +28,20 @@ fn parses_a_valid_header_into_exact_metadata() {
 #[test]
 fn an_empty_player_name_parses() {
     let bytes = fos_bytes(1, "", 1, "Vault 111", "Day 1");
-    assert_eq!(parse_header(&bytes).expect("parse").character, "");
+    assert_eq!(
+        parse_header(&bytes, FO4_MAGIC).expect("parse").character,
+        ""
+    );
 }
 
 #[test]
 fn bad_magic_is_rejected() {
     let mut bytes = fos_bytes(1, "Nate", 3, "Concord", "Day 2");
     bytes[0] = b'X';
-    assert_eq!(parse_header(&bytes), Err(SaveParseError::BadMagic));
+    assert_eq!(
+        parse_header(&bytes, FO4_MAGIC),
+        Err(SaveParseError::BadMagic)
+    );
 }
 
 #[test]
@@ -39,7 +49,10 @@ fn a_header_truncated_mid_string_is_eof() {
     let bytes = fos_bytes(1, "Nate", 3, "Concord", "Day 2");
     // Cut into the trailing game-date wstring's content bytes
     let truncated = &bytes[..bytes.len() - 3];
-    assert_eq!(parse_header(truncated), Err(SaveParseError::UnexpectedEof));
+    assert_eq!(
+        parse_header(truncated, FO4_MAGIC),
+        Err(SaveParseError::UnexpectedEof)
+    );
 }
 
 #[test]
@@ -48,7 +61,10 @@ fn a_bogus_huge_string_length_is_eof_not_a_huge_alloc() {
     let mut bytes = fos_bytes(1, "Nate", 3, "Concord", "Day 2");
     bytes[24] = 0xFF;
     bytes[25] = 0xFF; // claims a 65535-byte name in a tiny buffer
-    assert_eq!(parse_header(&bytes), Err(SaveParseError::UnexpectedEof));
+    assert_eq!(
+        parse_header(&bytes, FO4_MAGIC),
+        Err(SaveParseError::UnexpectedEof)
+    );
 }
 
 #[test]
@@ -66,7 +82,10 @@ fn a_non_utf8_string_is_a_bad_string() {
     bytes.extend_from_slice(b"FO4_SAVEGAME");
     bytes.extend_from_slice(&(body.len() as u32).to_le_bytes());
     bytes.extend_from_slice(&body);
-    assert_eq!(parse_header(&bytes), Err(SaveParseError::BadString));
+    assert_eq!(
+        parse_header(&bytes, FO4_MAGIC),
+        Err(SaveParseError::BadString)
+    );
 }
 
 #[test]
@@ -75,7 +94,7 @@ fn an_absurd_header_size_is_rejected() {
     // headerSize is the u32 immediately after the 12-byte magic
     bytes[12..16].copy_from_slice(&u32::MAX.to_le_bytes());
     assert!(matches!(
-        parse_header(&bytes),
+        parse_header(&bytes, FO4_MAGIC),
         Err(SaveParseError::HeaderTooLarge(_))
     ));
 }
@@ -86,7 +105,7 @@ fn an_absurd_header_size_is_rejected() {
 fn missing_saves_dir_is_an_empty_list() {
     let (_t, root) = temp();
     assert!(
-        list_saves(&root.join("Saves/None"))
+        list_saves(&root.join("Saves/None"), GameKind::Fallout4)
             .expect("list")
             .is_empty()
     );
@@ -106,7 +125,7 @@ fn lists_fos_saves_newest_first_ignoring_other_entries() {
     set_mtime(&dir.join("Old.fos"), base);
     set_mtime(&dir.join("New.fos"), base + Duration::from_secs(60));
 
-    let saves = list_saves(&dir).expect("list");
+    let saves = list_saves(&dir, GameKind::Fallout4).expect("list");
     let names: Vec<&str> = saves.iter().map(|s| s.file_name.as_str()).collect();
     assert_eq!(names, ["New.fos", "Old.fos"], "newest first, only .fos");
     assert_eq!(saves[0].meta.as_ref().expect("meta").save_number, 2);
@@ -121,7 +140,7 @@ fn equal_mtimes_break_ties_by_name() {
     set_mtime(&dir.join("Bravo.fos"), when);
     set_mtime(&dir.join("Alpha.fos"), when);
 
-    let names: Vec<String> = list_saves(&dir)
+    let names: Vec<String> = list_saves(&dir, GameKind::Fallout4)
         .expect("list")
         .into_iter()
         .map(|s| s.file_name)
@@ -133,7 +152,7 @@ fn equal_mtimes_break_ties_by_name() {
 fn the_fos_extension_match_is_case_insensitive() {
     let (_t, dir) = temp();
     write_fos(&dir.join("Upper.FOS"), 1, "A", 1, "L", "D");
-    assert_eq!(list_saves(&dir).expect("list").len(), 1);
+    assert_eq!(list_saves(&dir, GameKind::Fallout4).expect("list").len(), 1);
 }
 
 #[test]
@@ -142,12 +161,24 @@ fn a_corrupt_save_still_lists_with_no_meta() {
     std::fs::create_dir_all(&dir).expect("mkdir");
     std::fs::write(dir.join("Broken.fos"), b"not a real save").expect("write");
 
-    let saves = list_saves(&dir).expect("list");
+    let saves = list_saves(&dir, GameKind::Fallout4).expect("list");
     assert_eq!(saves.len(), 1);
     assert_eq!(saves[0].file_name, "Broken.fos");
     assert!(
         saves[0].meta.is_none(),
         "an unparseable save has meta: None"
+    );
+}
+
+#[test]
+fn list_is_empty_for_a_game_without_save_support() {
+    let (_t, dir) = temp();
+    write_fos(&dir.join("Save1.fos"), 1, "A", 1, "L", "D");
+    assert!(
+        list_saves(&dir, GameKind::Starfield)
+            .expect("list")
+            .is_empty(),
+        "a game without wired saves lists nothing"
     );
 }
 
@@ -159,7 +190,7 @@ fn delete_removes_the_save_and_its_co_save() {
     write_fos(&dir.join("Save1.fos"), 1, "A", 1, "L", "D");
     std::fs::write(dir.join("Save1.f4se"), b"cosave").expect("cosave");
 
-    delete_save(&dir.join("Save1.fos")).expect("delete");
+    delete_save(&dir.join("Save1.fos"), GameKind::Fallout4).expect("delete");
     assert!(!dir.join("Save1.fos").exists(), "the save is gone");
     assert!(!dir.join("Save1.f4se").exists(), "the co-save is gone");
 }
@@ -168,7 +199,7 @@ fn delete_removes_the_save_and_its_co_save() {
 fn delete_tolerates_a_missing_co_save() {
     let (_t, dir) = temp();
     write_fos(&dir.join("Save1.fos"), 1, "A", 1, "L", "D");
-    delete_save(&dir.join("Save1.fos")).expect("delete");
+    delete_save(&dir.join("Save1.fos"), GameKind::Fallout4).expect("delete");
     assert!(!dir.join("Save1.fos").exists());
 }
 
@@ -176,6 +207,16 @@ fn delete_tolerates_a_missing_co_save() {
 fn delete_refuses_a_non_fos_file() {
     let (_t, dir) = temp();
     std::fs::write(dir.join("keep.txt"), b"important").expect("write");
-    delete_save(&dir.join("keep.txt")).expect_err("must refuse a non-save");
+    delete_save(&dir.join("keep.txt"), GameKind::Fallout4).expect_err("must refuse a non-save");
     assert!(dir.join("keep.txt").exists(), "the non-save is untouched");
+}
+
+#[test]
+fn delete_errors_for_a_game_without_save_support() {
+    let (_t, dir) = temp();
+    write_fos(&dir.join("Save1.fos"), 1, "A", 1, "L", "D");
+    // A game whose saves aren't wired must error, never silently no-op a destructive call
+    delete_save(&dir.join("Save1.fos"), GameKind::Starfield)
+        .expect_err("unsupported game must error");
+    assert!(dir.join("Save1.fos").exists(), "nothing was deleted");
 }

@@ -5,17 +5,16 @@ use crate::finding::Finding;
 
 use super::{LimitTier, limit_tier};
 
-/// Fallout 4's hard limits on simultaneously-loaded plugins
-const MAX_FULL: usize = 254;
-const MAX_LIGHT: usize = 4096;
-
 /// Counts active Full and Light (ESL) plugins against the engine limits
 pub fn run(ctx: &GameContext) -> Vec<Finding> {
+    let Some(limits) = ctx.game.engine_limits() else {
+        return Vec::new();
+    };
     let light = ctx.loaded_plugins.iter().filter(|p| p.is_light).count();
     let full = ctx.loaded_plugins.len() - light;
     vec![
-        count_finding("Full (ESM/ESP)", full, MAX_FULL),
-        count_finding("Light (ESL)", light, MAX_LIGHT),
+        count_finding("FULL (ESM/ESP)", full, limits.plugins_full),
+        count_finding("Light (ESL)", light, limits.plugins_light),
     ]
 }
 

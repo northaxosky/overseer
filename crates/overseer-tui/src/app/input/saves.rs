@@ -8,13 +8,14 @@ use overseer_core::saves::{self, SaveInfo};
 impl App {
     /// List the current profile's saves in the saved sort order, selecting the first row
     pub(super) fn refresh_saves(&mut self) {
+        let game = self.session.instance.config.game;
         let listed = self
             .session
             .instance
             .saves_dir(&self.session.profile.name)
             .map_err(|e| format!("Could not locate saves: {e}"))
             .and_then(|dir| {
-                saves::list_saves(&dir).map_err(|e| format!("Could not list saves: {e}"))
+                saves::list_saves(&dir, game).map_err(|e| format!("Could not list saves: {e}"))
             });
         match listed {
             Ok(mut entries) => {
@@ -59,7 +60,7 @@ impl App {
     pub(super) fn delete_selected_save(&mut self, path: &Utf8Path) {
         let name = path.file_name().unwrap_or(path.as_str()).to_owned();
         let prev = self.saves.list.selected().unwrap_or(0);
-        match saves::delete_save(path) {
+        match saves::delete_save(path, self.session.instance.config.game) {
             Ok(()) => {
                 self.refresh_saves();
                 // The deleted row is gone; clamp the selection to the new bounds

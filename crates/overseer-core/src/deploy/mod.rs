@@ -13,7 +13,7 @@ pub use conflict::{FileConflict, detect_conflicts};
 pub use deployer::{Deployer, DeployerKind, LaunchTarget, deployer_for};
 pub use error::DeployError;
 pub use hardlink::HardlinkDeployer;
-pub use layout::{BACKUP_DIR, DATA_DIR, F4SE_PLUGINS_DIR, ROOT_DIR, strip_data_prefix};
+pub use layout::{BACKUP_DIR, DATA_DIR, ROOT_DIR, strip_data_prefix};
 pub use plan::{DeployPlan, ModSource, PlannedFile};
 pub use progress::{NullSink, ProgressEvent, ProgressSink};
 pub use record::{DeployEntry, DeployRecord, ReversalReport, VerifyReport};

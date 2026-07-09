@@ -13,6 +13,30 @@ pub enum GameKind {
     Starfield,
 }
 
+/// A game's on disk save format facts
+#[derive(Debug, Clone, Copy)]
+pub struct SaveFormat {
+    /// Save file extension, without the dot
+    pub ext: &'static str,
+    /// Leading magic bytes that identify a save
+    pub magic: &'static [u8],
+    /// Script extender cosave extension
+    pub cosave_ext: &'static str,
+}
+
+/// A game engine's hard limits on simultaneously loaded plugins and archives
+#[derive(Debug, Clone, Copy)]
+pub struct EngineLimits {
+    /// Full (ESM/ESP) plugin cap
+    pub plugins_full: usize,
+    /// Light (ESL) plugin cap
+    pub plugins_light: usize,
+    /// General (GNRL) BA2 archive cap
+    pub archives_gnrl: usize,
+    /// Texture (DX10) BA2 archive cap
+    pub archives_dx10: usize,
+}
+
 /// The per-game constants, declared once per variant so adding a game touches one place
 struct GameSpecs {
     load_order_id: GameId,
@@ -27,6 +51,12 @@ struct GameSpecs {
     steam_appid: u32,
     /// GOG application id (`goggame-<id>.info`), if the game is on GOG
     gog_appid: Option<u32>,
+    /// Script extender plugin folder under `Data/`
+    script_extender_plugins_dir: Option<&'static str>,
+    /// Save format
+    save_format: Option<SaveFormat>,
+    /// Engine plugin/archive limits
+    engine_limits: Option<EngineLimits>,
 }
 
 impl GameKind {
@@ -43,6 +73,18 @@ impl GameKind {
                 display_name: "Fallout 4",
                 steam_appid: 377160,
                 gog_appid: Some(1998527297),
+                script_extender_plugins_dir: Some("F4SE/Plugins"),
+                save_format: Some(SaveFormat {
+                    ext: "fos",
+                    magic: b"FO4_SAVEGAME",
+                    cosave_ext: "f4se",
+                }),
+                engine_limits: Some(EngineLimits {
+                    plugins_full: 254,
+                    plugins_light: 4096,
+                    archives_gnrl: 256,
+                    archives_dx10: 255,
+                }),
             },
             Self::SkyrimSE => GameSpecs {
                 load_order_id: GameId::SkyrimSE,
@@ -54,6 +96,9 @@ impl GameKind {
                 display_name: "Skyrim Special Edition",
                 steam_appid: 489830,
                 gog_appid: Some(1207658944),
+                script_extender_plugins_dir: None,
+                save_format: None,
+                engine_limits: None,
             },
             Self::Starfield => GameSpecs {
                 load_order_id: GameId::Starfield,
@@ -65,6 +110,9 @@ impl GameKind {
                 display_name: "Starfield",
                 steam_appid: 1716740,
                 gog_appid: None,
+                script_extender_plugins_dir: None,
+                save_format: None,
+                engine_limits: None,
             },
         }
     }
@@ -117,6 +165,21 @@ impl GameKind {
     /// GOG application id, if the game is on GOG
     pub fn gog_appid(self) -> Option<u32> {
         self.specs().gog_appid
+    }
+
+    /// Script extender plugin folder under `Data/`
+    pub fn script_extender_plugins_dir(self) -> Option<&'static str> {
+        self.specs().script_extender_plugins_dir
+    }
+
+    /// Save format facts, or `None`
+    pub fn save_format(self) -> Option<SaveFormat> {
+        self.specs().save_format
+    }
+
+    /// Engine plugin/archive limits, or `None`
+    pub fn engine_limits(self) -> Option<EngineLimits> {
+        self.specs().engine_limits
     }
 }
 

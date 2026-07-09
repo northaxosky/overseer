@@ -213,7 +213,7 @@ fn address_library_is_not_applicable_without_a_deployed_f4se_plugin() {
         mod_name: "ArmorMod".to_owned(),
     }];
     assert!(matches!(
-        address_library_status(&files, Some(version)),
+        address_library_status(&files, Some(version), "F4SE/Plugins"),
         AddressLibraryStatus::NotApplicable
     ));
 }
@@ -226,7 +226,7 @@ fn address_library_is_not_applicable_when_the_game_version_is_unknown() {
         mod_name: "Buffout".to_owned(),
     }];
     assert!(matches!(
-        address_library_status(&files, None),
+        address_library_status(&files, None, "F4SE/Plugins"),
         AddressLibraryStatus::NotApplicable
     ));
 }
@@ -306,7 +306,7 @@ fn scan_f4se_plugins_skips_an_unreadable_dll() {
     std::fs::remove_file(&dll).unwrap();
     std::fs::create_dir(&dll).unwrap();
     assert!(
-        scan_f4se_plugins(&plan).is_empty(),
+        scan_f4se_plugins(&plan, "F4SE/Plugins").is_empty(),
         "an unreadable F4SE DLL is skipped, not scanned"
     );
 }
@@ -492,7 +492,7 @@ fn address_library_outside_f4se_plugins_does_not_count_as_present() {
             mod_name: "Stray".to_owned(),
         },
     ];
-    match address_library_status(&files, Some(version)) {
+    match address_library_status(&files, Some(version), "F4SE/Plugins") {
         AddressLibraryStatus::Missing { expected } => {
             assert_eq!(expected, "version-1-10-163-0.bin")
         }
@@ -519,7 +519,7 @@ fn address_library_under_f4se_plugins_is_present() {
         },
     ];
     assert!(matches!(
-        address_library_status(&files, Some(version)),
+        address_library_status(&files, Some(version), "F4SE/Plugins"),
         AddressLibraryStatus::Present
     ));
 }

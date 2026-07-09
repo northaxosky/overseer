@@ -51,3 +51,16 @@ fn light_plugins_count_against_the_light_limit() {
     assert_eq!(findings[1].severity, Severity::Error);
     assert!(findings[1].title.contains("4097 / 4096"));
 }
+
+#[test]
+fn a_game_without_engine_limits_yields_no_findings() {
+    let ctx = GameContext {
+        loaded_plugins: vec![plugin(false); 300],
+        game: overseer_core::game::GameKind::Starfield,
+        ..GameContext::default()
+    };
+    assert!(
+        super::run(&ctx).is_empty(),
+        "a game with no wired limits produces no count findings"
+    );
+}
