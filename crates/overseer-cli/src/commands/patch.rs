@@ -9,12 +9,10 @@ use overseer_core::archive::{Ba2Header, Ba2Kind};
 use overseer_core::detect::{self, Edition, Generation};
 use overseer_core::game::GameKind;
 use overseer_core::patch::delta::Xdelta3CliDecoder;
-use overseer_core::patch::fallout4::engine::{
-    self, ConvertJob, ItemPlan, ItemState, Outcome, Policy,
-};
-use overseer_core::patch::fallout4::vcdiff::{self, DeltaMap};
+use overseer_core::patch::engine::{self, ConvertJob, ItemPlan, ItemState, Outcome, Policy};
 use overseer_core::patch::fallout4::{self, Ba2Edition, PatchOutcome, convert, dlc};
 use overseer_core::patch::fingerprint::VerifiedBy;
+use overseer_core::patch::vcdiff::{self, DeltaMap};
 use std::collections::{HashMap, HashSet};
 use std::env;
 use std::process::Command;

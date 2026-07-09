@@ -1,12 +1,15 @@
-//! Patching Bethesda archives in place.
+//! In-place binary and archive patching: game-agnostic mechanisms, with per-game policy in [`fallout4`].
 //!
-//! [`set_version`] is the game-agnostic mechanism — it flips a BA2's header version field and
-//! nothing else. Per-game policy (which version means which edition, which transitions are
-//! valid) lives in submodules like [`fallout4`].
+//! [`set_version`] flips a BA2 header version field; [`delta`] and [`vcdiff`] apply and map VCDIFF
+//! binary deltas; [`fingerprint`] verifies file identity; [`engine`] is the shared crash-safe convert
+//! engine (apply a verified delta, swap atomically). Per-game policy (which edition maps to which
+//! fingerprint, which transitions are valid) lives in [`fallout4`].
 
 pub mod delta;
+pub mod engine;
 pub mod fallout4;
 pub mod fingerprint;
+pub mod vcdiff;
 
 use crate::archive::{Ba2Error, Ba2Header, HEADER_LEN};
 use crate::error::io_err;

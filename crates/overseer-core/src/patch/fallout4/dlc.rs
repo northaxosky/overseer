@@ -4,7 +4,7 @@
 //! correct Steam/Gamepass base and textures are brought to the 2K-downscaled revision. Each file
 //! carries an honest provenance `note` instead of an edition label.
 
-use super::engine::{ConvertItem, GroupSpec, Ownership, TargetSpec};
+use crate::patch::engine::{ConvertItem, GroupSpec, Ownership, TargetSpec};
 use crate::patch::fingerprint::ExpectedFingerprint;
 
 /// A DLC file's target identity in the consistency revision, plus its provenance note

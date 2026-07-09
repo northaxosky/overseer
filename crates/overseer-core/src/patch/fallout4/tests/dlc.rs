@@ -1,7 +1,7 @@
 //! Tests for the Fallout 4 DLC consistency policy
 
 use super::*;
-use crate::patch::fallout4::engine::{self, Policy};
+use crate::patch::engine::{self, Policy};
 use crate::patch::fingerprint::FileFingerprint;
 use crate::test_support::temp;
 

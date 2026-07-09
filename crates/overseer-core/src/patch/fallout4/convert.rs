@@ -1,11 +1,11 @@
 //! The core-binary edition policy: flip Fallout 4's three binaries between OG, NG and AE.
 //!
-//! This is a thin policy over the shared [`super::engine`]: it maps each core binary to its target
+//! This is a thin policy over the shared [`crate::patch::engine`]: it maps each core binary to its target
 //! fingerprint for a requested [`Generation`] and exposes the pieces the CLI wires into a `Policy`.
 
-use super::engine::{ConvertItem, GroupSpec, Ownership, TargetSpec};
 use super::fingerprint::{self, CORE_BINARIES, target_fingerprint, target_table_complete};
 use crate::detect::Generation;
+use crate::patch::engine::{ConvertItem, GroupSpec, Ownership, TargetSpec};
 use crate::patch::fingerprint::FileFingerprint;
 
 /// The single mandatory group: the three core binaries that must convert together
