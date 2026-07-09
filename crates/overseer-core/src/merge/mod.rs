@@ -12,6 +12,8 @@ use std::collections::btree_map::Entry as MapEntry;
 use std::ops::Range;
 use thiserror::Error;
 
+pub mod transaction;
+
 /// Default uncompressed bytes per texture archive before splitting; raise it for stronger compressors
 pub const DEFAULT_TEXTURE_GROUP_BYTES: u64 = 4 * 1024 * 1024 * 1024;
 

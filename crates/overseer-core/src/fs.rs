@@ -64,6 +64,25 @@ pub(crate) fn rename(from: &Utf8Path, to: &Utf8Path) -> Result<(), IoError> {
     std::fs::rename(from, to).map_err(|e| io_err(from, e))
 }
 
+/// Move a file, falling back to copy + fsync + remove when a rename crosses volumes; creates parent dirs
+pub(crate) fn move_file(from: &Utf8Path, to: &Utf8Path) -> Result<(), IoError> {
+    if to.exists() {
+        return Err(io_err(
+            to,
+            std::io::Error::new(ErrorKind::AlreadyExists, "move destination already exists"),
+        ));
+    }
+    if let Some(parent) = to.parent() {
+        ensure_dir(parent)?;
+    }
+    if std::fs::rename(from, to).is_ok() {
+        return Ok(());
+    }
+    std::fs::copy(from, to).map_err(|e| io_err(from, e))?;
+    fsync(to)?;
+    remove_file_opt(from)
+}
+
 /// Flush a file to stable storage before an atomic rename; opens with write access (Windows `FlushFileBuffers` needs it)
 pub(crate) fn fsync(path: &Utf8Path) -> Result<(), IoError> {
     let file = std::fs::OpenOptions::new()
@@ -76,6 +95,15 @@ pub(crate) fn fsync(path: &Utf8Path) -> Result<(), IoError> {
 /// Remove a file; `Ok(())` if it's already gone
 pub(crate) fn remove_file_opt(path: &Utf8Path) -> Result<(), IoError> {
     match std::fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(io_err(path, e)),
+    }
+}
+
+/// Remove a directory tree; `Ok(())` if it's already gone
+pub(crate) fn remove_dir_all_opt(path: &Utf8Path) -> Result<(), IoError> {
+    match std::fs::remove_dir_all(path) {
         Ok(()) => Ok(()),
         Err(e) if e.kind() == ErrorKind::NotFound => Ok(()),
         Err(e) => Err(io_err(path, e)),
