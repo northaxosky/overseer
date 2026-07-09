@@ -1,5 +1,7 @@
 //! Emitting a record-free Fallout 4 carrier ESL by hand
 
+use crate::game::GameKind;
+
 /// TES4 record flags: master (0x1) plus light/ESL (0x200)
 const CARRIER_FLAGS: u32 = 0x0000_0201;
 
@@ -42,6 +44,14 @@ pub fn carrier_esl() -> Vec<u8> {
     out.extend_from_slice(&0u32.to_le_bytes());
     out.extend_from_slice(&payload);
     out
+}
+
+/// The carrier plugin bytes for `game`, or None for a game thats not wired up yet
+pub fn carrier_for(game: GameKind) -> Option<Vec<u8>> {
+    match game {
+        GameKind::Fallout4 => Some(carrier_esl()),
+        GameKind::SkyrimSE | GameKind::Starfield => None,
+    }
 }
 
 #[cfg(test)]

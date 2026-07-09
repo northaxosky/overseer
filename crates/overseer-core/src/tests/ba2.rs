@@ -49,7 +49,7 @@ fn general_files_round_trip_compressed() {
         },
     ];
 
-    let img = pack_general(&files, true).expect("pack");
+    let img = pack_general(&files, |_| false).expect("pack");
     let path = stage(&dir, "Merged.ba2", &img);
     let payload = extract(&path).expect("extract");
 
@@ -64,7 +64,7 @@ fn general_files_round_trip_stored() {
         bytes: vec![7u8; 64],
     }];
 
-    let img = pack_general(&files, false).expect("pack");
+    let img = pack_general(&files, |_| true).expect("pack");
     let path = stage(&dir, "Stored.ba2", &img);
     let payload = extract(&path).expect("extract");
 

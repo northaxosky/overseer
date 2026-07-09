@@ -8,7 +8,7 @@ mod load_order;
 mod metadata;
 mod separator;
 
-pub use carrier::carrier_esl;
+pub use carrier::{carrier_esl, carrier_for};
 pub use discover::discover_plugins;
 pub use error::PluginError;
 pub use gamestate::{

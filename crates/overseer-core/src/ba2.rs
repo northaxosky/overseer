@@ -78,13 +78,16 @@ pub fn extract(path: &Utf8Path) -> Result<Ba2Payload, Ba2IoError> {
 }
 
 /// Pack general files into a Fallout 4 v1 GNRL archive, zlib-compressed when `compress` is set
-pub fn pack_general(files: &[Ba2File], compress: bool) -> Result<Vec<u8>, Ba2IoError> {
+pub fn pack_general(
+    files: &[Ba2File],
+    stored: impl Fn(&str) -> bool,
+) -> Result<Vec<u8>, Ba2IoError> {
     let mut writer = btdx::GnrlWriter::new();
     for file in files {
-        if compress {
-            writer.add_file(file.path.as_bytes(), file.bytes.clone())?;
-        } else {
+        if stored(&file.path) {
             writer.add_file_stored(file.path.as_bytes(), file.bytes.clone())?;
+        } else {
+            writer.add_file(file.path.as_bytes(), file.bytes.clone())?;
         }
     }
     Ok(writer.to_vec()?)
