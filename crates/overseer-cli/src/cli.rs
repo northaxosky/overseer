@@ -118,6 +118,9 @@ pub enum Command {
         #[command(subcommand)]
         command: PatchCommand,
     },
+
+    /// Merge BA2 archives into one managed mod, reversibly
+    Merge(MergeArgs),
 }
 
 /// The instance directory, shared by every instance-scoped subcommand
@@ -381,6 +384,42 @@ pub enum PatchCommand {
         #[arg(long)]
         yes: bool,
     },
+}
+
+/// Arguments for `overseer merge`
+#[derive(Args)]
+pub struct MergeArgs {
+    #[command(flatten)]
+    pub target: ProfileArgs,
+    #[command(flatten)]
+    pub source: MergeSource,
+    /// Output mod name (required with --list, defaults to CCMerged with --cc)
+    #[arg(long, value_name = "NAME")]
+    pub name: Option<String>,
+    /// Uncompressed texture group cap in GiB before a split (default 4)
+    #[arg(long, value_name = "GIB")]
+    pub texture_cap: Option<u64>,
+    /// Show the plan without writing
+    #[arg(long)]
+    pub dry_run: bool,
+    /// Apply the merge
+    #[arg(long)]
+    pub yes: bool,
+}
+
+/// The mutually exclusive selector for what `merge` acts on
+#[derive(Args)]
+#[group(required = true, multiple = false)]
+pub struct MergeSource {
+    /// Merge the profile's Creation Club archive
+    #[arg(long)]
+    pub cc: bool,
+    /// Merge the plugins listed in FILE (one filename per line, # comments allowed)
+    #[arg(long, value_name = "FILE")]
+    pub list: Option<Utf8PathBuf>,
+    /// Reverse a previous merge by name, restoring its archives
+    #[arg(long, value_name = "NAME")]
+    pub restore: Option<String>,
 }
 
 /// A Fallout 4 generation as a CLI argument (`og` / `ng` / `ae`), mapping to core's [`Generation`]

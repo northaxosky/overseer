@@ -8,6 +8,7 @@ pub mod exe;
 pub mod install;
 pub mod instance;
 pub mod launch;
+pub mod merge;
 pub mod mods;
 pub mod patch;
 pub mod plugins;

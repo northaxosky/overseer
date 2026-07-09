@@ -705,3 +705,98 @@ fn saves_list_and_delete_manage_fos_files() {
         .stdout(predicate::str::contains("Deleted"));
     assert!(!save.exists(), "the .fos should be gone after delete");
 }
+
+/// Write a one-file GNRL archive at `path`, mirroring how the core merge tests build sources
+fn write_main_ba2(path: &Path, entry: &str) {
+    let files = [overseer_core::ba2::Ba2File {
+        path: entry.to_owned(),
+        bytes: b"payload".to_vec(),
+    }];
+    let img = overseer_core::ba2::pack_general(&files, |_| false).expect("pack general");
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(path, img).unwrap();
+}
+
+#[test]
+fn merge_cc_dry_run_reports_the_plan_without_writing() {
+    let tmp = TempDir::new().unwrap();
+    let inst = init_instance(&tmp);
+    let inst_s = inst.to_str().unwrap();
+
+    // Two Creation Club plugins, each active with a Main archive in Data/
+    let data = tmp.path().join("game").join("Data");
+    write_main_ba2(
+        &data.join("ccBGSFO4001-PipBoy(Black) - Main.ba2"),
+        "black/a.nif",
+    );
+    write_main_ba2(
+        &data.join("ccBGSFO4002-PipBoy(Blue) - Main.ba2"),
+        "blue/b.nif",
+    );
+    std::fs::write(
+        inst.join("profiles").join("Default").join("plugins.txt"),
+        "*ccBGSFO4001-PipBoy(Black).esl\n*ccBGSFO4002-PipBoy(Blue).esl\n",
+    )
+    .unwrap();
+
+    overseer(&["merge", "--cc", "--dry-run", "--instance", inst_s])
+        .success()
+        .stdout(predicate::str::contains("Dry run"))
+        .stdout(predicate::str::contains(
+            "2 plugin(s), 2 source archive(s) will be merged into `CCMerged`",
+        ));
+
+    // A dry run writes nothing: no managed mod, no manifest
+    assert!(!inst.join("mods").join("CCMerged").exists());
+    assert!(!inst.join("merges").join("CCMerged.json").exists());
+}
+
+#[test]
+fn merge_list_then_restore_round_trips_the_sources() {
+    let tmp = TempDir::new().unwrap();
+    let inst = init_instance(&tmp);
+    let inst_s = inst.to_str().unwrap();
+
+    let data = tmp.path().join("game").join("Data");
+    let a_ba2 = data.join("ModA - Main.ba2");
+    let b_ba2 = data.join("ModB - Main.ba2");
+    write_main_ba2(&a_ba2, "a/one.nif");
+    write_main_ba2(&b_ba2, "b/two.nif");
+    std::fs::write(
+        inst.join("profiles").join("Default").join("plugins.txt"),
+        "*ModA.esp\n*ModB.esp\n",
+    )
+    .unwrap();
+
+    let list = tmp.path().join("merge-list.txt");
+    std::fs::write(&list, "# merge these\nModA.esp\nModB.esp\n").unwrap();
+
+    overseer(&[
+        "merge",
+        "--list",
+        list.to_str().unwrap(),
+        "--name",
+        "Merged",
+        "--yes",
+        "--instance",
+        inst_s,
+    ])
+    .success()
+    .stdout(predicate::str::contains("merged into `Merged`"));
+
+    // The managed mod and manifest exist; the sources moved out of Data/
+    assert!(inst.join("mods").join("Merged").is_dir());
+    assert!(inst.join("merges").join("Merged.json").is_file());
+    assert!(!a_ba2.exists());
+    assert!(!b_ba2.exists());
+
+    overseer(&["merge", "--restore", "Merged", "--instance", inst_s])
+        .success()
+        .stdout(predicate::str::contains("restored merge `Merged`"));
+
+    // Restore returns the sources and drops the mod and manifest
+    assert!(a_ba2.exists());
+    assert!(b_ba2.exists());
+    assert!(!inst.join("mods").join("Merged").exists());
+    assert!(!inst.join("merges").join("Merged.json").exists());
+}
