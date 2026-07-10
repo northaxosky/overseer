@@ -101,6 +101,8 @@ fn a_plugin_separator_renders_as_a_header_in_the_plugins_pane() {
         name: "Endgame".to_owned(),
         anchor: Some("Cool.esp".to_owned()),
     });
+    app.plugins
+        .reset(&app.session.order.plugins, &app.session.plugin_separators);
     let out = render(&mut app, 80, 12);
     assert!(out.contains("Endgame"), "the plugin separator's name shows");
     assert!(out.contains("──"), "it renders as a header rule");

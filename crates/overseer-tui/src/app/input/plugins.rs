@@ -1,11 +1,14 @@
-//! The Plugins workspace's separators: view-model, CRUD, and collapse
+//! The Plugins workspace's separator CRUD, collapse, and insertion policy
 
-use crate::app::{App, Confirm, ConfirmAction, Focus, Modal, Prompt, PromptKind, Workspace};
-use overseer_core::plugins::{PluginRow, SeparatorError, merge_rows};
+use crate::app::{
+    App, Confirm, ConfirmAction, Focus, Modal, PluginPaneRow, Prompt, PromptKind, Workspace,
+};
+use overseer_core::plugins::SeparatorError;
 
-/// A plugin separator's collapse key: its display name, lowercased
-fn plugin_group_key(name: &str) -> String {
-    name.to_ascii_lowercase()
+#[derive(Debug, PartialEq, Eq)]
+struct PluginSeparatorInsert {
+    at: usize,
+    anchor: Option<String>,
 }
 
 impl App {
@@ -14,87 +17,41 @@ impl App {
         self.focus == Focus::Workspace && self.workspace == Workspace::Plugins
     }
 
-    /// The merged plugins rows in display order, hiding plugins under a collapsed separator
-    pub(crate) fn plugins_visible_rows(&self) -> Vec<PluginRow> {
-        let rows = merge_rows(
-            &self.session.order.plugins,
-            &self.session.plugin_separators.items,
-        );
-        let mut out = Vec::with_capacity(rows.len());
-        let mut hidden = false;
-        for row in rows {
-            match row {
-                PluginRow::Separator(s) => {
-                    hidden = self.is_plugin_collapsed(s);
-                    out.push(row);
-                }
-                PluginRow::Plugin(_) if !hidden => out.push(row),
-                PluginRow::Plugin(_) => {}
-            }
-        }
-        out
-    }
-
-    /// The merged row selected in the plugins pane, translating from display space
-    pub(crate) fn selected_plugin_row(&self) -> Option<PluginRow> {
-        self.plugins_visible_rows()
-            .get(self.plugins_state.selected()?)
-            .copied()
-    }
-
-    /// Whether the plugin separator at `sep_index` is collapsed
-    pub(crate) fn is_plugin_collapsed(&self, sep_index: usize) -> bool {
-        let name = &self.session.plugin_separators.items[sep_index].name;
-        self.plugins_collapsed.contains(&plugin_group_key(name))
-    }
-
-    /// The number of plugins grouped under the plugin separator at `sep_index`
-    pub(crate) fn plugin_group_members(&self, sep_index: usize) -> usize {
-        let rows = merge_rows(
-            &self.session.order.plugins,
-            &self.session.plugin_separators.items,
-        );
-        let mut counting = false;
-        let mut members = 0;
-        for row in rows {
-            match row {
-                PluginRow::Separator(s) if s == sep_index => counting = true,
-                PluginRow::Separator(_) if counting => break,
-                PluginRow::Plugin(_) if counting => members += 1,
-                _ => {}
-            }
-        }
-        members
-    }
-
-    /// Toggle the plugin separator at `sep_index` between collapsed and expanded
-    fn toggle_plugin_collapsed(&mut self, sep_index: usize) {
-        let key = plugin_group_key(&self.session.plugin_separators.items[sep_index].name);
-        if !self.plugins_collapsed.remove(&key) {
-            self.plugins_collapsed.insert(key);
-        }
-        self.clamp_plugins_selection();
-    }
-
     /// Re-clamp the plugins display selection into the visible bounds
     pub(super) fn clamp_plugins_selection(&mut self) {
-        let len = self.plugins_visible_rows().len();
-        super::clamp_selection(&mut self.plugins_state, len);
+        let len = self
+            .plugins
+            .project(&self.session.order.plugins, &self.session.plugin_separators)
+            .len();
+        self.plugins.clamp(len);
     }
 
     /// Space/Enter in the Plugins pane: collapse a separator row, or toggle a plugin active
     pub(super) fn toggle_selected_plugin_row(&mut self) -> bool {
-        match self.selected_plugin_row() {
-            Some(PluginRow::Separator(s)) => {
-                self.toggle_plugin_collapsed(s);
+        let rows = self
+            .plugins
+            .project(&self.session.order.plugins, &self.session.plugin_separators);
+        let Some(row) = self
+            .plugins
+            .index()
+            .and_then(|index| rows.get(index))
+            .copied()
+        else {
+            return false;
+        };
+        match row {
+            PluginPaneRow::Separator {
+                separator_index, ..
+            } => {
+                self.plugins.toggle_separator(separator_index);
+                self.clamp_plugins_selection();
                 false
             }
-            Some(PluginRow::Plugin(i)) => {
-                let p = &mut self.session.order.plugins[i];
-                p.active = !p.active;
+            PluginPaneRow::Plugin { plugin_index } => {
+                let plugin = &mut self.session.order.plugins[plugin_index];
+                plugin.active = !plugin.active;
                 true
             }
-            None => false,
         }
     }
 
@@ -122,40 +79,75 @@ impl App {
         }
     }
 
-    /// Insert a plugin separator anchored above the selection and persist; revert on save failure
+    /// Insert a plugin separator above the semantic selection and persist with rollback
     fn insert_selected_plugin_separator(&mut self, name: &str) -> Result<(), String> {
-        let anchor = self.anchor_below_selection();
-        let at = self.session.plugin_separators.items.len();
+        let rows = self
+            .plugins
+            .project(&self.session.order.plugins, &self.session.plugin_separators);
+        let insert = self.resolve_plugin_separator_insert(&rows);
         self.session
             .plugin_separators
-            .insert(at, anchor, name)
+            .insert(insert.at, insert.anchor, name)
             .map_err(|e| e.to_string())?;
-        self.clamp_plugins_selection();
         if let Err(e) = self.save_plugin_separators() {
-            self.session.plugin_separators.items.remove(at);
+            self.session.plugin_separators.items.remove(insert.at);
             return Err(format!("Could not save: {e}"));
         }
-        self.reselect_plugin_separator(at);
+        self.plugins.insert_separator(insert.at);
+        self.reselect_plugin_separator(insert.at);
         Ok(())
     }
 
-    /// The name of the first plugin at or below the current selection, or None for a trailing group
-    fn anchor_below_selection(&self) -> Option<String> {
-        let rows = self.plugins_visible_rows();
-        let start = self.plugins_state.selected().unwrap_or(0);
-        rows.get(start..)?.iter().find_map(|row| match row {
-            PluginRow::Plugin(i) => Some(self.session.order.plugins[*i].name.clone()),
-            PluginRow::Separator(_) => None,
-        })
+    /// Resolve sidecar position and anchor for a separator inserted above the selected row
+    fn resolve_plugin_separator_insert(&self, rows: &[PluginPaneRow]) -> PluginSeparatorInsert {
+        let selected = self
+            .plugins
+            .index()
+            .and_then(|index| rows.get(index))
+            .copied()
+            .or_else(|| rows.first().copied());
+        match selected {
+            Some(PluginPaneRow::Plugin { plugin_index }) => PluginSeparatorInsert {
+                at: self.session.plugin_separators.items.len(),
+                anchor: Some(self.session.order.plugins[plugin_index].name.clone()),
+            },
+            Some(PluginPaneRow::Separator {
+                separator_index, ..
+            }) => PluginSeparatorInsert {
+                at: separator_index,
+                anchor: self.session.plugin_separators.items[separator_index]
+                    .anchor
+                    .clone(),
+            },
+            None => PluginSeparatorInsert {
+                at: self.session.plugin_separators.items.len(),
+                anchor: None,
+            },
+        }
     }
 
     /// Open the rename prompt for the selected plugin separator; note when the row is a plugin
     pub(super) fn open_rename_plugin_separator(&mut self) {
-        match self.selected_plugin_row() {
-            Some(PluginRow::Separator(index)) => {
-                let name = self.session.plugin_separators.items[index].name.clone();
+        let rows = self
+            .plugins
+            .project(&self.session.order.plugins, &self.session.plugin_separators);
+        let selected = self
+            .plugins
+            .index()
+            .and_then(|index| rows.get(index))
+            .copied();
+        match selected {
+            Some(PluginPaneRow::Separator {
+                separator_index, ..
+            }) => {
+                let name = self.session.plugin_separators.items[separator_index]
+                    .name
+                    .clone();
                 self.modal = Some(Modal::Prompt(Prompt {
-                    kind: PromptKind::RenamePluginSeparator { index, name },
+                    kind: PromptKind::RenamePluginSeparator {
+                        index: separator_index,
+                        name,
+                    },
                     input: String::new(),
                     error: None,
                 }));
@@ -179,21 +171,21 @@ impl App {
         }
     }
 
-    /// Rename the plugin separator at `index` and persist; revert the in-memory rename on failure
+    /// Rename the plugin separator at `index` and persist with rollback
     fn rename_plugin_separator(&mut self, index: usize, name: &str) -> Result<(), String> {
-        let prev = self
+        let previous = self
             .session
             .plugin_separators
             .items
             .get(index)
-            .map(|s| s.name.clone())
+            .map(|separator| separator.name.clone())
             .ok_or_else(|| "That separator is gone".to_owned())?;
         self.session
             .plugin_separators
             .rename(index, name)
             .map_err(|e| e.to_string())?;
         if let Err(e) = self.save_plugin_separators() {
-            self.session.plugin_separators.items[index].name = prev;
+            self.session.plugin_separators.items[index].name = previous;
             return Err(format!("Could not save: {e}"));
         }
         self.reselect_plugin_separator(index);
@@ -202,26 +194,41 @@ impl App {
 
     /// Confirm deleting the selected plugin separator; note when the row is a plugin
     pub(super) fn begin_delete_selected_plugin_separator(&mut self) {
-        match self.selected_plugin_row() {
-            Some(PluginRow::Separator(index)) => {
-                let name = self.session.plugin_separators.items[index].name.clone();
+        let rows = self
+            .plugins
+            .project(&self.session.order.plugins, &self.session.plugin_separators);
+        let selected = self
+            .plugins
+            .index()
+            .and_then(|index| rows.get(index))
+            .copied();
+        match selected {
+            Some(PluginPaneRow::Separator {
+                separator_index, ..
+            }) => {
+                let name = self.session.plugin_separators.items[separator_index]
+                    .name
+                    .clone();
                 self.modal = Some(Modal::Confirm(Confirm {
                     message: format!(
                         "Delete plugin separator {name}? Its plugins keep their order."
                     ),
-                    action: ConfirmAction::DeletePluginSeparator { index },
+                    action: ConfirmAction::DeletePluginSeparator {
+                        index: separator_index,
+                    },
                 }));
             }
             _ => self.note("Select a plugin separator to delete"),
         }
     }
 
-    /// Remove the plugin separator at `index` and persist; re-insert it in memory on save failure
+    /// Remove a plugin separator and persist with rollback
     pub(super) fn delete_plugin_separator(&mut self, index: usize) {
         let Some(removed) = self.session.plugin_separators.items.get(index).cloned() else {
             self.note("That separator is gone");
             return;
         };
+        let prior_selection = self.plugins.index();
         if let Err(e) = self.session.plugin_separators.remove(index) {
             self.fail(format!("Delete failed: {e}"));
             return;
@@ -231,17 +238,28 @@ impl App {
             self.fail(format!("Could not save: {e}"));
             return;
         }
+        self.plugins.remove_separator(index);
+        self.plugins.select(prior_selection);
         self.clamp_plugins_selection();
         self.ok(format!("Deleted plugin separator {}", removed.name));
     }
 
-    /// Select the display row for the plugin separator at items index `index`
+    /// Select the display row for the plugin separator at sidecar index `index`
     fn reselect_plugin_separator(&mut self, index: usize) {
         let display = self
-            .plugins_visible_rows()
+            .plugins
+            .project(&self.session.order.plugins, &self.session.plugin_separators)
             .iter()
-            .position(|row| *row == PluginRow::Separator(index));
-        self.plugins_state.select(display);
+            .position(|row| {
+                matches!(
+                    row,
+                    PluginPaneRow::Separator {
+                        separator_index,
+                        ..
+                    } if *separator_index == index
+                )
+            });
+        self.plugins.select(display);
     }
 
     /// Persist the plugin separators sidecar for the active profile

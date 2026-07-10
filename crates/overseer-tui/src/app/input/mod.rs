@@ -11,14 +11,11 @@ mod saves;
 mod select;
 
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use ratatui::widgets::ListState;
 
 use overseer_core::deploy::detect_conflicts;
 
 use super::sort::{DownloadsPane, SavesPane};
-use super::{
-    App, ConflictsStatus, Focus, ListCursor, Modal, SelectKind, Workspace, initial_selection,
-};
+use super::{App, ConflictsStatus, Focus, ListCursor, Modal, SelectKind, Workspace};
 
 #[derive(Clone, Copy)]
 enum RefreshCause {
@@ -163,9 +160,9 @@ impl App {
 
     /// After replacing `self.session`, reset the per-pane selection and refresh workspace
     pub(super) fn after_session_changed(&mut self) {
-        self.plugins_collapsed.clear();
         self.mods.reset(&self.session.profile.mods);
-        self.plugins_state = initial_selection(self.plugins_visible_rows().len());
+        self.plugins
+            .reset(&self.session.order.plugins, &self.session.plugin_separators);
         self.conflicts.list.reset_first(0);
         self.downloads.list.reset_first(0);
         self.saves.list.reset_first(0);
@@ -185,8 +182,11 @@ impl Workspace {
     /// Move this workspace's list selection within its current row count
     fn move_selection(self, app: &mut App, delta: isize) {
         if self == Workspace::Plugins {
-            let len = app.plugins_visible_rows().len();
-            move_in_list(&mut app.plugins_state, len, delta);
+            let len = app
+                .plugins
+                .project(&app.session.order.plugins, &app.session.plugin_separators)
+                .len();
+            app.plugins.move_by(len, delta);
             return;
         }
         let (selection, len) = self
@@ -251,25 +251,6 @@ impl Workspace {
 fn is_quit(key: KeyEvent) -> bool {
     matches!(key.code, KeyCode::Char('q') | KeyCode::Esc)
         || (key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c'))
-}
-
-/// Keep a selection within `[0, len)`, clear it when the list is empty
-fn clamp_selection(state: &mut ListState, len: usize) {
-    if len == 0 {
-        state.select(None);
-    } else if let Some(i) = state.selected() {
-        state.select(Some(i.min(len - 1)));
-    }
-}
-
-/// Move a list selection by `delta` clamped to `[0, len)`
-fn move_in_list(state: &mut ListState, len: usize, delta: isize) {
-    if len == 0 {
-        return;
-    }
-    let current = state.selected().unwrap_or(0) as isize;
-    let next = (current + delta).clamp(0, len as isize - 1) as usize;
-    state.select(Some(next));
 }
 
 /// Shared fixtures for the input submodule tests

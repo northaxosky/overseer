@@ -1,8 +1,8 @@
 //! Shared in-memory fixtures for the TUI tests.
 
 use crate::app::{
-    App, ConflictsState, DownloadsState, Focus, ModsPane, SavesState, Session, Workspace,
-    initial_selection,
+    App, ConflictsState, DownloadsState, Focus, ModsPane, PluginsPane, SavesState, Session,
+    Workspace,
 };
 use camino::{Utf8Path, Utf8PathBuf};
 use overseer_core::install::DownloadEntry;
@@ -57,6 +57,7 @@ impl App {
             status: None,
         };
         let mods = ModsPane::new(&session.profile.mods);
+        let plugins = PluginsPane::new(&session.order.plugins, &session.plugin_separators);
         Self {
             should_quit: false,
             modal: None,
@@ -72,8 +73,7 @@ impl App {
             },
             session,
             mods,
-            plugins_state: initial_selection(2),
-            plugins_collapsed: std::collections::HashSet::new(),
+            plugins,
             conflicts: ConflictsState::default(),
             downloads: DownloadsState::default(),
             saves: SavesState::default(),

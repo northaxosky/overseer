@@ -57,7 +57,7 @@ fn selection_moves_and_clamps_within_the_focused_pane() {
     app.move_main_selection(1); // at bottom (len 2) → clamps
     assert_eq!(app.mods.index(), Some(1));
     // The plugins pane is independent and untouched while Mods is focused
-    assert_eq!(app.plugins_state.selected(), Some(0));
+    assert_eq!(app.plugins.index(), Some(0));
 }
 
 #[test]
@@ -122,9 +122,9 @@ fn jk_route_to_the_active_workspace_list() {
     app.focus = Focus::Workspace;
 
     // Plugins workspace (default): j/k move the plugins list
-    assert_eq!(app.plugins_state.selected(), Some(0));
+    assert_eq!(app.plugins.index(), Some(0));
     app.move_main_selection(1);
-    assert_eq!(app.plugins_state.selected(), Some(1));
+    assert_eq!(app.plugins.index(), Some(1));
 
     // Conflicts workspace: j/k move the conflicts list, leaving plugins put
     app.workspace = Workspace::Conflicts;
@@ -132,11 +132,7 @@ fn jk_route_to_the_active_workspace_list() {
     app.conflicts.list.select(Some(0));
     app.move_main_selection(1);
     assert_eq!(app.conflicts.list.index(), Some(1), "conflicts list moves");
-    assert_eq!(
-        app.plugins_state.selected(),
-        Some(1),
-        "plugins list untouched"
-    );
+    assert_eq!(app.plugins.index(), Some(1), "plugins list untouched");
 }
 
 #[test]
@@ -362,7 +358,7 @@ fn conflicts_selection_length_tracks_the_scan_status() {
 fn after_session_changed_resets_selection_and_marks_conflicts_stale() {
     let mut app = App::sample();
     app.mods.select(Some(1));
-    app.plugins_state.select(Some(1));
+    app.plugins.select(Some(1));
     *app.conflicts.list.state_mut().offset_mut() = 2;
     *app.downloads.list.state_mut().offset_mut() = 3;
     *app.saves.list.state_mut().offset_mut() = 4;
@@ -377,7 +373,7 @@ fn after_session_changed_resets_selection_and_marks_conflicts_stale() {
         "mods selection resets to the top"
     );
     assert_eq!(
-        app.plugins_state.selected(),
+        app.plugins.index(),
         Some(0),
         "plugins selection resets to the top"
     );

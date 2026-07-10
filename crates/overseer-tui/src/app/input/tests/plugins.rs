@@ -1,10 +1,8 @@
 //! Tests for the Plugins workspace's separators: CRUD, collapse, and the sidecar guard
 
+use super::*;
 use crate::app::input::test_helpers::key;
-use crate::app::{App, Confirm, ConfirmAction, Focus, Modal, Prompt, PromptKind, Workspace};
-use overseer_core::plugins::{
-    PluginEntry, PluginLoadOrder, PluginRow, PluginSeparators, Separator,
-};
+use overseer_core::plugins::{PluginEntry, PluginLoadOrder, PluginSeparators, Separator};
 use ratatui::crossterm::event::KeyCode;
 
 /// An app on a temp instance with two plugins, focused on the Plugins pane
@@ -32,28 +30,89 @@ fn app_with_plugins() -> (tempfile::TempDir, App) {
         .profile
         .save(&app.session.instance)
         .expect("seed the profile dir");
-    app.plugins_state.select(Some(0));
+    app.plugins
+        .reset(&app.session.order.plugins, &app.session.plugin_separators);
+    app.plugins.select(Some(0));
     (tmp, app)
 }
 
-/// The display index of the first separator row, or a panic
-fn separator_display_index(app: &App) -> usize {
-    app.plugins_visible_rows()
+/// Find a separator's display index from its sidecar index
+fn separator_display_index(app: &App, separator_index: usize) -> usize {
+    app.plugins
+        .project(&app.session.order.plugins, &app.session.plugin_separators)
         .iter()
-        .position(|row| matches!(row, PluginRow::Separator(_)))
+        .position(|row| {
+            matches!(
+                row,
+                PluginPaneRow::Separator {
+                    separator_index: index,
+                    ..
+                } if *index == separator_index
+            )
+        })
         .expect("a separator is visible")
 }
 
-#[test]
-fn a_inserts_a_plugin_separator_above_the_selected_plugin_and_persists() {
-    let (_tmp, mut app) = app_with_plugins();
-    app.plugins_state.select(Some(1)); // Beta.esp
+/// Find a plugin's display index from its load-order index
+fn plugin_display_index(app: &App, plugin_index: usize) -> usize {
+    app.plugins
+        .project(&app.session.order.plugins, &app.session.plugin_separators)
+        .iter()
+        .position(|row| {
+            matches!(
+                row,
+                PluginPaneRow::Plugin {
+                    plugin_index: index
+                } if *index == plugin_index
+            )
+        })
+        .expect("a plugin is visible")
+}
 
+/// Reset Plugins pane state after direct fixture mutation
+fn sync_plugins(app: &mut App) {
+    app.plugins
+        .reset(&app.session.order.plugins, &app.session.plugin_separators);
+}
+
+/// Add a sidecar separator fixture and reset pane state
+fn add_separator(app: &mut App, name: &str, anchor: Option<&str>) {
+    app.session.plugin_separators.items.push(Separator {
+        name: name.to_owned(),
+        anchor: anchor.map(str::to_owned),
+    });
+    sync_plugins(app);
+}
+
+/// Select a separator by sidecar index
+fn select_separator(app: &mut App, separator_index: usize) {
+    app.plugins
+        .select(Some(separator_display_index(app, separator_index)));
+}
+
+/// Submit the new plugin separator prompt with `name`
+fn submit_new_separator(app: &mut App, name: &str) {
     app.handle_key(key(KeyCode::Char('A')));
-    for c in "Middle".chars() {
+    for c in name.chars() {
         app.handle_key(key(KeyCode::Char(c)));
     }
     app.handle_key(key(KeyCode::Enter));
+}
+
+/// Block profile writes to exercise persistence rollback
+fn block_profile_writes(app: &App) {
+    let profiles = app.session.instance.profiles_dir();
+    std::fs::remove_dir_all(&profiles).expect("remove profiles");
+    std::fs::write(&profiles, b"not a directory").expect("block profiles");
+}
+
+/// Plugin insertion anchors above the selection and preserves sidecar bytes
+#[test]
+fn a_inserts_a_plugin_separator_above_the_selected_plugin_and_persists() {
+    let (_tmp, mut app) = app_with_plugins();
+    app.plugins.select(Some(1)); // Beta.esp
+
+    submit_new_separator(&mut app, "Middle");
 
     assert!(app.modal.is_none(), "a successful create closes the prompt");
     assert_eq!(app.session.plugin_separators.items.len(), 1);
@@ -69,6 +128,10 @@ fn a_inserts_a_plugin_separator_above_the_selected_plugin_and_persists() {
     let reloaded = PluginSeparators::load(&dir).expect("reload the sidecar");
     assert_eq!(reloaded.items.len(), 1, "the sidecar was persisted");
     assert_eq!(reloaded.items[0].anchor.as_deref(), Some("Beta.esp"));
+    assert_eq!(
+        std::fs::read_to_string(dir.join("separators.txt")).expect("read sidecar"),
+        "Beta.esp\tMiddle\n"
+    );
 }
 
 #[test]
@@ -76,13 +139,9 @@ fn a_with_no_plugin_below_anchors_to_the_trailing_group() {
     let (_tmp, mut app) = app_with_plugins();
     // No plugins at all: the new separator can only trail the list
     app.session.order.plugins.clear();
-    app.plugins_state.select(Some(0));
+    app.plugins.select(None);
 
-    app.handle_key(key(KeyCode::Char('A')));
-    for c in "Tail".chars() {
-        app.handle_key(key(KeyCode::Char(c)));
-    }
-    app.handle_key(key(KeyCode::Enter));
+    submit_new_separator(&mut app, "Tail");
 
     assert_eq!(app.session.plugin_separators.items.len(), 1);
     assert_eq!(
@@ -91,15 +150,151 @@ fn a_with_no_plugin_below_anchors_to_the_trailing_group() {
     );
 }
 
+/// Plugin insertion follows existing separators with the same anchor
+#[test]
+fn inserting_above_a_plugin_appends_after_same_anchor_separators() {
+    let (_tmp, mut app) = app_with_plugins();
+    add_separator(&mut app, "First", Some("Beta.esp"));
+    add_separator(&mut app, "Second", Some("Beta.esp"));
+    app.plugins.select(Some(plugin_display_index(&app, 1)));
+
+    submit_new_separator(&mut app, "Third");
+
+    assert_eq!(
+        app.session
+            .plugin_separators
+            .items
+            .iter()
+            .map(|separator| separator.name.as_str())
+            .collect::<Vec<_>>(),
+        ["First", "Second", "Third"]
+    );
+    assert!(
+        app.session
+            .plugin_separators
+            .items
+            .iter()
+            .all(|separator| separator.anchor.as_deref() == Some("Beta.esp"))
+    );
+    assert_eq!(app.plugins.index(), Some(separator_display_index(&app, 2)));
+}
+
+/// Expanded separator insertion uses the selected sidecar position
+#[test]
+fn inserting_above_an_expanded_separator_uses_its_sidecar_position() {
+    let (_tmp, mut app) = app_with_plugins();
+    add_separator(&mut app, "First", Some("Beta.esp"));
+    add_separator(&mut app, "Target", Some("Beta.esp"));
+    select_separator(&mut app, 1);
+
+    submit_new_separator(&mut app, "New");
+
+    assert_eq!(
+        app.session
+            .plugin_separators
+            .items
+            .iter()
+            .map(|separator| separator.name.as_str())
+            .collect::<Vec<_>>(),
+        ["First", "New", "Target"]
+    );
+    assert_eq!(
+        app.session.plugin_separators.items[1].anchor.as_deref(),
+        Some("Beta.esp")
+    );
+}
+
+/// Collapsed separator insertion preserves the selected collapse entry
+#[test]
+fn inserting_above_a_collapsed_separator_preserves_its_collapse() {
+    let (_tmp, mut app) = app_with_plugins();
+    add_separator(&mut app, "First", Some("Beta.esp"));
+    add_separator(&mut app, "Target", Some("Beta.esp"));
+    select_separator(&mut app, 1);
+    app.handle_key(key(KeyCode::Char(' ')));
+
+    submit_new_separator(&mut app, "New");
+
+    let rows = app
+        .plugins
+        .project(&app.session.order.plugins, &app.session.plugin_separators);
+    assert!(matches!(
+        rows[separator_display_index(&app, 1)],
+        PluginPaneRow::Separator {
+            collapsed: false,
+            ..
+        }
+    ));
+    assert!(matches!(
+        rows[separator_display_index(&app, 2)],
+        PluginPaneRow::Separator {
+            collapsed: true,
+            member_count: 1,
+            ..
+        }
+    ));
+    assert!(
+        !rows
+            .iter()
+            .any(|row| matches!(row, PluginPaneRow::Plugin { plugin_index: 1 }))
+    );
+}
+
+/// Stale trailing insertion preserves trailing sidecar order
+#[test]
+fn inserting_above_a_stale_trailing_separator_keeps_trailing_order() {
+    let (_tmp, mut app) = app_with_plugins();
+    add_separator(&mut app, "Trailing", None);
+    add_separator(&mut app, "Stale", Some("Missing.esp"));
+    select_separator(&mut app, 1);
+
+    submit_new_separator(&mut app, "New");
+
+    assert_eq!(
+        app.session
+            .plugin_separators
+            .items
+            .iter()
+            .map(|separator| separator.name.as_str())
+            .collect::<Vec<_>>(),
+        ["Trailing", "New", "Stale"]
+    );
+    assert_eq!(
+        app.session.plugin_separators.items[1].anchor.as_deref(),
+        Some("Missing.esp")
+    );
+}
+
+/// Missing selection falls back to the first projected row
+#[test]
+fn inserting_without_selection_uses_the_first_projected_row() {
+    let (_tmp, mut app) = app_with_plugins();
+    add_separator(&mut app, "Existing", Some("Alpha.esp"));
+    app.plugins.select(None);
+
+    submit_new_separator(&mut app, "New");
+
+    assert_eq!(
+        app.session
+            .plugin_separators
+            .items
+            .iter()
+            .map(|separator| separator.name.as_str())
+            .collect::<Vec<_>>(),
+        ["New", "Existing"]
+    );
+    assert_eq!(
+        app.session.plugin_separators.items[0].anchor.as_deref(),
+        Some("Alpha.esp")
+    );
+}
+
 #[test]
 fn renaming_a_plugin_separator_round_trips() {
     let (_tmp, mut app) = app_with_plugins();
-    app.session.plugin_separators.items.push(Separator {
-        name: "Old".to_owned(),
-        anchor: Some("Beta.esp".to_owned()),
-    });
-    app.plugins_state
-        .select(Some(separator_display_index(&app)));
+    add_separator(&mut app, "Old", Some("Beta.esp"));
+    select_separator(&mut app, 0);
+    app.handle_key(key(KeyCode::Char(' ')));
 
     app.handle_key(key(KeyCode::Char('R')));
     match &app.modal {
@@ -122,12 +317,20 @@ fn renaming_a_plugin_separator_round_trips() {
     let dir = app.session.instance.profile_dir("Default");
     let reloaded = PluginSeparators::load(&dir).expect("reload");
     assert_eq!(reloaded.items[0].name, "New", "persisted to disk");
+    assert!(matches!(
+        app.plugins
+            .project(&app.session.order.plugins, &app.session.plugin_separators)[1],
+        PluginPaneRow::Separator {
+            collapsed: true,
+            ..
+        }
+    ));
 }
 
 #[test]
 fn r_on_a_plugin_row_notes_instead_of_renaming() {
     let (_tmp, mut app) = app_with_plugins();
-    app.plugins_state.select(Some(0)); // Alpha.esp, a plugin row
+    app.plugins.select(Some(0)); // Alpha.esp, a plugin row
 
     app.handle_key(key(KeyCode::Char('R')));
 
@@ -138,16 +341,12 @@ fn r_on_a_plugin_row_notes_instead_of_renaming() {
 #[test]
 fn deleting_a_plugin_separator_removes_it_and_persists() {
     let (_tmp, mut app) = app_with_plugins();
-    app.session.plugin_separators.items.push(Separator {
-        name: "Group".to_owned(),
-        anchor: Some("Beta.esp".to_owned()),
-    });
+    add_separator(&mut app, "Group", Some("Beta.esp"));
     app.session
         .plugin_separators
         .save(&app.session.instance.profile_dir("Default"))
         .expect("seed the sidecar");
-    app.plugins_state
-        .select(Some(separator_display_index(&app)));
+    select_separator(&mut app, 0);
 
     app.handle_key(key(KeyCode::Char('x')));
     assert!(
@@ -173,10 +372,58 @@ fn deleting_a_plugin_separator_removes_it_and_persists() {
     assert!(reloaded.items.is_empty(), "persisted to disk");
 }
 
+/// Deletion keeps later collapse entries aligned
+#[test]
+fn deleting_a_separator_keeps_later_collapse_state_aligned() {
+    let (_tmp, mut app) = app_with_plugins();
+    add_separator(&mut app, "First", Some("Alpha.esp"));
+    add_separator(&mut app, "Second", Some("Beta.esp"));
+    select_separator(&mut app, 1);
+    app.handle_key(key(KeyCode::Char(' ')));
+    select_separator(&mut app, 0);
+
+    app.handle_key(key(KeyCode::Char('x')));
+    app.handle_key(key(KeyCode::Char('y')));
+
+    assert_eq!(app.session.plugin_separators.items[0].name, "Second");
+    assert!(matches!(
+        app.plugins
+            .project(&app.session.order.plugins, &app.session.plugin_separators)[1],
+        PluginPaneRow::Separator {
+            separator_index: 0,
+            collapsed: true,
+            ..
+        }
+    ));
+}
+
+/// Recreating a deleted label starts expanded
+#[test]
+fn recreating_a_deleted_label_starts_expanded() {
+    let (_tmp, mut app) = app_with_plugins();
+    add_separator(&mut app, "Group", Some("Beta.esp"));
+    select_separator(&mut app, 0);
+    app.handle_key(key(KeyCode::Char(' ')));
+    app.handle_key(key(KeyCode::Char('x')));
+    app.handle_key(key(KeyCode::Char('y')));
+    app.plugins.select(Some(plugin_display_index(&app, 1)));
+
+    submit_new_separator(&mut app, "Group");
+
+    assert!(matches!(
+        app.plugins
+            .project(&app.session.order.plugins, &app.session.plugin_separators)[1],
+        PluginPaneRow::Separator {
+            collapsed: false,
+            ..
+        }
+    ));
+}
+
 #[test]
 fn x_on_a_plugin_row_notes_and_deletes_nothing() {
     let (_tmp, mut app) = app_with_plugins();
-    app.plugins_state.select(Some(0)); // Alpha.esp, a plugin row
+    app.plugins.select(Some(0)); // Alpha.esp, a plugin row
 
     app.handle_key(key(KeyCode::Char('x')));
 
@@ -191,35 +438,47 @@ fn x_on_a_plugin_row_notes_and_deletes_nothing() {
 #[test]
 fn space_on_a_plugin_separator_collapses_its_group_and_hides_members() {
     let (_tmp, mut app) = app_with_plugins();
-    app.session.plugin_separators.items.push(Separator {
-        name: "Group".to_owned(),
-        anchor: Some("Beta.esp".to_owned()),
-    });
-    let sep_display = separator_display_index(&app);
-    app.plugins_state.select(Some(sep_display));
+    add_separator(&mut app, "Group", Some("Beta.esp"));
+    select_separator(&mut app, 0);
 
     // rows before collapse: Alpha, <sep>, Beta
-    assert_eq!(app.plugins_visible_rows().len(), 3);
+    assert_eq!(
+        app.plugins
+            .project(&app.session.order.plugins, &app.session.plugin_separators)
+            .len(),
+        3
+    );
 
     app.handle_key(key(KeyCode::Char(' ')));
 
-    assert!(app.is_plugin_collapsed(0), "the group is now collapsed");
-    let rows = app.plugins_visible_rows();
+    let rows = app
+        .plugins
+        .project(&app.session.order.plugins, &app.session.plugin_separators);
     assert_eq!(
         rows.len(),
         2,
         "Beta is hidden under the collapsed separator"
     );
     assert!(
-        !rows.iter().any(|r| matches!(r, PluginRow::Plugin(1))),
+        !rows
+            .iter()
+            .any(|row| matches!(row, PluginPaneRow::Plugin { plugin_index: 1 })),
         "the member plugin is not shown"
     );
+    assert!(matches!(
+        rows[1],
+        PluginPaneRow::Separator {
+            separator_index: 0,
+            collapsed: true,
+            member_count: 1,
+        }
+    ));
 }
 
 #[test]
 fn space_on_a_plugin_still_toggles_its_active_flag() {
     let (_tmp, mut app) = app_with_plugins();
-    app.plugins_state.select(Some(0)); // Alpha.esp
+    app.plugins.select(Some(0)); // Alpha.esp
     assert!(app.session.order.plugins[0].active);
 
     assert!(
@@ -227,6 +486,93 @@ fn space_on_a_plugin_still_toggles_its_active_flag() {
         "toggling a plugin reports a persistent change"
     );
     assert!(!app.session.order.plugins[0].active, "the plugin flipped");
+}
+
+/// Failed insertion restores sidecar and collapse alignment
+#[test]
+fn failed_insert_restores_sidecar_and_collapse_alignment() {
+    let (_tmp, mut app) = app_with_plugins();
+    add_separator(&mut app, "Group", Some("Beta.esp"));
+    app.session
+        .plugin_separators
+        .save(&app.session.instance.profile_dir("Default"))
+        .expect("seed sidecar");
+    select_separator(&mut app, 0);
+    app.handle_key(key(KeyCode::Char(' ')));
+    block_profile_writes(&app);
+
+    submit_new_separator(&mut app, "New");
+
+    assert_eq!(app.session.plugin_separators.items.len(), 1);
+    assert_eq!(app.session.plugin_separators.items[0].name, "Group");
+    assert!(matches!(
+        app.plugins
+            .project(&app.session.order.plugins, &app.session.plugin_separators)[1],
+        PluginPaneRow::Separator {
+            separator_index: 0,
+            collapsed: true,
+            ..
+        }
+    ));
+}
+
+/// Failed rename restores sidecar and collapse alignment
+#[test]
+fn failed_rename_restores_sidecar_and_collapse_alignment() {
+    let (_tmp, mut app) = app_with_plugins();
+    add_separator(&mut app, "Old", Some("Beta.esp"));
+    app.session
+        .plugin_separators
+        .save(&app.session.instance.profile_dir("Default"))
+        .expect("seed sidecar");
+    select_separator(&mut app, 0);
+    app.handle_key(key(KeyCode::Char(' ')));
+    block_profile_writes(&app);
+
+    app.handle_key(key(KeyCode::Char('R')));
+    for c in "New".chars() {
+        app.handle_key(key(KeyCode::Char(c)));
+    }
+    app.handle_key(key(KeyCode::Enter));
+
+    assert_eq!(app.session.plugin_separators.items[0].name, "Old");
+    assert!(matches!(
+        app.plugins
+            .project(&app.session.order.plugins, &app.session.plugin_separators)[1],
+        PluginPaneRow::Separator {
+            separator_index: 0,
+            collapsed: true,
+            ..
+        }
+    ));
+}
+
+/// Failed deletion restores sidecar and collapse alignment
+#[test]
+fn failed_delete_restores_sidecar_and_collapse_alignment() {
+    let (_tmp, mut app) = app_with_plugins();
+    add_separator(&mut app, "Group", Some("Beta.esp"));
+    app.session
+        .plugin_separators
+        .save(&app.session.instance.profile_dir("Default"))
+        .expect("seed sidecar");
+    select_separator(&mut app, 0);
+    app.handle_key(key(KeyCode::Char(' ')));
+    block_profile_writes(&app);
+
+    app.handle_key(key(KeyCode::Char('x')));
+    app.handle_key(key(KeyCode::Char('y')));
+
+    assert_eq!(app.session.plugin_separators.items[0].name, "Group");
+    assert!(matches!(
+        app.plugins
+            .project(&app.session.order.plugins, &app.session.plugin_separators)[1],
+        PluginPaneRow::Separator {
+            separator_index: 0,
+            collapsed: true,
+            ..
+        }
+    ));
 }
 
 #[test]

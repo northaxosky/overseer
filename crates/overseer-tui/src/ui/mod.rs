@@ -9,7 +9,7 @@ mod modal;
 use overseer_core::apply::DeploymentStatus;
 use overseer_core::deploy::FileConflict;
 use overseer_core::instance::ModListEntry;
-use overseer_core::plugins::{PluginMeta, PluginRow};
+use overseer_core::plugins::PluginMeta;
 use overseer_frontend::style::Role;
 use ratatui::{
     Frame,
@@ -20,8 +20,8 @@ use ratatui::{
 use strum::IntoEnumIterator;
 
 use crate::app::{
-    App, ConflictsStatus, Focus, ModPaneRow, Workspace, downloads_sort_label, saves_sort_label,
-    separator_display,
+    App, ConflictsStatus, Focus, ModPaneRow, PluginPaneRow, Workspace, downloads_sort_label,
+    saves_sort_label, separator_display,
 };
 use crate::theme;
 
@@ -200,21 +200,21 @@ fn render_plugins(app: &mut App, frame: &mut Frame, area: Rect) {
     let focused = app.focus == Focus::Workspace;
     let title = format!(" plugins — {} ", app.session.order.plugins.len());
     let items: Vec<ListItem<'static>> = app
-        .plugins_visible_rows()
-        .iter()
-        .map(|&row| match row {
-            PluginRow::Separator(s) => {
-                let sep = &app.session.plugin_separators.items[s];
-                let header = separator_header(
-                    &sep.name,
-                    area.width,
-                    app.is_plugin_collapsed(s),
-                    app.plugin_group_members(s),
-                );
+        .plugins
+        .project(&app.session.order.plugins, &app.session.plugin_separators)
+        .into_iter()
+        .map(|row| match row {
+            PluginPaneRow::Separator {
+                separator_index,
+                collapsed,
+                member_count,
+            } => {
+                let sep = &app.session.plugin_separators.items[separator_index];
+                let header = separator_header(&sep.name, area.width, collapsed, member_count);
                 ListItem::new(header).style(theme::style(Role::Heading))
             }
-            PluginRow::Plugin(i) => {
-                let p = &app.session.order.plugins[i];
+            PluginPaneRow::Plugin { plugin_index } => {
+                let p = &app.session.order.plugins[plugin_index];
                 let tag = if is_master(&app.session.discovered, &p.name) {
                     " (master)"
                 } else {
@@ -226,7 +226,7 @@ fn render_plugins(app: &mut App, frame: &mut Frame, area: Rect) {
             }
         })
         .collect();
-    render_pane(frame, area, title, items, &mut app.plugins_state, focused);
+    render_pane(frame, area, title, items, app.plugins.state_mut(), focused);
 }
 
 /// The conflicts workspace: a scan result, or a short prompt in every other state

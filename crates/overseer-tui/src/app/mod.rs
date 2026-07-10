@@ -10,7 +10,7 @@ pub(crate) use list::ListCursor;
 pub(crate) use modal::{
     Confirm, ConfirmAction, DoctorReport, Info, Modal, Prompt, PromptKind, Select, SelectKind,
 };
-pub(crate) use pane::{ModPaneRow, ModsPane};
+pub(crate) use pane::{ModPaneRow, ModsPane, PluginPaneRow, PluginsPane};
 pub(crate) use sort::{downloads_sort_label, saves_sort_label};
 
 use anyhow::Result;
@@ -19,14 +19,10 @@ use overseer_core::apply::{self, DeploymentStatus};
 use overseer_core::deploy::FileConflict;
 use overseer_core::install::DownloadEntry;
 use overseer_core::instance::{Instance, Profile};
-use overseer_core::plugins::{
-    PluginLoadOrder, PluginMeta, PluginSeparators, discover_plugins, merge_rows,
-};
+use overseer_core::plugins::{PluginLoadOrder, PluginMeta, PluginSeparators, discover_plugins};
 use overseer_core::saves::SaveInfo;
 use overseer_core::settings::Settings;
 use overseer_frontend::style::Role;
-use ratatui::widgets::ListState;
-use std::collections::HashSet;
 use strum::{EnumIter, IntoEnumIterator, IntoStaticStr};
 
 /// Key bindings shown (and selectable) in the help modal: (keys, description)
@@ -189,8 +185,7 @@ pub(crate) struct App {
     pub(crate) settings: Settings,
     pub(crate) session: Session,
     pub(crate) mods: ModsPane,
-    pub(crate) plugins_state: ListState,
-    pub(crate) plugins_collapsed: HashSet<String>,
+    pub(crate) plugins: PluginsPane,
 }
 
 impl App {
@@ -208,7 +203,7 @@ impl App {
             tracing::warn!(error = %e, "could not save settings");
         }
         let mods = ModsPane::new(&session.profile.mods);
-        let plugin_rows = merge_rows(&session.order.plugins, &session.plugin_separators.items);
+        let plugins = PluginsPane::new(&session.order.plugins, &session.plugin_separators);
 
         Ok(Self {
             should_quit: false,
@@ -220,10 +215,9 @@ impl App {
             saves: SavesState::default(),
             message: None,
             mods,
-            plugins_state: initial_selection(plugin_rows.len()),
+            plugins,
             settings,
             session,
-            plugins_collapsed: HashSet::new(),
         })
     }
 
@@ -250,18 +244,6 @@ impl App {
             role: Role::Muted,
         });
     }
-}
-
-/// Select the first row of `list` when `len > 0`, else clear the selection
-pub(crate) fn select_first(list: &mut ListState, len: usize) {
-    list.select((len > 0).then_some(0));
-}
-
-/// A `ListState` selecting the first row when the list is non-empty
-pub(crate) fn initial_selection(len: usize) -> ListState {
-    let mut state = ListState::default();
-    select_first(&mut state, len);
-    state
 }
 
 /// The variant `delta` steps from `current` in `T::iter()` order, wrapping both ends

@@ -1,8 +1,10 @@
 //! State and semantic projections for grouped main-view panes
 
 mod mods;
+mod plugins;
 
 pub(crate) use mods::{ModPaneRow, ModsPane};
+pub(crate) use plugins::{PluginPaneRow, PluginsPane};
 
 #[derive(Debug, Default)]
 pub(crate) struct SeparatorUiState {
