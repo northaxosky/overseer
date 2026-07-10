@@ -2,6 +2,7 @@
 
 use super::*;
 
+/// Foreign mod rows remain unchanged and explain why
 #[test]
 fn toggling_a_non_managed_mod_is_refused() {
     use overseer_core::instance::ModKind;
@@ -22,67 +23,223 @@ fn toggling_a_non_managed_mod_is_refused() {
         .position(|row| row.model_index() == foreign)
         .expect("the foreign row is visible");
     app.mods.select(Some(display));
-    assert!(!app.flip_selected(), "foreign entries can't be flipped");
+    app.toggle_selected();
     assert!(app.session.profile.mods[foreign].enabled, "left unchanged");
     assert!(app.message.is_some(), "user is told why");
 }
 
-#[test]
-fn flip_toggles_the_selected_mod() {
+/// Build a disk-backed app whose selected disabled mod provides a plugin
+fn persisted_toggle_app() -> (tempfile::TempDir, App) {
+    use overseer_core::test_support::{install_plugin, temp_instance};
+
+    let (tmp, instance) = temp_instance();
+    install_plugin(&instance, "CoolMod", "Cool.esm");
+    install_plugin(&instance, "OffMod", "Off.esp");
+
     let mut app = App::sample();
-    let rows = app.mods.project(&app.session.profile.mods);
-    let m = rows[app.mods.index().expect("a row is selected")].model_index();
-    let before = app.session.profile.mods[m].enabled;
-    assert!(app.flip_selected());
-    assert_eq!(app.session.profile.mods[m].enabled, !before);
+    app.session.instance = instance;
+    app.session.order.plugins.truncate(1);
+    app.session
+        .profile
+        .save(&app.session.instance)
+        .expect("seed profile");
+    app.session
+        .order
+        .save(&app.session.instance)
+        .expect("seed load order");
+    app.mods.reset(&app.session.profile.mods);
+    app.mods.select(Some(0));
+    app.plugins
+        .reset(&app.session.order.plugins, &app.session.plugin_separators);
+    (tmp, app)
 }
 
+/// A successful mod toggle reaches disk before live state and plugins are replaced
 #[test]
-fn flip_toggles_the_selected_plugin() {
-    let mut app = App::sample();
-    app.focus = Focus::Workspace;
-    assert!(app.session.order.plugins[0].active);
-    assert!(app.flip_selected());
-    assert!(!app.session.order.plugins[0].active);
+fn successful_mod_toggle_round_trips_and_refreshes_plugins() {
+    use crate::app::ConflictsStatus;
+
+    let (_tmp, mut app) = persisted_toggle_app();
+    app.conflicts.status = ConflictsStatus::Ready(Vec::new());
+    app.plugins.select(Some(99));
+
+    app.toggle_selected();
+
+    assert!(app.session.profile.mods[1].enabled);
+    let loaded = Profile::load(&app.session.instance, "Default").expect("reload toggled profile");
+    assert!(loaded.mods[1].enabled, "the toggle reached modlist.txt");
+    assert_eq!(
+        app.session
+            .discovered
+            .iter()
+            .map(|plugin| plugin.name.as_str())
+            .collect::<Vec<_>>(),
+        ["Cool.esm", "Off.esp"]
+    );
+    assert_eq!(
+        app.session
+            .order
+            .plugins
+            .iter()
+            .map(|plugin| plugin.name.as_str())
+            .collect::<Vec<_>>(),
+        ["Cool.esm", "Off.esp"]
+    );
+    let loaded_order =
+        overseer_core::plugins::PluginLoadOrder::load(&app.session.instance, "Default")
+            .expect("reload refreshed order");
+    assert_eq!(
+        loaded_order
+            .plugins
+            .iter()
+            .map(|plugin| plugin.name.as_str())
+            .collect::<Vec<_>>(),
+        ["Cool.esm", "Off.esp"]
+    );
+    assert_eq!(app.plugins.index(), Some(1), "plugin selection is clamped");
+    assert!(matches!(app.conflicts.status, ConflictsStatus::Stale));
+    assert_eq!(
+        app.message.as_ref().map(|notice| notice.text.as_str()),
+        Some("Saved")
+    );
 }
 
+/// A failed modlist write discards the candidate and preserves every live component
 #[test]
-fn flip_in_the_conflicts_workspace_is_read_only() {
+fn failed_mod_toggle_leaves_live_state_unchanged() {
+    use crate::app::ConflictsStatus;
+
+    let (_tmp, mut app) = persisted_toggle_app();
+    app.conflicts.status = ConflictsStatus::Ready(Vec::new());
+    let mods_before = app.session.profile.mods.clone();
+    let local_saves_before = app.session.profile.local_saves;
+    let order_before = app.session.order.plugins.clone();
+    let discovered_before = app.session.discovered.clone();
+    let mods_selection_before = app.mods.index();
+    let plugins_selection_before = app.plugins.index();
+    let modlist = app
+        .session
+        .instance
+        .profile_dir("Default")
+        .join("modlist.txt");
+    std::fs::remove_file(&modlist).expect("remove mod list");
+    std::fs::create_dir(&modlist).expect("block mod list");
+
+    app.toggle_selected();
+
+    assert_eq!(app.session.profile.mods, mods_before);
+    assert_eq!(app.session.profile.local_saves, local_saves_before);
+    assert_eq!(app.session.order.plugins, order_before);
+    assert_eq!(app.session.discovered, discovered_before);
+    assert_eq!(app.mods.index(), mods_selection_before);
+    assert_eq!(app.plugins.index(), plugins_selection_before);
+    assert!(matches!(
+        app.conflicts.status,
+        ConflictsStatus::Ready(ref conflicts) if conflicts.is_empty()
+    ));
+    assert!(
+        app.message
+            .as_ref()
+            .is_some_and(|notice| notice.text.starts_with("Could not save mod list: "))
+    );
+}
+
+/// A plugin refresh failure keeps the durable mod toggle and the prior plugin pair
+#[test]
+fn failed_plugin_refresh_after_mod_save_reports_partial_success() {
+    use crate::app::ConflictsStatus;
+
+    let (_tmp, mut app) = persisted_toggle_app();
+    let corrupt = app
+        .session
+        .instance
+        .mods_dir()
+        .join("OffMod")
+        .join("Off.esp");
+    std::fs::write(&corrupt, b"not a plugin").expect("corrupt plugin");
+    app.conflicts.status = ConflictsStatus::Ready(Vec::new());
+    let order_before = app.session.order.plugins.clone();
+    let discovered_before = app.session.discovered.clone();
+    let plugins_selection_before = app.plugins.index();
+
+    app.toggle_selected();
+
+    assert!(app.session.profile.mods[1].enabled);
+    let loaded = Profile::load(&app.session.instance, "Default").expect("reload toggled profile");
+    assert!(loaded.mods[1].enabled, "the mod toggle remains durable");
+    assert_eq!(app.session.order.plugins, order_before);
+    assert_eq!(app.session.discovered, discovered_before);
+    assert_eq!(app.plugins.index(), plugins_selection_before);
+    assert!(matches!(app.conflicts.status, ConflictsStatus::Stale));
+    assert!(app.message.as_ref().is_some_and(|notice| {
+        notice
+            .text
+            .starts_with("Saved mod list, but plugin refresh failed: ")
+    }));
+}
+
+/// Mod separators collapse only the view and never touch persistence
+#[test]
+fn toggling_a_mod_separator_remains_view_only() {
+    let (_tmp, mut app) = persisted_toggle_app();
+    app.session.profile.mods.push(separator("Group_separator"));
+    app.session
+        .profile
+        .save_modlist(&app.session.instance)
+        .expect("seed separator");
+    app.mods.reset(&app.session.profile.mods);
+    app.mods.select(Some(0));
+    let modlist = app
+        .session
+        .instance
+        .profile_dir("Default")
+        .join("modlist.txt");
+    let before = std::fs::read(&modlist).expect("read mod list");
+
+    app.toggle_selected();
+
+    assert_eq!(std::fs::read(&modlist).expect("reread mod list"), before);
+    assert!(app.message.is_none());
+    assert!(matches!(
+        app.mods.project(&app.session.profile.mods)[0],
+        ModPaneRow::Separator {
+            collapsed: true,
+            member_count: 2,
+            ..
+        }
+    ));
+}
+
+/// Conflicts stay read-only and preserve their existing notice
+#[test]
+fn toggle_in_the_conflicts_workspace_is_read_only() {
     use crate::app::Workspace;
     let mut app = App::sample();
     app.focus = Focus::Workspace;
     app.workspace = Workspace::Conflicts;
     let before = app.session.order.plugins[0].active;
-    assert!(!app.flip_selected(), "conflicts mutate nothing");
+    app.toggle_selected();
     assert_eq!(
         app.session.order.plugins[0].active, before,
         "plugin active flags are untouched"
     );
-    assert!(app.message.is_some(), "the user is told it is read-only");
+    assert_eq!(
+        app.message.as_ref().map(|notice| notice.text.as_str()),
+        Some("Conflicts are read-only")
+    );
 }
 
+/// Saves preserve the uppercase delete-key notice
 #[test]
-fn flip_in_the_saves_workspace_names_the_uppercase_delete_key() {
+fn toggle_in_the_saves_workspace_names_the_uppercase_delete_key() {
     let mut app = App::sample();
     app.focus = Focus::Workspace;
     app.workspace = Workspace::Saves;
 
-    assert!(!app.flip_selected());
+    app.toggle_selected();
     assert_eq!(
         app.message.as_ref().map(|notice| notice.text.as_str()),
         Some("Press X to delete a save")
-    );
-}
-
-#[test]
-fn flipping_a_mod_marks_the_conflicts_scan_stale() {
-    use crate::app::ConflictsStatus;
-    let mut app = App::sample();
-    app.conflicts.status = ConflictsStatus::Ready(Vec::new());
-    assert!(app.flip_selected(), "a managed mod flips");
-    assert!(
-        matches!(app.conflicts.status, ConflictsStatus::Stale),
-        "changing the enabled set invalidates the scan"
     );
 }
 

@@ -1,22 +1,20 @@
 //! Main-view mutations: toggling, reordering, deploying, and purging.
 
-use anyhow::Result;
 use overseer_core::apply;
 use overseer_core::deploy::NullSink;
 use overseer_core::instance::{ModKind, Profile};
-use overseer_core::plugins::discover_plugins;
 
 use crate::app::{App, Focus, ModPaneRow, Workspace};
 
 impl App {
     /// Toggle the selected item in the focused pane & report the outcome
     pub(super) fn toggle_selected(&mut self) {
-        if !self.flip_selected() {
-            return;
-        }
-        match self.persist() {
-            Ok(()) => self.ok("Saved"),
-            Err(e) => self.fail(format!("Error: {e}")),
+        match self.focus {
+            Focus::Mods => self.toggle_selected_mod(),
+            Focus::Workspace => {
+                let workspace = self.workspace;
+                workspace.primary(self);
+            }
         }
     }
 
@@ -88,50 +86,51 @@ impl App {
         Some((profile, destination as usize))
     }
 
-    /// Flip the mod's `enabled`, or act on the focused workspace pane
-    fn flip_selected(&mut self) -> bool {
-        match self.focus {
-            Focus::Mods => {
-                let rows = self.mods.project(&self.session.profile.mods);
-                let Some(row) = self.mods.index().and_then(|index| rows.get(index)).copied() else {
-                    return false;
-                };
-                match row {
-                    ModPaneRow::Separator {
-                        separator_index, ..
-                    } => {
-                        self.mods.toggle_separator(separator_index);
-                        let len = self.mods.project(&self.session.profile.mods).len();
-                        self.mods.clamp(len);
-                        false
+    /// Toggle or collapse the selected Mods row and persist managed mod changes
+    fn toggle_selected_mod(&mut self) {
+        let rows = self.mods.project(&self.session.profile.mods);
+        let Some(row) = self.mods.index().and_then(|index| rows.get(index)).copied() else {
+            return;
+        };
+
+        match row {
+            ModPaneRow::Separator {
+                separator_index, ..
+            } => {
+                self.mods.toggle_separator(separator_index);
+                let len = self.mods.project(&self.session.profile.mods).len();
+                self.mods.clamp(len);
+            }
+            ModPaneRow::Mod { model_index } => {
+                if self.session.profile.mods[model_index].kind != ModKind::Managed {
+                    self.note("Only managed mods can be toggled");
+                    return;
+                }
+
+                let mut profile = self.session.profile.clone();
+                profile.mods[model_index].enabled = !profile.mods[model_index].enabled;
+
+                if let Err(e) = profile.save_modlist(&self.session.instance) {
+                    self.fail(format!("Could not save mod list: {e}"));
+                    return;
+                }
+
+                self.session.profile = profile;
+                self.mark_conflicts_stale();
+
+                match self.session.profile.sync_plugins(&self.session.instance) {
+                    Ok((discovered, order)) => {
+                        self.session.discovered = discovered;
+                        self.session.order = order;
+                        self.clamp_plugins_selection();
+                        self.ok("Saved");
                     }
-                    ModPaneRow::Mod { model_index } => {
-                        let entry = &mut self.session.profile.mods[model_index];
-                        if entry.kind != ModKind::Managed {
-                            self.note("Only managed mods can be toggled");
-                            return false;
-                        }
-                        entry.enabled = !entry.enabled;
-                        self.mark_conflicts_stale();
-                        true
+                    Err(e) => {
+                        self.fail(format!("Saved mod list, but plugin refresh failed: {e}"));
                     }
                 }
             }
-            Focus::Workspace => {
-                let ws = self.workspace;
-                ws.primary(self)
-            }
         }
-    }
-
-    /// Save the profile and load order, re-deriving plugins
-    fn persist(&mut self) -> Result<()> {
-        self.session.profile.save(&self.session.instance)?;
-        self.session.discovered = discover_plugins(&self.session.instance, &self.session.profile)?;
-        self.session.order.reconcile(&self.session.discovered);
-        self.session.order.save(&self.session.instance)?;
-        self.clamp_plugins_selection();
-        Ok(())
     }
 
     /// Deploy the active profile & report the outcome
@@ -166,21 +165,18 @@ impl App {
 }
 
 impl Workspace {
-    /// The Enter/Space primary action; returns `true` when persistent state changed and should be saved
-    fn primary(self, app: &mut App) -> bool {
+    /// Run the Enter/Space primary action for this workspace
+    fn primary(self, app: &mut App) {
         match self {
             Workspace::Plugins => app.toggle_selected_plugin_row(),
             Workspace::Conflicts => {
                 app.note("Conflicts are read-only");
-                false
             }
             Workspace::Downloads => {
                 app.begin_install_selected();
-                false
             }
             Workspace::Saves => {
                 app.note("Press X to delete a save");
-                false
             }
         }
     }

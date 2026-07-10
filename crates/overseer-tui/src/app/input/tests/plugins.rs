@@ -1,4 +1,4 @@
-//! Tests for the Plugins workspace's separators: CRUD, collapse, and the sidecar guard
+//! Tests for the Plugins workspace's toggles, separators, collapse, and sidecar guard
 
 use super::*;
 use crate::app::input::test_helpers::key;
@@ -467,6 +467,13 @@ fn space_on_a_plugin_separator_collapses_its_group_and_hides_members() {
     let (_tmp, mut app) = app_with_plugins();
     add_separator(&mut app, "Group", Some("Beta.esp"));
     select_separator(&mut app, 0);
+    let order_before = app.session.order.plugins.clone();
+    let plugins_txt = app
+        .session
+        .instance
+        .profile_dir("Default")
+        .join("plugins.txt");
+    assert!(!plugins_txt.exists());
 
     // rows before collapse: Alpha, <sep>, Beta
     assert_eq!(
@@ -500,19 +507,91 @@ fn space_on_a_plugin_separator_collapses_its_group_and_hides_members() {
             member_count: 1,
         }
     ));
+    assert_eq!(app.session.order.plugins, order_before);
+    assert!(!plugins_txt.exists(), "collapse does not persist");
+    assert!(app.message.is_none());
 }
 
+/// A successful plugin toggle reaches disk before replacing the live load order
 #[test]
-fn space_on_a_plugin_still_toggles_its_active_flag() {
+fn successful_plugin_toggle_persists_and_swaps_live_order() {
     let (_tmp, mut app) = app_with_plugins();
     app.plugins.select(Some(0)); // Alpha.esp
     assert!(app.session.order.plugins[0].active);
 
-    assert!(
-        app.toggle_selected_plugin_row(),
-        "toggling a plugin reports a persistent change"
-    );
+    app.toggle_selected();
+
     assert!(!app.session.order.plugins[0].active, "the plugin flipped");
+    let loaded = PluginLoadOrder::load(&app.session.instance, "Default").expect("reload");
+    assert!(!loaded.plugins[0].active, "the toggle reached plugins.txt");
+    assert_eq!(
+        app.message.as_ref().map(|notice| notice.text.as_str()),
+        Some("Saved")
+    );
+}
+
+/// A failed plugins write discards the candidate and preserves all live state
+#[test]
+fn failed_plugin_toggle_leaves_live_state_unchanged() {
+    let (_tmp, mut app) = app_with_plugins();
+    app.session
+        .order
+        .save(&app.session.instance)
+        .expect("seed load order");
+    let order_before = app.session.order.plugins.clone();
+    let profile_before = app.session.profile.mods.clone();
+    let discovered_before = app.session.discovered.clone();
+    let selection_before = app.plugins.index();
+    let plugins_txt = app
+        .session
+        .instance
+        .profile_dir("Default")
+        .join("plugins.txt");
+    std::fs::remove_file(&plugins_txt).expect("remove load order");
+    std::fs::create_dir(&plugins_txt).expect("block load order");
+
+    app.toggle_selected();
+
+    assert_eq!(app.session.order.plugins, order_before);
+    assert_eq!(app.session.profile.mods, profile_before);
+    assert_eq!(app.session.discovered, discovered_before);
+    assert_eq!(app.plugins.index(), selection_before);
+    assert!(
+        app.message
+            .as_ref()
+            .is_some_and(|notice| notice.text.starts_with("Could not save load order: "))
+    );
+}
+
+/// Plugin toggles ignore an obstructed modlist because they persist only plugins.txt
+#[test]
+fn plugin_toggle_succeeds_when_only_modlist_is_obstructed() {
+    let (_tmp, mut app) = app_with_plugins();
+    let profile_before = app.session.profile.mods.clone();
+    let discovered_before = app.session.discovered.clone();
+    let modlist = app
+        .session
+        .instance
+        .profile_dir("Default")
+        .join("modlist.txt");
+    std::fs::remove_file(&modlist).expect("remove mod list");
+    std::fs::create_dir(&modlist).expect("block mod list");
+
+    app.toggle_selected();
+
+    assert!(!app.session.order.plugins[0].active);
+    let loaded = PluginLoadOrder::load(&app.session.instance, "Default").expect("reload");
+    assert!(!loaded.plugins[0].active, "the toggle reached plugins.txt");
+    assert_eq!(app.session.profile.mods, profile_before);
+    assert_eq!(app.session.discovered, discovered_before);
+    assert!(
+        modlist.is_dir(),
+        "the mod list obstruction remains untouched"
+    );
+    assert_eq!(
+        app.message.as_ref().map(|notice| notice.text.as_str()),
+        Some("Saved")
+    );
 }
 
 /// Failed insertion restores sidecar and collapse alignment

@@ -27,7 +27,7 @@ impl App {
     }
 
     /// Space/Enter in the Plugins pane: collapse a separator row, or toggle a plugin active
-    pub(super) fn toggle_selected_plugin_row(&mut self) -> bool {
+    pub(super) fn toggle_selected_plugin_row(&mut self) {
         let rows = self
             .plugins
             .project(&self.session.order.plugins, &self.session.plugin_separators);
@@ -37,20 +37,29 @@ impl App {
             .and_then(|index| rows.get(index))
             .copied()
         else {
-            return false;
+            return;
         };
+
         match row {
             PluginPaneRow::Separator {
                 separator_index, ..
             } => {
                 self.plugins.toggle_separator(separator_index);
                 self.clamp_plugins_selection();
-                false
             }
             PluginPaneRow::Plugin { plugin_index } => {
-                let plugin = &mut self.session.order.plugins[plugin_index];
-                plugin.active = !plugin.active;
-                true
+                let mut order = self.session.order.clone();
+                order.plugins[plugin_index].active = !order.plugins[plugin_index].active;
+
+                match order.save(&self.session.instance) {
+                    Ok(()) => {
+                        self.session.order = order;
+                        self.ok("Saved");
+                    }
+                    Err(e) => {
+                        self.fail(format!("Could not save load order: {e}"));
+                    }
+                }
             }
         }
     }
