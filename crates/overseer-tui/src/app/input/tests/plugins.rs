@@ -289,6 +289,33 @@ fn inserting_without_selection_uses_the_first_projected_row() {
     );
 }
 
+/// Insertion resolves sidecar index when render order differs
+#[test]
+fn insertion_uses_sidecar_index_when_render_order_differs() {
+    let (_tmp, mut app) = app_with_plugins();
+    add_separator(&mut app, "Trailing", None);
+    add_separator(&mut app, "Above Alpha", Some("Alpha.esp"));
+    assert_eq!(separator_display_index(&app, 1), 0);
+    select_separator(&mut app, 1);
+
+    submit_new_separator(&mut app, "New");
+
+    assert_eq!(
+        app.session
+            .plugin_separators
+            .items
+            .iter()
+            .map(|separator| separator.name.as_str())
+            .collect::<Vec<_>>(),
+        ["Trailing", "New", "Above Alpha"]
+    );
+    assert_eq!(
+        app.session.plugin_separators.items[1].anchor.as_deref(),
+        Some("Alpha.esp")
+    );
+    assert_eq!(app.plugins.index(), Some(separator_display_index(&app, 1)));
+}
+
 #[test]
 fn renaming_a_plugin_separator_round_trips() {
     let (_tmp, mut app) = app_with_plugins();

@@ -78,7 +78,7 @@ impl App {
 
             // `X` deletes the selected save; self-guards to the focused Saves pane
             KeyCode::Char('X') => self.begin_delete_selected_save(),
-            // `x` / `Del` delete the selected separator; self-guard to the focused Mods pane
+            // `x` / `Del` delete the selected separator in the focused Mods or Plugins pane
             KeyCode::Char('x') | KeyCode::Delete => self.begin_delete_selected_separator(),
             // `L` toggles the profile's LocalSaves; self-guards to the focused Saves pane
             KeyCode::Char('L') => self.toggle_local_saves(),

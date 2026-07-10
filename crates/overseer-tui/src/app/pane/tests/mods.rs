@@ -159,3 +159,11 @@ fn delete_then_recreate_inserts_an_expanded_entry() {
         }
     ));
 }
+
+/// Projection rejects mod separator collapse misalignment
+#[test]
+#[should_panic(expected = "mod separator collapse state must align with profile order")]
+fn projection_rejects_collapse_misalignment() {
+    let pane = ModsPane::new(&[]);
+    pane.project(&[separator("Unexpected")]);
+}

@@ -212,3 +212,11 @@ fn delete_then_recreate_inserts_an_expanded_entry() {
         }
     ));
 }
+
+/// Projection rejects plugin separator collapse misalignment
+#[test]
+#[should_panic(expected = "plugin separator collapse state must align with sidecar order")]
+fn projection_rejects_collapse_misalignment() {
+    let pane = PluginsPane::new(&[], &PluginSeparators::default());
+    pane.project(&[], &separators(vec![separator("Unexpected", None)]));
+}
