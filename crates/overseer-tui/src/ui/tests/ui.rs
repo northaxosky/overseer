@@ -482,6 +482,21 @@ fn doctor_modal_reports_all_clear_when_empty() {
 }
 
 #[test]
+fn doctor_modal_reports_all_clear_with_only_info_findings() {
+    use crate::app::{DoctorReport, ListCursor, Modal};
+    use overseer_diagnostics::{Finding, Report};
+    let mut app = App::sample();
+    app.modal = Some(Modal::Doctor(DoctorReport {
+        report: Report::new(vec![Finding::info("Healthy")]),
+        list: ListCursor::first(1),
+    }));
+
+    let out = render(&mut app, 80, 24);
+    assert!(out.contains("all clear"), "info findings are not problems");
+    assert!(out.contains("Healthy"), "the info finding remains visible");
+}
+
+#[test]
 fn launch_modal_lists_targets_when_open() {
     use overseer_core::instance::Executable;
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};

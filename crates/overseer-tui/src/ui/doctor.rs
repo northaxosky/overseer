@@ -1,7 +1,8 @@
 //! The Doctor modal: a centered pop-up over the main view showing a diagnostics run
 //! as a severity summary, a selectable findings list, and a live detail pane.
 
-use overseer_diagnostics::{Finding, Report, Severity};
+use overseer_diagnostics::{Finding, Report};
+use overseer_frontend::diagnostics::severity_presentation;
 use overseer_frontend::style::Role;
 use ratatui::{
     Frame,
@@ -56,15 +57,14 @@ pub(super) fn render_doctor_modal(doctor: &mut DoctorReport, profile: &str, fram
 
 /// A one line severity summary for the doctor body's header
 fn doctor_summary_line(report: &Report, profile: &str) -> Line<'static> {
-    let count = |s| report.findings.iter().filter(|f| f.severity == s).count();
-    let (warnings, errors) = (count(Severity::Warning), count(Severity::Error));
-    if warnings == 0 && errors == 0 {
+    let counts = report.counts();
+    if counts.is_clear() {
         return Line::styled(
             format!(" {profile} · all clear"),
             theme::style(Role::Success),
         );
     }
-    let role = if errors > 0 {
+    let role = if counts.errors > 0 {
         Role::Failure
     } else {
         Role::Warning
@@ -72,8 +72,8 @@ fn doctor_summary_line(report: &Report, profile: &str) -> Line<'static> {
     Line::styled(
         format!(
             " {profile} · {}, {}",
-            plural(warnings, "warning"),
-            plural(errors, "error")
+            plural(counts.warnings, "warning"),
+            plural(counts.errors, "error")
         ),
         theme::style(role),
     )
@@ -81,8 +81,8 @@ fn doctor_summary_line(report: &Report, profile: &str) -> Line<'static> {
 
 /// One finding as a styled, width-wrapped row with a severity-coloured glyph and full title
 fn finding_item(finding: &Finding, width: usize) -> ListItem<'static> {
-    let (role, glyph) = severity_style(finding.severity);
-    let prefix = format!(" {glyph} ");
+    let presentation = severity_presentation(finding.severity);
+    let prefix = format!(" {} ", presentation.glyph);
     let indent = prefix.chars().count();
     let lines: Vec<Line<'static>> = wrap_text(&finding.title, width.saturating_sub(indent).max(1))
         .into_iter()
@@ -90,7 +90,7 @@ fn finding_item(finding: &Finding, width: usize) -> ListItem<'static> {
         .map(|(i, chunk)| {
             if i == 0 {
                 Line::from(vec![
-                    Span::styled(prefix.clone(), theme::style(role)),
+                    Span::styled(prefix.clone(), theme::style(presentation.role)),
                     Span::raw(chunk),
                 ])
             } else {
@@ -113,15 +113,6 @@ fn selected_detail(report: &Report, selected: Option<usize>) -> String {
             .clone()
             .unwrap_or_else(|| "No further detail.".to_owned()),
         None => String::new(),
-    }
-}
-
-/// The role and glyph for a severity, matches `overseer doctor`
-fn severity_style(severity: Severity) -> (Role, &'static str) {
-    match severity {
-        Severity::Info => (Role::Success, "✓"),
-        Severity::Warning => (Role::Warning, "!"),
-        Severity::Error => (Role::Failure, "✗"),
     }
 }
 

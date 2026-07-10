@@ -12,3 +12,4 @@ camino.workspace = true
 tracing-subscriber.workspace = true
 tracing-appender.workspace = true
 thiserror.workspace = true
+overseer-diagnostics = { path = "../overseer-diagnostics" }

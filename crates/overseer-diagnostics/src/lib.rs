@@ -15,7 +15,7 @@ mod report;
 use context::GameContext;
 pub use error::DiagnosticError;
 pub use finding::{Finding, Severity};
-pub use report::Report;
+pub use report::{Report, SeverityCounts};
 
 use overseer_core::instance::Instance;
 

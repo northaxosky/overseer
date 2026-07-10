@@ -1499,6 +1499,7 @@ name = "overseer-frontend"
 version = "0.0.0"
 dependencies = [
  "camino",
+ "overseer-diagnostics",
  "thiserror 2.0.18",
  "tracing-appender",
  "tracing-subscriber",
