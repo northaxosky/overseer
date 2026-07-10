@@ -223,7 +223,7 @@ fn submitting_a_valid_name_creates_the_profile_and_returns_to_the_picker() {
                 .iter()
                 .position(|p| p == "Survival")
                 .expect("new profile is listed");
-            assert_eq!(s.state.selected(), Some(i), "the new profile is selected");
+            assert_eq!(s.state.index(), Some(i), "the new profile is selected");
         }
         _ => panic!("a successful create returns to the profile picker"),
     }
@@ -542,7 +542,7 @@ fn submitting_a_path_adds_a_derived_launch_target() {
                 .iter()
                 .position(|p| p == "FO4Edit")
                 .expect("the derived target is listed");
-            assert_eq!(s.state.selected(), Some(i), "the new target is selected");
+            assert_eq!(s.state.index(), Some(i), "the new target is selected");
         }
         _ => panic!("a successful add returns to the launch picker"),
     }

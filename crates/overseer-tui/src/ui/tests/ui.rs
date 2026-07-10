@@ -407,7 +407,7 @@ fn instance_picker_lists_recent_instances() {
 
 #[test]
 fn doctor_modal_shows_findings_and_summary() {
-    use crate::app::{DoctorReport, Modal, initial_selection};
+    use crate::app::{DoctorReport, ListCursor, Modal};
     use overseer_diagnostics::{Finding, Report, Severity};
     let mut app = App::sample();
     app.modal = Some(Modal::Doctor(DoctorReport {
@@ -417,7 +417,7 @@ fn doctor_modal_shows_findings_and_summary() {
             title: "Broken thing".to_owned(),
             detail: Some("Fix it like so.".to_owned()),
         }]),
-        list: initial_selection(1),
+        list: ListCursor::first(1),
     }));
     let out = render(&mut app, 80, 24);
     assert!(out.contains("Doctor"), "the modal is titled Doctor");
@@ -438,7 +438,7 @@ fn doctor_modal_shows_findings_and_summary() {
 
 #[test]
 fn doctor_modal_wraps_long_finding_titles() {
-    use crate::app::{DoctorReport, Modal, initial_selection};
+    use crate::app::{DoctorReport, ListCursor, Modal};
     use overseer_diagnostics::{Finding, Report, Severity};
     let mut app = App::sample();
     app.modal = Some(Modal::Doctor(DoctorReport {
@@ -449,7 +449,7 @@ fn doctor_modal_wraps_long_finding_titles() {
                 .to_owned(),
             detail: None,
         }]),
-        list: initial_selection(1),
+        list: ListCursor::first(1),
     }));
     // The trailing word only survives if the title wrapped instead of clipping at the findings pane's edge
     let out = render(&mut app, 80, 24);
@@ -461,12 +461,12 @@ fn doctor_modal_wraps_long_finding_titles() {
 
 #[test]
 fn doctor_modal_reports_all_clear_when_empty() {
-    use crate::app::{DoctorReport, Modal, initial_selection};
+    use crate::app::{DoctorReport, ListCursor, Modal};
     use overseer_diagnostics::Report;
     let mut app = App::sample();
     app.modal = Some(Modal::Doctor(DoctorReport {
         report: Report::new(vec![]),
-        list: initial_selection(0),
+        list: ListCursor::first(0),
     }));
     let out = render(&mut app, 80, 24);
     assert!(out.contains("all clear"), "summary says all clear");

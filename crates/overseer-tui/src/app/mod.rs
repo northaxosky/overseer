@@ -1,9 +1,11 @@
 //! Application state and update logic.
 
 mod input;
+mod list;
 mod modal;
 mod sort;
 
+pub(crate) use list::ListCursor;
 pub(crate) use modal::{
     Confirm, ConfirmAction, DoctorReport, Info, Modal, Prompt, PromptKind, Select, SelectKind,
 };

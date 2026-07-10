@@ -10,7 +10,7 @@ fn help_modal_opens_navigates_and_closes() {
     let selected = match &app.modal {
         Some(Modal::Info(info)) => {
             assert_eq!(info.title, "Help", "? opens the Help info modal");
-            info.state.selected()
+            info.state.index()
         }
         _ => panic!("? opens an Info modal"),
     };
@@ -19,7 +19,7 @@ fn help_modal_opens_navigates_and_closes() {
     app.handle_key(key(KeyCode::Char('j')));
     match &app.modal {
         Some(Modal::Info(info)) => {
-            assert_eq!(info.state.selected(), Some(1), "j scrolls within help");
+            assert_eq!(info.state.index(), Some(1), "j scrolls within help");
         }
         _ => panic!("navigation does not close the modal"),
     }

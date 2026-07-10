@@ -49,7 +49,7 @@ fn render_info(info: &mut Info, frame: &mut Frame) {
         .map(|(keys, desc)| ListItem::new(format!("  {keys:<16}{desc}")))
         .collect();
     let list = highlighted(List::new(items));
-    frame.render_stateful_widget(list, rows[0], &mut info.state);
+    frame.render_stateful_widget(list, rows[0], info.state.state_mut());
 
     let hint = Paragraph::new(" j/k scroll · Esc close ").style(theme::style(Role::Muted));
     frame.render_widget(hint, rows[1]);
@@ -80,7 +80,7 @@ fn render_select(select: &mut Select, frame: &mut Frame) {
             .map(|s| ListItem::new(s.as_str()))
             .collect();
         let list = highlighted(List::new(list_items));
-        frame.render_stateful_widget(list, rows[0], &mut select.state);
+        frame.render_stateful_widget(list, rows[0], select.state.state_mut());
     }
 
     let hint = Paragraph::new(format!(

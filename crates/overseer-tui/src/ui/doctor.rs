@@ -45,9 +45,9 @@ pub(super) fn render_doctor_modal(doctor: &mut DoctorReport, profile: &str, fram
         .iter()
         .map(|f| finding_item(f, text_width))
         .collect();
-    render_overlay_list(frame, rows[1], items, &mut doctor.list);
+    render_overlay_list(frame, rows[1], items, doctor.list.state_mut());
 
-    let detail = selected_detail(&doctor.report, doctor.list.selected());
+    let detail = selected_detail(&doctor.report, doctor.list.index());
     let detail_pane = Paragraph::new(detail)
         .wrap(Wrap { trim: true })
         .block(Block::new().borders(Borders::TOP).title(" details "));

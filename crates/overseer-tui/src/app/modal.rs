@@ -2,7 +2,8 @@
 
 use camino::Utf8PathBuf;
 use overseer_diagnostics::Report;
-use ratatui::widgets::ListState;
+
+use super::ListCursor;
 
 /// A blocking surface: select/prompt/confirm submit or cancel; `Info`/`Doctor` dismiss, with live Doctor details
 #[derive(Debug)]
@@ -85,7 +86,7 @@ impl PromptKind {
 pub(crate) struct Select {
     pub(crate) kind: SelectKind,
     pub(crate) items: Vec<String>,
-    pub(crate) state: ListState,
+    pub(crate) state: ListCursor,
 }
 
 /// Which selection a [`Select`] drives; its items and what submitting does
@@ -145,12 +146,21 @@ impl SelectKind {
 }
 
 impl Modal {
-    /// List selection state for modal variants that own a selectable list
-    pub(crate) fn list_state_mut(&mut self) -> Option<&mut ListState> {
+    /// Selection and row count for modal variants that own a list
+    pub(super) fn list_parts_mut(&mut self) -> Option<(&mut ListCursor, usize)> {
         match self {
-            Modal::Select(select) => Some(&mut select.state),
-            Modal::Info(info) => Some(&mut info.state),
-            Modal::Doctor(doctor) => Some(&mut doctor.list),
+            Modal::Select(select) => {
+                let len = select.items.len();
+                Some((&mut select.state, len))
+            }
+            Modal::Info(info) => {
+                let len = info.entries.len();
+                Some((&mut info.state, len))
+            }
+            Modal::Doctor(doctor) => {
+                let len = doctor.report.findings.len();
+                Some((&mut doctor.list, len))
+            }
             Modal::Prompt(_) | Modal::Confirm(_) => None,
         }
     }
@@ -183,12 +193,16 @@ pub(crate) enum ConfirmAction {
 pub(crate) struct Info {
     pub(crate) title: String,
     pub(crate) entries: Vec<(String, String)>,
-    pub(crate) state: ListState,
+    pub(crate) state: ListCursor,
 }
 
 /// A dismiss-only diagnostics modal with a selectable findings list and live detail pane
 #[derive(Debug)]
 pub(crate) struct DoctorReport {
     pub(crate) report: Report,
-    pub(crate) list: ListState,
+    pub(crate) list: ListCursor,
 }
+
+#[cfg(test)]
+#[path = "tests/modal.rs"]
+mod tests;

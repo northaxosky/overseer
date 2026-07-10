@@ -5,7 +5,7 @@ use ratatui::crossterm::event::{KeyCode, KeyEvent};
 
 use overseer_diagnostics::diagnose;
 
-use crate::app::{App, DoctorReport, Modal, initial_selection};
+use crate::app::{App, DoctorReport, ListCursor, Modal};
 
 impl App {
     /// Keys for a Doctor modal: scroll the findings list or dismiss. It has no submit
@@ -23,7 +23,7 @@ impl App {
     pub(super) fn open_doctor(&mut self) {
         match diagnose(&self.session.instance, &self.session.profile.name) {
             Ok(report) => {
-                let list = initial_selection(report.findings.len());
+                let list = ListCursor::first(report.findings.len());
                 self.modal = Some(Modal::Doctor(DoctorReport { report, list }));
             }
             Err(e) => self.fail(format!("Diagnostics failed: {e}")),

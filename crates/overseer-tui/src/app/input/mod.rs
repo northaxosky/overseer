@@ -234,15 +234,10 @@ impl App {
     }
 
     fn move_in_modal_list(&mut self, delta: isize) {
-        let len = match self.modal.as_ref() {
-            Some(Modal::Select(select)) => select.items.len(),
-            Some(Modal::Info(info)) => info.entries.len(),
-            Some(Modal::Doctor(doctor)) => doctor.report.findings.len(),
-            Some(Modal::Prompt(_)) | Some(Modal::Confirm(_)) | None => return,
+        let Some((selection, len)) = self.modal.as_mut().and_then(Modal::list_parts_mut) else {
+            return;
         };
-        if let Some(state) = self.modal.as_mut().and_then(Modal::list_state_mut) {
-            move_in_list(state, len, delta);
-        }
+        selection.move_by(len, delta);
     }
 }
 
@@ -333,12 +328,13 @@ pub(crate) mod test_helpers {
     use crate::app::{App, Modal};
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-    /// The selected index of an open selectable modal (Select or Doctor), or `None`
+    /// The selected index of an open list modal, or `None`
     pub(crate) fn modal_selection(app: &App) -> Option<usize> {
         match &app.modal {
-            Some(Modal::Select(s)) => s.state.selected(),
-            Some(Modal::Doctor(d)) => d.list.selected(),
-            Some(Modal::Prompt(_)) | Some(Modal::Confirm(_)) | Some(Modal::Info(_)) | None => None,
+            Some(Modal::Select(s)) => s.state.index(),
+            Some(Modal::Info(i)) => i.state.index(),
+            Some(Modal::Doctor(d)) => d.list.index(),
+            Some(Modal::Prompt(_)) | Some(Modal::Confirm(_)) | None => None,
         }
     }
 

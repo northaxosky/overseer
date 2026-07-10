@@ -349,11 +349,7 @@ fn e_edits_a_targets_name_then_args_and_persists_both() {
     match &app.modal {
         Some(Modal::Select(s)) => {
             let i = s.items.iter().position(|p| p == "xEdit").expect("listed");
-            assert_eq!(
-                s.state.selected(),
-                Some(i),
-                "the renamed target is selected"
-            );
+            assert_eq!(s.state.index(), Some(i), "the renamed target is selected");
         }
         _ => panic!("editing reopens the launch picker"),
     }

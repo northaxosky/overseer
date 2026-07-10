@@ -6,7 +6,7 @@ use overseer_core::launch;
 use ratatui::crossterm::event::{KeyCode, KeyEvent};
 
 use crate::app::{
-    App, Confirm, ConfirmAction, Focus, Modal, Select, SelectKind, Session, initial_selection,
+    App, Confirm, ConfirmAction, Focus, ListCursor, Modal, Select, SelectKind, Session,
 };
 
 impl App {
@@ -36,7 +36,7 @@ impl App {
     pub(super) fn open_select(&mut self, kind: SelectKind) {
         match self.load_select_items(kind) {
             Ok(items) => {
-                let state = initial_selection(items.len());
+                let state = ListCursor::first(items.len());
                 self.modal = Some(Modal::Select(Select { kind, items, state }));
             }
             Err(e) => self.fail(format!("Error: {e}")),
@@ -77,7 +77,7 @@ impl App {
         };
         let chosen = select
             .state
-            .selected()
+            .index()
             .and_then(|i| select.items.get(i).cloned());
         match select.kind {
             SelectKind::Launch => self.launch(chosen),
@@ -104,7 +104,7 @@ impl App {
         };
         let Some(name) = select
             .state
-            .selected()
+            .index()
             .and_then(|i| select.items.get(i).cloned())
         else {
             self.note("No launch target to remove");
@@ -121,7 +121,7 @@ impl App {
         let Some(Modal::Select(select)) = &self.modal else {
             return;
         };
-        let Some(index) = select.state.selected() else {
+        let Some(index) = select.state.index() else {
             self.note("No launch target to edit");
             return;
         };

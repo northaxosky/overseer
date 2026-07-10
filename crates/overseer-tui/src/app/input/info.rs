@@ -2,7 +2,7 @@
 
 use ratatui::crossterm::event::{KeyCode, KeyEvent};
 
-use crate::app::{App, HELP_ENTRIES, Info, Modal, initial_selection};
+use crate::app::{App, HELP_ENTRIES, Info, ListCursor, Modal};
 
 impl App {
     /// Keys for an Info modal: scroll the list or dismiss. It has no submit
@@ -25,7 +25,7 @@ impl App {
         self.modal = Some(Modal::Info(Info {
             title: "Help".to_owned(),
             entries,
-            state: initial_selection(HELP_ENTRIES.len()),
+            state: ListCursor::first(HELP_ENTRIES.len()),
         }));
     }
 }

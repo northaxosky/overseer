@@ -17,7 +17,7 @@ fn open_with(app: &mut App, titles: &[&str]) {
             })
             .collect(),
     );
-    let list = initial_selection(report.findings.len());
+    let list = ListCursor::first(report.findings.len());
     app.modal = Some(Modal::Doctor(DoctorReport { report, list }));
 }
 
@@ -36,11 +36,7 @@ fn d_opens_a_doctor_modal_that_ran_diagnostics() {
                 !doctor.report.findings.is_empty(),
                 "opening runs diagnostics and populates findings"
             );
-            assert_eq!(
-                doctor.list.selected(),
-                Some(0),
-                "opens on the first finding"
-            );
+            assert_eq!(doctor.list.index(), Some(0), "opens on the first finding");
         }
         _ => panic!("d opens a Doctor modal"),
     }

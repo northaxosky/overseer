@@ -408,7 +408,7 @@ impl App {
         };
         let Some(old) = select
             .state
-            .selected()
+            .index()
             .and_then(|i| select.items.get(i).cloned())
         else {
             self.note("No profile to rename");
