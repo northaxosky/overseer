@@ -1,7 +1,8 @@
 //! Shared in-memory fixtures for the TUI tests.
 
 use crate::app::{
-    App, ConflictsState, DownloadsState, Focus, SavesState, Session, Workspace, initial_selection,
+    App, ConflictsState, DownloadsState, Focus, ModsPane, SavesState, Session, Workspace,
+    initial_selection,
 };
 use camino::{Utf8Path, Utf8PathBuf};
 use overseer_core::install::DownloadEntry;
@@ -14,6 +15,48 @@ use std::time::{Duration, SystemTime};
 impl App {
     /// A small in-memory fixture for tests (no disk access)
     pub(crate) fn sample() -> Self {
+        let session = Session {
+            instance: Instance::new("test-instance", "test-game"),
+            profile: Profile {
+                name: "Default".to_owned(),
+                mods: vec![
+                    ModListEntry {
+                        name: "CoolMod".to_owned(),
+                        enabled: true,
+                        kind: ModKind::Managed,
+                    },
+                    ModListEntry {
+                        name: "OffMod".to_owned(),
+                        enabled: false,
+                        kind: ModKind::Managed,
+                    },
+                ],
+                local_saves: false,
+            },
+            order: PluginLoadOrder {
+                profile: "Default".to_owned(),
+                plugins: vec![
+                    PluginEntry {
+                        name: "Cool.esm".to_owned(),
+                        active: true,
+                    },
+                    PluginEntry {
+                        name: "Cool.esp".to_owned(),
+                        active: false,
+                    },
+                ],
+            },
+            discovered: vec![PluginMeta {
+                name: "Cool.esm".to_owned(),
+                is_master: true,
+                is_light: false,
+                masters: Vec::new(),
+                header_version: None,
+            }],
+            plugin_separators: PluginSeparators::default(),
+            status: None,
+        };
+        let mods = ModsPane::new(&session.profile.mods);
         Self {
             should_quit: false,
             modal: None,
@@ -27,50 +70,9 @@ impl App {
                 ],
                 ..Settings::default()
             },
-            session: Session {
-                instance: Instance::new("test-instance", "test-game"),
-                profile: Profile {
-                    name: "Default".to_owned(),
-                    mods: vec![
-                        ModListEntry {
-                            name: "CoolMod".to_owned(),
-                            enabled: true,
-                            kind: ModKind::Managed,
-                        },
-                        ModListEntry {
-                            name: "OffMod".to_owned(),
-                            enabled: false,
-                            kind: ModKind::Managed,
-                        },
-                    ],
-                    local_saves: false,
-                },
-                order: PluginLoadOrder {
-                    profile: "Default".to_owned(),
-                    plugins: vec![
-                        PluginEntry {
-                            name: "Cool.esm".to_owned(),
-                            active: true,
-                        },
-                        PluginEntry {
-                            name: "Cool.esp".to_owned(),
-                            active: false,
-                        },
-                    ],
-                },
-                discovered: vec![PluginMeta {
-                    name: "Cool.esm".to_owned(),
-                    is_master: true,
-                    is_light: false,
-                    masters: Vec::new(),
-                    header_version: None,
-                }],
-                plugin_separators: PluginSeparators::default(),
-                status: None,
-            },
-            mods_state: initial_selection(2),
+            session,
+            mods,
             plugins_state: initial_selection(2),
-            collapsed: std::collections::HashSet::new(),
             plugins_collapsed: std::collections::HashSet::new(),
             conflicts: ConflictsState::default(),
             downloads: DownloadsState::default(),

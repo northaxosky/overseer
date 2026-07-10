@@ -5,7 +5,9 @@ use overseer_core::apply;
 use overseer_core::instance::{Executable, InstanceError, ModKind};
 use ratatui::crossterm::event::{KeyCode, KeyEvent};
 
-use crate::app::{App, Focus, Modal, Prompt, PromptKind, SelectKind, Session, separator_display};
+use crate::app::{
+    App, Focus, ModPaneRow, Modal, Prompt, PromptKind, SelectKind, Session, separator_display,
+};
 
 impl App {
     /// Keys for Prompt modal: edit the line, submit, or cancel
@@ -89,24 +91,29 @@ impl App {
             self.note("Switch to the mods or plugins pane to rename");
             return;
         }
-        let Some(i) = self.selected_mod() else {
+        let rows = self.mods.project(&self.session.profile.mods);
+        let Some(row) = self.mods.index().and_then(|index| rows.get(index)).copied() else {
             return;
         };
-        let entry = &self.session.profile.mods[i];
-        if entry.kind == ModKind::Separator {
-            self.modal = Some(Modal::Prompt(Prompt {
-                kind: PromptKind::RenameSeparator {
-                    index: i,
-                    name: separator_display(&entry.name).to_owned(),
-                },
-                input: String::new(),
-                error: None,
-            }));
-            return;
-        }
-        if entry.kind != ModKind::Managed {
-            self.note("Only managed mods can be renamed");
-            return;
+        let model_index = row.model_index();
+        let entry = &self.session.profile.mods[model_index];
+        match row {
+            ModPaneRow::Separator { .. } => {
+                self.modal = Some(Modal::Prompt(Prompt {
+                    kind: PromptKind::RenameSeparator {
+                        index: model_index,
+                        name: separator_display(&entry.name).to_owned(),
+                    },
+                    input: String::new(),
+                    error: None,
+                }));
+                return;
+            }
+            ModPaneRow::Mod { .. } if entry.kind != ModKind::Managed => {
+                self.note("Only managed mods can be renamed");
+                return;
+            }
+            ModPaneRow::Mod { .. } => {}
         }
         self.modal = Some(Modal::Prompt(Prompt {
             kind: PromptKind::RenameMod {
@@ -250,20 +257,31 @@ impl App {
 
     /// Insert a separator above the selection and persist; revert the in-memory insert if it fails
     fn insert_selected_separator(&mut self, name: &str) -> Result<(), String> {
+        let rows = self.mods.project(&self.session.profile.mods);
         let anchor = self
-            .selected_mod()
-            .map_or(self.session.profile.mods.len(), |m| m + 1);
+            .mods
+            .index()
+            .and_then(|index| rows.get(index))
+            .map_or(self.session.profile.mods.len(), |row| row.model_index() + 1);
+        let separator_index = self.session.profile.mods[..anchor]
+            .iter()
+            .filter(|entry| entry.kind == ModKind::Separator)
+            .count();
         self.session
             .profile
             .insert_separator(anchor, name)
             .map_err(|e| e.to_string())?;
-        self.clamp_mod_selection();
         if let Err(e) = self.session.profile.save(&self.session.instance) {
             self.session.profile.mods.remove(anchor);
             return Err(format!("Could not save: {e}"));
         }
-        let display = self.visible_rows().iter().position(|&i| i == anchor);
-        self.mods_state.select(display);
+        self.mods.insert_separator(separator_index);
+        let display = self
+            .mods
+            .project(&self.session.profile.mods)
+            .iter()
+            .position(|row| row.model_index() == anchor);
+        self.mods.select(display);
         Ok(())
     }
 
@@ -396,8 +414,12 @@ impl App {
             self.session.profile.mods[index].name = prev;
             return Err(format!("Could not save: {e}"));
         }
-        let display = self.visible_rows().iter().position(|&i| i == index);
-        self.mods_state.select(display);
+        let display = self
+            .mods
+            .project(&self.session.profile.mods)
+            .iter()
+            .position(|row| row.model_index() == index);
+        self.mods.select(display);
         Ok(())
     }
 

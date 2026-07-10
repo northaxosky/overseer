@@ -1,7 +1,7 @@
 //! Tests for the Confirm modal
 
 use crate::app::input::test_helpers::key;
-use crate::app::{App, Confirm, ConfirmAction, Focus, Modal};
+use crate::app::{App, Confirm, ConfirmAction, Focus, ModPaneRow, Modal};
 use overseer_core::instance::{ModKind, ModListEntry, Profile};
 use ratatui::crossterm::event::KeyCode;
 
@@ -73,13 +73,14 @@ fn app_with_separator() -> (tempfile::TempDir, App) {
         .profile
         .save(&app.session.instance)
         .expect("seed the profile");
+    app.mods.reset(&app.session.profile.mods);
     (tmp, app)
 }
 
 #[test]
 fn x_on_a_separator_confirms_then_removes_and_persists() {
     let (_tmp, mut app) = app_with_separator();
-    app.mods_state.select(Some(1)); // display 1 = the separator (model 1) under reversal
+    app.mods.select(Some(1)); // display 1 = the separator (model 1) under reversal
 
     app.handle_key(key(KeyCode::Char('x')));
     assert!(
@@ -112,7 +113,7 @@ fn x_on_a_separator_confirms_then_removes_and_persists() {
 #[test]
 fn del_on_a_separator_also_opens_the_delete_confirm() {
     let (_tmp, mut app) = app_with_separator();
-    app.mods_state.select(Some(1));
+    app.mods.select(Some(1));
 
     app.handle_key(key(KeyCode::Delete));
 
@@ -128,7 +129,7 @@ fn del_on_a_separator_also_opens_the_delete_confirm() {
 #[test]
 fn x_on_a_managed_mod_notes_and_does_not_delete() {
     let (_tmp, mut app) = app_with_separator();
-    app.mods_state.select(Some(0)); // display 0 = managed "B" (model 2) under reversal
+    app.mods.select(Some(0)); // display 0 = managed "B" (model 2) under reversal
 
     app.handle_key(key(KeyCode::Char('x')));
 
@@ -143,7 +144,7 @@ fn x_on_a_managed_mod_notes_and_does_not_delete() {
 #[test]
 fn x_when_the_workspace_is_focused_notes_and_does_not_delete() {
     let (_tmp, mut app) = app_with_separator();
-    app.mods_state.select(Some(1)); // a separator is selected in the mods pane
+    app.mods.select(Some(1)); // a separator is selected in the mods pane
     app.focus = Focus::Workspace;
 
     app.handle_key(key(KeyCode::Char('x')));
@@ -159,7 +160,8 @@ fn x_when_the_workspace_is_focused_notes_and_does_not_delete() {
 #[test]
 fn a_failed_save_on_delete_rolls_the_separator_back_in_memory() {
     let (_tmp, mut app) = app_with_separator();
-    app.mods_state.select(Some(1));
+    app.mods.select(Some(1));
+    app.handle_key(key(KeyCode::Char(' ')));
     // Block the profile dir by planting a file where `profiles/` must be a directory
     let profiles = app.session.instance.profiles_dir();
     std::fs::remove_dir_all(&profiles).ok();
@@ -181,4 +183,11 @@ fn a_failed_save_on_delete_rolls_the_separator_back_in_memory() {
         ["A", "Zone_separator", "B"],
         "a failed save re-inserts the separator at its index"
     );
+    assert!(matches!(
+        app.mods.project(&app.session.profile.mods)[1],
+        ModPaneRow::Separator {
+            collapsed: true,
+            ..
+        }
+    ));
 }

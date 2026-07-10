@@ -3,12 +3,14 @@
 mod input;
 mod list;
 mod modal;
+mod pane;
 mod sort;
 
 pub(crate) use list::ListCursor;
 pub(crate) use modal::{
     Confirm, ConfirmAction, DoctorReport, Info, Modal, Prompt, PromptKind, Select, SelectKind,
 };
+pub(crate) use pane::{ModPaneRow, ModsPane};
 pub(crate) use sort::{downloads_sort_label, saves_sort_label};
 
 use anyhow::Result;
@@ -186,9 +188,8 @@ pub(crate) struct App {
     pub(crate) message: Option<Notice>,
     pub(crate) settings: Settings,
     pub(crate) session: Session,
-    pub(crate) mods_state: ListState,
+    pub(crate) mods: ModsPane,
     pub(crate) plugins_state: ListState,
-    pub(crate) collapsed: HashSet<String>,
     pub(crate) plugins_collapsed: HashSet<String>,
 }
 
@@ -206,6 +207,7 @@ impl App {
         if let Err(e) = settings.save() {
             tracing::warn!(error = %e, "could not save settings");
         }
+        let mods = ModsPane::new(&session.profile.mods);
         let plugin_rows = merge_rows(&session.order.plugins, &session.plugin_separators.items);
 
         Ok(Self {
@@ -217,11 +219,10 @@ impl App {
             downloads: DownloadsState::default(),
             saves: SavesState::default(),
             message: None,
-            mods_state: initial_selection(session.profile.mods.len()),
+            mods,
             plugins_state: initial_selection(plugin_rows.len()),
             settings,
             session,
-            collapsed: HashSet::new(),
             plugins_collapsed: HashSet::new(),
         })
     }

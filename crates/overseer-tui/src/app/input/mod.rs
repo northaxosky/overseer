@@ -14,12 +14,10 @@ use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::widgets::ListState;
 
 use overseer_core::deploy::detect_conflicts;
-use overseer_core::instance::ModKind;
 
 use super::sort::{DownloadsPane, SavesPane};
 use super::{
     App, ConflictsStatus, Focus, ListCursor, Modal, SelectKind, Workspace, initial_selection,
-    separator_display,
 };
 
 #[derive(Clone, Copy)]
@@ -28,36 +26,7 @@ enum RefreshCause {
     Explicit,
 }
 
-// Known limitation: two separators with the same display name share one collapse key, and renaming a separator drops its state
-/// A separator's collapse key: its display name, lowercased
-fn group_key(separator_name: &str) -> String {
-    separator_display(separator_name).to_ascii_lowercase()
-}
-
 impl App {
-    /// Model indices of the mods pane in display (MO2) order: file order reversed
-    pub(crate) fn visible_rows(&self) -> Vec<usize> {
-        let mods = &self.session.profile.mods;
-        let mut rows = Vec::with_capacity(mods.len());
-        let mut hidden = false;
-        for i in (0..mods.len()).rev() {
-            if mods[i].kind == ModKind::Separator {
-                hidden = self.collapsed.contains(&group_key(&mods[i].name));
-                rows.push(i);
-            } else if !hidden {
-                rows.push(i);
-            }
-        }
-        rows
-    }
-
-    /// Model index of the selected mods-pane row, translating from display space
-    pub(crate) fn selected_mod(&self) -> Option<usize> {
-        self.visible_rows()
-            .get(self.mods_state.selected()?)
-            .copied()
-    }
-
     pub(crate) fn handle_key(&mut self, key: KeyEvent) {
         // A modal blocks everything beneath it: it gets keys before the main view
         if self.modal.is_some() {
@@ -65,36 +34,6 @@ impl App {
             return;
         }
         self.handle_main_key(key);
-    }
-
-    /// Whether `model_index` is a separator whose group is collapsed
-    pub(crate) fn is_collapsed(&self, model_index: usize) -> bool {
-        let m = &self.session.profile.mods[model_index];
-        m.kind == ModKind::Separator && self.collapsed.contains(&group_key(&m.name))
-    }
-
-    /// The number of entries under the separator at `model_index`
-    pub(crate) fn group_members(&self, model_index: usize) -> usize {
-        self.session.profile.mods[..model_index]
-            .iter()
-            .rev()
-            .take_while(|m| m.kind != ModKind::Separator)
-            .count()
-    }
-
-    /// Re-clamp the display selection into the visible bounds; the one guard against a stale index
-    pub(super) fn clamp_mod_selection(&mut self) {
-        let len = self.visible_rows().len();
-        clamp_selection(&mut self.mods_state, len);
-    }
-
-    /// Toggle the separator at `model_index` between collapsed and expanded, then re-clamp
-    pub(super) fn toggle_collapsed(&mut self, model_index: usize) {
-        let key = group_key(&self.session.profile.mods[model_index].name);
-        if !self.collapsed.remove(&key) {
-            self.collapsed.insert(key);
-        }
-        self.clamp_mod_selection();
     }
 
     /// Handle one key press. Input is read by the run loop in `main`
@@ -195,8 +134,8 @@ impl App {
     fn move_main_selection(&mut self, delta: isize) {
         match self.focus {
             Focus::Mods => {
-                let len = self.visible_rows().len();
-                move_in_list(&mut self.mods_state, len, delta);
+                let len = self.mods.project(&self.session.profile.mods).len();
+                self.mods.move_by(len, delta);
             }
             Focus::Workspace => {
                 let ws = self.workspace;
@@ -224,9 +163,8 @@ impl App {
 
     /// After replacing `self.session`, reset the per-pane selection and refresh workspace
     pub(super) fn after_session_changed(&mut self) {
-        self.collapsed.clear();
         self.plugins_collapsed.clear();
-        self.mods_state = initial_selection(self.session.profile.mods.len());
+        self.mods.reset(&self.session.profile.mods);
         self.plugins_state = initial_selection(self.plugins_visible_rows().len());
         self.conflicts.list.reset_first(0);
         self.downloads.list.reset_first(0);

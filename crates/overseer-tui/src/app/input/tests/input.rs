@@ -2,6 +2,7 @@
 
 use super::test_helpers::key;
 use super::*;
+use crate::app::ModPaneRow;
 use crate::test_support::{download_entry, save_info};
 use overseer_core::settings::{
     DownloadsSort, DownloadsSortKey, SavesSort, SavesSortKey, Settings, SortDir,
@@ -48,13 +49,13 @@ fn tab_toggles_focus() {
 #[test]
 fn selection_moves_and_clamps_within_the_focused_pane() {
     let mut app = App::sample();
-    assert_eq!(app.mods_state.selected(), Some(0));
+    assert_eq!(app.mods.index(), Some(0));
     app.move_main_selection(-1); // already at top → clamps
-    assert_eq!(app.mods_state.selected(), Some(0));
+    assert_eq!(app.mods.index(), Some(0));
     app.move_main_selection(1);
-    assert_eq!(app.mods_state.selected(), Some(1));
+    assert_eq!(app.mods.index(), Some(1));
     app.move_main_selection(1); // at bottom (len 2) → clamps
-    assert_eq!(app.mods_state.selected(), Some(1));
+    assert_eq!(app.mods.index(), Some(1));
     // The plugins pane is independent and untouched while Mods is focused
     assert_eq!(app.plugins_state.selected(), Some(0));
 }
@@ -360,7 +361,7 @@ fn conflicts_selection_length_tracks_the_scan_status() {
 #[test]
 fn after_session_changed_resets_selection_and_marks_conflicts_stale() {
     let mut app = App::sample();
-    app.mods_state.select(Some(1));
+    app.mods.select(Some(1));
     app.plugins_state.select(Some(1));
     *app.conflicts.list.state_mut().offset_mut() = 2;
     *app.downloads.list.state_mut().offset_mut() = 3;
@@ -371,7 +372,7 @@ fn after_session_changed_resets_selection_and_marks_conflicts_stale() {
     app.after_session_changed();
 
     assert_eq!(
-        app.mods_state.selected(),
+        app.mods.index(),
         Some(0),
         "mods selection resets to the top"
     );
@@ -477,77 +478,107 @@ fn app_with_groups() -> App {
         managed_row("TextureX"),
         separator_row("Visual_separator"),
     ];
-    app.mods_state.select(Some(0));
+    app.mods.reset(&app.session.profile.mods);
     app
+}
+
+/// Collect projected model indices in display order
+fn projected_model_indices(app: &App) -> Vec<usize> {
+    app.mods
+        .project(&app.session.profile.mods)
+        .iter()
+        .map(|row| row.model_index())
+        .collect()
+}
+
+/// Resolve the selected display row to its model index
+fn selected_model_index(app: &App) -> Option<usize> {
+    let rows = app.mods.project(&app.session.profile.mods);
+    app.mods
+        .index()
+        .and_then(|index| rows.get(index))
+        .map(|row| row.model_index())
 }
 
 #[test]
 fn visible_rows_reverses_file_order_into_mo2_order() {
     let app = app_with_groups();
-    assert_eq!(app.visible_rows(), vec![4, 3, 2, 1, 0]);
+    assert_eq!(projected_model_indices(&app), vec![4, 3, 2, 1, 0]);
 }
 
 #[test]
 fn selected_mod_translates_display_to_model() {
     let mut app = app_with_groups();
-    app.mods_state.select(Some(0));
-    assert_eq!(app.selected_mod(), Some(4)); // top of the UI = the Visual separator
-    app.mods_state.select(Some(4));
-    assert_eq!(app.selected_mod(), Some(0)); // bottom = PatchA, the highest priority
+    app.mods.select(Some(0));
+    assert_eq!(selected_model_index(&app), Some(4)); // top of the UI = the Visual separator
+    app.mods.select(Some(4));
+    assert_eq!(selected_model_index(&app), Some(0)); // bottom = PatchA, the highest priority
 }
 
 #[test]
 fn collapsing_a_separator_hides_its_group_and_keeps_the_cursor() {
     let mut app = app_with_groups();
-    app.mods_state.select(Some(2)); // the Gameplay separator
+    app.mods.select(Some(2)); // the Gameplay separator
     app.handle_key(key(KeyCode::Char(' ')));
-    assert!(app.is_collapsed(2));
     assert_eq!(
-        app.visible_rows(),
+        projected_model_indices(&app),
         vec![4, 3, 2],
         "PatchB and PatchA are hidden"
     );
-    assert_eq!(app.group_members(2), 2, "the group has two members");
+    assert!(matches!(
+        app.mods.project(&app.session.profile.mods)[2],
+        ModPaneRow::Separator {
+            model_index: 2,
+            collapsed: true,
+            member_count: 2,
+            ..
+        }
+    ));
     assert_eq!(
-        app.selected_mod(),
+        selected_model_index(&app),
         Some(2),
         "the cursor stays on the separator"
     );
     app.handle_key(key(KeyCode::Char(' ')));
-    assert!(!app.is_collapsed(2), "space toggles back to expanded");
-    assert_eq!(app.visible_rows(), vec![4, 3, 2, 1, 0]);
+    assert_eq!(projected_model_indices(&app), vec![4, 3, 2, 1, 0]);
 }
 
 #[test]
 fn navigation_skips_a_collapsed_groups_members() {
     let mut app = app_with_groups();
-    app.mods_state.select(Some(2));
+    app.mods.select(Some(2));
     app.handle_key(key(KeyCode::Char(' '))); // collapse Gameplay -> visible [4, 3, 2]
-    app.mods_state.select(Some(0));
+    app.mods.select(Some(0));
     app.handle_key(key(KeyCode::Down));
     app.handle_key(key(KeyCode::Down));
     app.handle_key(key(KeyCode::Down)); // clamps: only three rows are visible
-    assert_eq!(app.mods_state.selected(), Some(2));
+    assert_eq!(app.mods.index(), Some(2));
 }
 
 #[test]
 fn clamp_mod_selection_pulls_a_stale_index_into_view() {
     let mut app = app_with_groups();
-    app.collapsed.insert("gameplay".to_owned()); // visible shrinks to [4, 3, 2]
-    app.mods_state.select(Some(4)); // stale: past the new end
-    app.clamp_mod_selection();
-    assert_eq!(app.mods_state.selected(), Some(2));
+    app.mods.select(Some(2));
+    app.handle_key(key(KeyCode::Char(' '))); // visible shrinks to [4, 3, 2]
+    app.mods.select(Some(4)); // stale: past the new end
+    let len = app.mods.project(&app.session.profile.mods).len();
+    app.mods.clamp(len);
+    assert_eq!(app.mods.index(), Some(2));
 }
 
 #[test]
 fn changing_session_clears_collapse_state() {
     let mut app = app_with_groups();
-    app.collapsed.insert("gameplay".to_owned());
+    app.mods.select(Some(2));
+    app.handle_key(key(KeyCode::Char(' ')));
     app.after_session_changed();
-    assert!(
-        app.collapsed.is_empty(),
-        "a session swap resets ephemeral collapse"
-    );
+    assert!(matches!(
+        app.mods.project(&app.session.profile.mods)[2],
+        ModPaneRow::Separator {
+            collapsed: false,
+            ..
+        }
+    ));
 }
 
 #[test]

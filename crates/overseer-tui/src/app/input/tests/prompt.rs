@@ -5,7 +5,6 @@ use crate::app::Select;
 use crate::app::input::test_helpers::*;
 use overseer_core::instance::{ModListEntry, Profile};
 use overseer_core::test_support::{install_mod, save_profile};
-use ratatui::widgets::ListState;
 
 #[test]
 fn n_in_the_profile_picker_opens_the_new_profile_prompt() {
@@ -267,7 +266,7 @@ fn validate_name_allows_an_interior_space() {
 #[test]
 fn r_on_a_managed_mod_opens_an_empty_rename_prompt() {
     let mut app = App::sample();
-    app.mods_state.select(Some(1)); // display 1 = CoolMod (model 0) under reversal
+    app.mods.select(Some(1)); // display 1 = CoolMod (model 0) under reversal
 
     app.handle_key(key(KeyCode::Char('R')));
 
@@ -296,7 +295,7 @@ fn r_on_a_foreign_row_or_the_plugins_pane_is_a_note() {
             enabled: true,
             kind: ModKind::Foreign,
         });
-    app.mods_state.select(Some(0)); // display 0 = the pushed row (model 2) under reversal
+    app.mods.select(Some(0)); // display 0 = the pushed row (model 2) under reversal
 
     app.handle_key(key(KeyCode::Char('R')));
 
@@ -321,7 +320,8 @@ fn r_on_a_separator_opens_a_rename_separator_prompt_prefilled_with_its_display_n
             enabled: false,
             kind: ModKind::Separator,
         });
-    app.mods_state.select(Some(0)); // display 0 = the pushed separator (model 2) under reversal
+    app.mods.reset(&app.session.profile.mods);
+    app.mods.select(Some(0)); // display 0 = the pushed separator (model 2) under reversal
 
     app.handle_key(key(KeyCode::Char('R')));
 
@@ -361,7 +361,9 @@ fn submitting_a_valid_separator_rename_persists_and_reselects() {
         .profile
         .save(&app.session.instance)
         .expect("seed the profile");
-    app.mods_state.select(Some(0)); // display 0 = the separator (model 1) under reversal
+    app.mods.reset(&app.session.profile.mods);
+    app.mods.select(Some(0)); // display 0 = the separator (model 1) under reversal
+    app.handle_key(key(KeyCode::Char(' ')));
 
     app.handle_key(key(KeyCode::Char('R')));
     for c in "Areas".chars() {
@@ -372,7 +374,10 @@ fn submitting_a_valid_separator_rename_persists_and_reselects() {
     assert!(app.modal.is_none(), "a successful rename closes the prompt");
     assert_eq!(app.session.profile.mods[1].name, "Areas_separator");
     assert_eq!(
-        app.selected_mod(),
+        app.mods
+            .project(&app.session.profile.mods)
+            .get(app.mods.index().expect("selected"))
+            .map(|row| row.model_index()),
         Some(1),
         "the renamed separator stays selected"
     );
@@ -381,6 +386,13 @@ fn submitting_a_valid_separator_rename_persists_and_reselects() {
         reloaded.mods[1].name, "Areas_separator",
         "persisted to disk"
     );
+    assert!(matches!(
+        app.mods.project(&app.session.profile.mods)[0],
+        ModPaneRow::Separator {
+            collapsed: true,
+            ..
+        }
+    ));
 }
 
 #[test]
@@ -404,7 +416,8 @@ fn submitting_a_colliding_separator_rename_keeps_the_prompt_with_error() {
         .profile
         .save(&app.session.instance)
         .expect("seed the profile");
-    app.mods_state.select(Some(1)); // display 1 = Alpha (model 0) under reversal
+    app.mods.reset(&app.session.profile.mods);
+    app.mods.select(Some(1)); // display 1 = Alpha (model 0) under reversal
 
     app.handle_key(key(KeyCode::Char('R')));
     for c in "Beta".chars() {
@@ -426,7 +439,7 @@ fn submitting_a_valid_mod_rename_updates_memory_and_keeps_selection() {
     save_profile(&instance, "Default", &[("CoolMod", true)]);
     let mut app = App::sample();
     app.session.instance = instance;
-    app.mods_state.select(Some(1)); // display 1 = CoolMod (model 0), the installed mod
+    app.mods.select(Some(1)); // display 1 = CoolMod (model 0), the installed mod
 
     app.handle_key(key(KeyCode::Char('R')));
     for c in "BetterMod".chars() {
@@ -436,7 +449,7 @@ fn submitting_a_valid_mod_rename_updates_memory_and_keeps_selection() {
 
     assert!(app.modal.is_none(), "successful rename closes prompt");
     assert_eq!(app.session.profile.mods[0].name, "BetterMod");
-    assert_eq!(app.mods_state.selected(), Some(1));
+    assert_eq!(app.mods.index(), Some(1));
     assert!(app.message.is_some(), "an ok notice is shown");
 }
 
@@ -463,8 +476,7 @@ fn submitting_a_duplicate_mod_rename_keeps_the_prompt_with_error() {
     save_profile(&instance, "Default", &[("CoolMod", true)]);
     let mut app = App::sample();
     app.session.instance = instance;
-    app.mods_state = ListState::default();
-    app.mods_state.select(Some(1)); // display 1 = CoolMod (model 0), the installed mod
+    app.mods.select(Some(1)); // display 1 = CoolMod (model 0), the installed mod
 
     app.handle_key(key(KeyCode::Char('R')));
     for c in "Existing".chars() {
@@ -486,7 +498,7 @@ fn a_adds_a_separator_heading_the_selection_and_saves() {
     save_profile(&instance, "Default", &[("CoolMod", true)]);
     let mut app = App::sample();
     app.session.instance = instance;
-    app.mods_state.select(Some(0));
+    app.mods.select(Some(0));
 
     app.handle_key(key(KeyCode::Char('A')));
     for c in "Gameplay".chars() {
@@ -496,11 +508,12 @@ fn a_adds_a_separator_heading_the_selection_and_saves() {
 
     assert!(app.modal.is_none(), "success closes the prompt");
     // The new separator becomes the selection and heads the previously-selected row
-    let sel = app.selected_mod().expect("a row is selected");
+    let rows = app.mods.project(&app.session.profile.mods);
+    let sel = rows[app.mods.index().expect("a row is selected")].model_index();
     assert_eq!(app.session.profile.mods[sel].kind, ModKind::Separator);
     assert_eq!(app.session.profile.mods[sel].name, "Gameplay_separator");
     assert_eq!(
-        app.mods_state.selected(),
+        app.mods.index(),
         Some(0),
         "the new separator heads the selection at the top of its group"
     );
@@ -518,6 +531,106 @@ fn a_with_an_invalid_separator_name_keeps_the_prompt_with_error() {
         matches!(prompt_state(&app), Some(("a/b", Some(_)))),
         "an invalid name stays inline with an error"
     );
+}
+
+/// Failed separator insertion preserves domain and collapse alignment
+#[test]
+fn failed_separator_insert_restores_domain_and_collapse_alignment() {
+    let (_tmp, instance) = overseer_core::test_support::temp_instance();
+    let mut app = App::sample();
+    app.session.instance = instance;
+    app.session.profile.mods = vec![
+        ModListEntry {
+            name: "A".to_owned(),
+            enabled: true,
+            kind: ModKind::Managed,
+        },
+        ModListEntry {
+            name: "Zone_separator".to_owned(),
+            enabled: false,
+            kind: ModKind::Separator,
+        },
+    ];
+    app.session
+        .profile
+        .save(&app.session.instance)
+        .expect("seed the profile");
+    app.mods.reset(&app.session.profile.mods);
+    app.mods.select(Some(0));
+    app.handle_key(key(KeyCode::Char(' ')));
+
+    let profiles = app.session.instance.profiles_dir();
+    std::fs::remove_dir_all(&profiles).expect("remove profiles");
+    std::fs::write(&profiles, b"not a directory").expect("block profiles");
+
+    app.handle_key(key(KeyCode::Char('A')));
+    for c in "New".chars() {
+        app.handle_key(key(KeyCode::Char(c)));
+    }
+    app.handle_key(key(KeyCode::Enter));
+
+    assert_eq!(
+        app.session
+            .profile
+            .mods
+            .iter()
+            .map(|entry| entry.name.as_str())
+            .collect::<Vec<_>>(),
+        ["A", "Zone_separator"]
+    );
+    assert!(matches!(
+        app.mods.project(&app.session.profile.mods)[0],
+        ModPaneRow::Separator {
+            collapsed: true,
+            ..
+        }
+    ));
+}
+
+/// Failed separator rename preserves domain and collapse alignment
+#[test]
+fn failed_separator_rename_restores_domain_and_collapse_alignment() {
+    let (_tmp, instance) = overseer_core::test_support::temp_instance();
+    let mut app = App::sample();
+    app.session.instance = instance;
+    app.session.profile.mods = vec![
+        ModListEntry {
+            name: "A".to_owned(),
+            enabled: true,
+            kind: ModKind::Managed,
+        },
+        ModListEntry {
+            name: "Zone_separator".to_owned(),
+            enabled: false,
+            kind: ModKind::Separator,
+        },
+    ];
+    app.session
+        .profile
+        .save(&app.session.instance)
+        .expect("seed the profile");
+    app.mods.reset(&app.session.profile.mods);
+    app.mods.select(Some(0));
+    app.handle_key(key(KeyCode::Char(' ')));
+
+    let profiles = app.session.instance.profiles_dir();
+    std::fs::remove_dir_all(&profiles).expect("remove profiles");
+    std::fs::write(&profiles, b"not a directory").expect("block profiles");
+
+    app.handle_key(key(KeyCode::Char('R')));
+    for c in "Areas".chars() {
+        app.handle_key(key(KeyCode::Char(c)));
+    }
+    app.handle_key(key(KeyCode::Enter));
+
+    assert_eq!(app.session.profile.mods[1].name, "Zone_separator");
+    assert!(matches!(
+        app.mods.project(&app.session.profile.mods)[0],
+        ModPaneRow::Separator {
+            collapsed: true,
+            ..
+        }
+    ));
 }
 
 #[test]
@@ -646,7 +759,7 @@ fn typing_q_edits_the_prompt_instead_of_quitting() {
 #[test]
 fn esc_on_a_rename_mod_prompt_returns_to_the_main_view() {
     let mut app = App::sample();
-    app.mods_state.select(Some(1)); // display 1 = CoolMod, a managed mod
+    app.mods.select(Some(1)); // display 1 = CoolMod, a managed mod
     app.handle_key(key(KeyCode::Char('R'))); // rename-mod prompt, opened from the main view
     assert!(
         matches!(

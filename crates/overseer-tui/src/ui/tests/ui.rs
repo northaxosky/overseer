@@ -65,6 +65,8 @@ fn a_collapsed_separator_shows_a_glyph_and_member_count() {
 
 #[test]
 fn a_separator_renders_as_a_header_rule_not_a_checkbox_row() {
+    use overseer_core::instance::{ModKind, ModListEntry};
+
     let mut app = App::sample();
     app.session.profile.mods.insert(
         0,
@@ -74,6 +76,7 @@ fn a_separator_renders_as_a_header_rule_not_a_checkbox_row() {
             kind: ModKind::Separator,
         },
     );
+    app.mods.reset(&app.session.profile.mods);
     let out = render(&mut app, 60, 10);
     assert!(
         out.contains("Gameplay"),

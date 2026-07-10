@@ -16,11 +16,12 @@ fn toggling_a_non_managed_mod_is_refused() {
         });
     let foreign = app.session.profile.mods.len() - 1;
     let display = app
-        .visible_rows()
+        .mods
+        .project(&app.session.profile.mods)
         .iter()
-        .position(|&i| i == foreign)
+        .position(|row| row.model_index() == foreign)
         .expect("the foreign row is visible");
-    app.mods_state.select(Some(display));
+    app.mods.select(Some(display));
     assert!(!app.flip_selected(), "foreign entries can't be flipped");
     assert!(app.session.profile.mods[foreign].enabled, "left unchanged");
     assert!(app.message.is_some(), "user is told why");
@@ -29,7 +30,8 @@ fn toggling_a_non_managed_mod_is_refused() {
 #[test]
 fn flip_toggles_the_selected_mod() {
     let mut app = App::sample();
-    let m = app.selected_mod().expect("a row is selected");
+    let rows = app.mods.project(&app.session.profile.mods);
+    let m = rows[app.mods.index().expect("a row is selected")].model_index();
     let before = app.session.profile.mods[m].enabled;
     assert!(app.flip_selected());
     assert_eq!(app.session.profile.mods[m].enabled, !before);
@@ -89,17 +91,17 @@ fn shift_moves_the_selected_mod_and_keeps_selection() {
     let mut app = App::sample();
     assert!(app.shift_selected_mod(1));
     assert_eq!(app.session.profile.mods[1].name, "CoolMod");
-    assert_eq!(app.mods_state.selected(), Some(1));
+    assert_eq!(app.mods.index(), Some(1));
     assert!(app.shift_selected_mod(-1));
     assert_eq!(app.session.profile.mods[0].name, "CoolMod");
-    assert_eq!(app.mods_state.selected(), Some(0));
+    assert_eq!(app.mods.index(), Some(0));
 }
 
 #[test]
 fn shift_is_a_noop_at_edges_and_in_the_plugins_pane() {
     let mut app = App::sample();
     assert!(!app.shift_selected_mod(-1)); // at the top
-    assert_eq!(app.mods_state.selected(), Some(0));
+    assert_eq!(app.mods.index(), Some(0));
     app.focus = Focus::Workspace;
     assert!(!app.shift_selected_mod(1)); // unsupported pane
 }
@@ -141,14 +143,10 @@ fn names(app: &App) -> Vec<String> {
 fn j_moves_a_mod_down_the_ui_which_raises_its_priority() {
     // model [CoolMod(0), OffMod(1)]; display [OffMod, CoolMod] (highest priority at the bottom)
     let mut app = App::sample();
-    app.mods_state.select(Some(0)); // OffMod: lowest priority, top of the UI
+    app.mods.select(Some(0)); // OffMod: lowest priority, top of the UI
     assert!(app.shift_selected_mod(1)); // J: move down the UI
     assert_eq!(names(&app), vec!["OffMod", "CoolMod"]); // OffMod is now model 0 = highest priority
-    assert_eq!(
-        app.mods_state.selected(),
-        Some(1),
-        "selection follows the moved mod"
-    );
+    assert_eq!(app.mods.index(), Some(1), "selection follows the moved mod");
 }
 
 #[test]
@@ -159,15 +157,16 @@ fn a_managed_mod_crosses_an_expanded_separator() {
         separator("Group_separator"),
         managed("TextureX"),
     ];
+    app.mods.reset(&app.session.profile.mods);
     // display: [TextureX(d0,m2), Group(d1,m1), PatchA(d2,m0)]
-    app.mods_state.select(Some(0)); // TextureX, above the group
+    app.mods.select(Some(0)); // TextureX, above the group
     assert!(
         app.shift_selected_mod(1),
         "swaps with the expanded separator, crossing into the group"
     );
     assert_eq!(names(&app), vec!["PatchA", "TextureX", "Group_separator"]);
     assert_eq!(
-        app.mods_state.selected(),
+        app.mods.index(),
         Some(1),
         "selection follows across the boundary"
     );
@@ -177,8 +176,9 @@ fn a_managed_mod_crosses_an_expanded_separator() {
 fn a_move_past_a_foreign_entry_is_refused() {
     let mut app = App::sample();
     app.session.profile.mods = vec![foreign("DLCArmor"), managed("TextureX")];
+    app.mods.reset(&app.session.profile.mods);
     // display: [TextureX(d0,m1), DLCArmor(d1,m0)]
-    app.mods_state.select(Some(0)); // TextureX
+    app.mods.select(Some(0)); // TextureX
     assert!(
         !app.shift_selected_mod(1),
         "can't displace a base-game entry"
@@ -190,8 +190,9 @@ fn a_move_past_a_foreign_entry_is_refused() {
 fn reordering_a_separator_row_is_refused() {
     let mut app = App::sample();
     app.session.profile.mods = vec![managed("PatchA"), separator("Group_separator")];
+    app.mods.reset(&app.session.profile.mods);
     // display: [Group(d0,m1), PatchA(d1,m0)]
-    app.mods_state.select(Some(0)); // the separator
+    app.mods.select(Some(0)); // the separator
     assert!(!app.shift_selected_mod(1), "separators don't reorder in v1");
     assert!(app.message.is_some());
 }
@@ -205,9 +206,10 @@ fn a_move_past_a_collapsed_separator_is_refused() {
         managed("TextureX"),
         separator("Upper_separator"),
     ];
-    app.collapsed.insert("lower".to_owned());
+    app.mods.reset(&app.session.profile.mods);
+    app.mods.toggle_separator(0);
     // display: [Upper(d0), TextureX(d1), Lower▶(d2)]
-    app.mods_state.select(Some(1)); // TextureX
+    app.mods.select(Some(1)); // TextureX
     assert!(
         !app.shift_selected_mod(1),
         "the collapsed separator blocks it"
@@ -239,7 +241,7 @@ fn deployable_app() -> (tempfile::TempDir, App, camino::Utf8PathBuf) {
     app.session.plugin_separators = PluginSeparators::default();
     app.session.discovered = Vec::new();
     app.session.status = None;
-    app.mods_state = crate::app::initial_selection(app.session.profile.mods.len());
+    app.mods.reset(&app.session.profile.mods);
     (tmp, app, deployed)
 }
 

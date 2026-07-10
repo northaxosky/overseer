@@ -6,7 +6,7 @@ use overseer_core::deploy::NullSink;
 use overseer_core::instance::ModKind;
 use overseer_core::plugins::discover_plugins;
 
-use crate::app::{App, Focus, Workspace};
+use crate::app::{App, Focus, ModPaneRow, Workspace};
 
 impl App {
     /// Toggle the selected item in the focused pane & report the outcome
@@ -36,18 +36,19 @@ impl App {
         if self.focus != Focus::Mods {
             return false;
         }
-        let rows = self.visible_rows();
-        let Some(p) = self.mods_state.selected() else {
+        let rows = self.mods.project(&self.session.profile.mods);
+        let Some(p) = self.mods.index() else {
             return false;
         };
         let q = p as isize + display_delta;
         if q < 0 || q >= rows.len() as isize {
             return false;
         }
-        let Some(&a) = rows.get(p) else {
+        let Some(a) = rows.get(p).copied().map(ModPaneRow::model_index) else {
             return false;
         };
-        let b = rows[q as usize];
+        let target_row = rows[q as usize];
+        let b = target_row.model_index();
         let mods = &self.session.profile.mods;
         if mods[a].kind != ModKind::Managed {
             self.note("Only mods can be reordered");
@@ -57,14 +58,20 @@ impl App {
             self.note("Can't reorder past a base-game entry");
             return false;
         }
-        if mods[b].kind == ModKind::Separator && self.is_collapsed(b) {
+        if matches!(
+            target_row,
+            ModPaneRow::Separator {
+                collapsed: true,
+                ..
+            }
+        ) {
             self.note("Expand the group to move past it");
             return false;
         }
 
         // Both endpoints visible, they are model-adjacent: plain swap is clean
         self.session.profile.mods.swap(a, b);
-        self.mods_state.select(Some(q as usize));
+        self.mods.select(Some(q as usize));
         self.mark_conflicts_stale();
         true
     }
@@ -73,21 +80,30 @@ impl App {
     fn flip_selected(&mut self) -> bool {
         match self.focus {
             Focus::Mods => {
-                let Some(m) = self.selected_mod() else {
+                let rows = self.mods.project(&self.session.profile.mods);
+                let Some(row) = self.mods.index().and_then(|index| rows.get(index)).copied() else {
                     return false;
                 };
-                if self.session.profile.mods[m].kind == ModKind::Separator {
-                    self.toggle_collapsed(m);
-                    return false;
+                match row {
+                    ModPaneRow::Separator {
+                        separator_index, ..
+                    } => {
+                        self.mods.toggle_separator(separator_index);
+                        let len = self.mods.project(&self.session.profile.mods).len();
+                        self.mods.clamp(len);
+                        false
+                    }
+                    ModPaneRow::Mod { model_index } => {
+                        let entry = &mut self.session.profile.mods[model_index];
+                        if entry.kind != ModKind::Managed {
+                            self.note("Only managed mods can be toggled");
+                            return false;
+                        }
+                        entry.enabled = !entry.enabled;
+                        self.mark_conflicts_stale();
+                        true
+                    }
                 }
-                let entry = &mut self.session.profile.mods[m];
-                if entry.kind != ModKind::Managed {
-                    self.note("Only managed mods can be toggled");
-                    return false;
-                }
-                entry.enabled = !entry.enabled;
-                self.mark_conflicts_stale();
-                true
             }
             Focus::Workspace => {
                 let ws = self.workspace;

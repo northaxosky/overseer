@@ -8,7 +8,7 @@ mod modal;
 
 use overseer_core::apply::DeploymentStatus;
 use overseer_core::deploy::FileConflict;
-use overseer_core::instance::{ModKind, ModListEntry};
+use overseer_core::instance::ModListEntry;
 use overseer_core::plugins::{PluginMeta, PluginRow};
 use overseer_frontend::style::Role;
 use ratatui::{
@@ -20,7 +20,7 @@ use ratatui::{
 use strum::IntoEnumIterator;
 
 use crate::app::{
-    App, ConflictsStatus, Focus, Workspace, downloads_sort_label, saves_sort_label,
+    App, ConflictsStatus, Focus, ModPaneRow, Workspace, downloads_sort_label, saves_sort_label,
     separator_display,
 };
 use crate::theme;
@@ -76,21 +76,26 @@ pub(crate) fn draw_main(app: &mut App, frame: &mut Frame) {
     );
 
     let mods_items: Vec<ListItem<'static>> = app
-        .visible_rows()
-        .iter()
-        .map(|&i| {
-            let m = &app.session.profile.mods[i];
-            if m.kind == ModKind::Separator {
+        .mods
+        .project(&app.session.profile.mods)
+        .into_iter()
+        .map(|row| match row {
+            ModPaneRow::Separator {
+                model_index,
+                collapsed,
+                member_count,
+                ..
+            } => {
+                let entry = &app.session.profile.mods[model_index];
                 let header = separator_header(
-                    separator_display(&m.name),
+                    separator_display(&entry.name),
                     cols[0].width,
-                    app.is_collapsed(i),
-                    app.group_members(i),
+                    collapsed,
+                    member_count,
                 );
                 ListItem::new(header).style(theme::style(Role::Heading))
-            } else {
-                mod_row(m)
             }
+            ModPaneRow::Mod { model_index } => mod_row(&app.session.profile.mods[model_index]),
         })
         .collect();
 
@@ -99,7 +104,7 @@ pub(crate) fn draw_main(app: &mut App, frame: &mut Frame) {
         cols[0],
         mods_title,
         mods_items,
-        &mut app.mods_state,
+        app.mods.state_mut(),
         mods_focused,
     );
 
