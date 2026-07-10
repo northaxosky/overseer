@@ -1,4 +1,4 @@
-//! Fallout 4 BA2 extract and repack, wrapping the `btdx` crate
+//! Bethesda BA2 extraction and Fallout 4 v1 repacking via `btdx`
 
 use crate::error::{IoError, io_err};
 use camino::{Utf8Path, Utf8PathBuf};

@@ -1,7 +1,7 @@
 //! A profile's managed plugin load order: names and active flags
 
 use super::error::PluginError;
-use super::metadata::PluginMeta;
+use super::metadata::{PluginMeta, is_master};
 use crate::fs;
 use crate::instance::Instance;
 
@@ -115,13 +115,6 @@ impl PluginLoadOrder {
         }
         changed
     }
-}
-
-fn is_master(name: &str, discovered: &[PluginMeta]) -> bool {
-    discovered
-        .iter()
-        .find(|m| m.name.eq_ignore_ascii_case(name))
-        .is_some_and(|m| m.is_master)
 }
 
 /// Parse `plugins.txt`

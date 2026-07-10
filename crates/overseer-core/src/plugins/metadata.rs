@@ -30,6 +30,14 @@ pub struct PluginMeta {
     pub header_version: Option<f32>,
 }
 
+/// Whether `name` belongs to a discovered master plugin
+pub fn is_master(name: &str, discovered: &[PluginMeta]) -> bool {
+    discovered
+        .iter()
+        .find(|meta| meta.name.eq_ignore_ascii_case(name))
+        .is_some_and(|meta| meta.is_master)
+}
+
 /// Read a plugin's metadata from its header
 pub fn read_metadata(
     game_id: GameId,

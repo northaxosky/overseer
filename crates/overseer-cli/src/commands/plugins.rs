@@ -2,7 +2,7 @@
 
 use anyhow::{Context, Result};
 use overseer_core::instance::Instance;
-use overseer_core::plugins::{PluginLoadOrder, PluginMeta};
+use overseer_core::plugins::{PluginLoadOrder, PluginMeta, is_master};
 
 use crate::cli::{PluginCommand, ProfileArgs};
 use crate::ui::{heading, list_item, success};
@@ -38,10 +38,11 @@ fn list(target: &ProfileArgs) -> Result<()> {
         order.plugins.len()
     ));
     for (i, entry) in order.plugins.iter().enumerate() {
-        let is_master = discovered
-            .iter()
-            .any(|m| m.name.eq_ignore_ascii_case(&entry.name) && m.is_master);
-        let tag = if is_master { " (master)" } else { "" };
+        let tag = if is_master(&entry.name, &discovered) {
+            " (master)"
+        } else {
+            ""
+        };
         list_item(i + 1, entry.active, &entry.name, tag);
     }
     Ok(())

@@ -16,6 +16,31 @@ fn recognizes_plugin_extensions_case_insensitively() {
     assert!(!is_plugin_file("noext"));
 }
 
+/// Master lookup is case-insensitive and rejects missing or non-master plugins
+#[test]
+fn master_lookup_uses_discovered_metadata() {
+    let discovered = vec![
+        PluginMeta {
+            name: "Master.esm".to_owned(),
+            is_master: true,
+            is_light: false,
+            masters: Vec::new(),
+            header_version: None,
+        },
+        PluginMeta {
+            name: "Patch.esp".to_owned(),
+            is_master: false,
+            is_light: false,
+            masters: Vec::new(),
+            header_version: None,
+        },
+    ];
+
+    assert!(is_master("MASTER.ESM", &discovered));
+    assert!(!is_master("Patch.esp", &discovered));
+    assert!(!is_master("Missing.esm", &discovered));
+}
+
 // --- read_metadata ---
 
 #[test]

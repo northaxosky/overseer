@@ -16,7 +16,7 @@ fn push_subrecord(out: &mut Vec<u8>, kind: &[u8; 4], data: &[u8]) {
 }
 
 /// Build a minimal record-free Fallout 4 carrier ESL so the game auto-loads merged CC
-pub fn carrier_esl() -> Vec<u8> {
+fn carrier_esl() -> Vec<u8> {
     let mut payload = Vec::new();
 
     // HEDR: f32 version 1.0 + 2 u32

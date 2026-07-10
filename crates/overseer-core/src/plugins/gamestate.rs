@@ -31,7 +31,7 @@ pub fn write_active_plugins(
     Ok(())
 }
 
-/// The plugins Fallout 4 force-loads regardless of `Plugins.txt`
+/// The plugins this game force-loads regardless of `Plugins.txt`
 pub fn implicit_active_plugins(
     game_id: GameId,
     game_dir: &Utf8Path,

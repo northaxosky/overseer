@@ -9,7 +9,7 @@ mod modal;
 use overseer_core::apply::DeploymentStatus;
 use overseer_core::deploy::FileConflict;
 use overseer_core::instance::ModListEntry;
-use overseer_core::plugins::PluginMeta;
+use overseer_core::plugins::is_master;
 use overseer_frontend::style::Role;
 use ratatui::{
     Frame,
@@ -215,7 +215,7 @@ fn render_plugins(app: &mut App, frame: &mut Frame, area: Rect) {
             }
             PluginPaneRow::Plugin { plugin_index } => {
                 let p = &app.session.order.plugins[plugin_index];
-                let tag = if is_master(&app.session.discovered, &p.name) {
+                let tag = if is_master(&p.name, &app.session.discovered) {
                     " (master)"
                 } else {
                     ""
@@ -492,13 +492,6 @@ fn separator_header(display: &str, width: u16, collapsed: bool, members: usize) 
     let inner = (width as usize).saturating_sub(2);
     let fill = inner.saturating_sub(head.chars().count());
     format!("{head}{}", "─".repeat(fill))
-}
-
-/// Whether a plugin name is a master, per discovered metadata
-fn is_master(discovered: &[PluginMeta], name: &str) -> bool {
-    discovered
-        .iter()
-        .any(|m| m.is_master && m.name.eq_ignore_ascii_case(name))
 }
 
 /// One-line summary of the instance's live deployment, for the footer
