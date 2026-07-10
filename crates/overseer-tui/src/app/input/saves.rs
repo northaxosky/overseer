@@ -1,7 +1,7 @@
 //! The saves workspace's actions: listing the profile's `.fos` saves and deleting one
 
 use crate::app::sort::sort_saves;
-use crate::app::{App, Confirm, ConfirmAction, Focus, Modal, Workspace, select_first};
+use crate::app::{App, Confirm, ConfirmAction, Focus, Modal, Workspace};
 use camino::Utf8Path;
 use overseer_core::saves::{self, SaveInfo};
 
@@ -20,7 +20,7 @@ impl App {
         match listed {
             Ok(mut entries) => {
                 sort_saves(&mut entries, self.settings.saves_sort);
-                select_first(&mut self.saves.list, entries.len());
+                self.saves.list.select_first(entries.len());
                 self.saves.entries = entries;
             }
             Err(msg) => {
@@ -33,13 +33,13 @@ impl App {
 
     /// The currently selected save entry, if any
     fn selected_save(&self) -> Option<&SaveInfo> {
-        let i = self.saves.list.selected()?;
+        let i = self.saves.list.index()?;
         self.saves.entries.get(i)
     }
 
     /// Confirm deleting the selected save; inert unless the Saves pane is focused
     pub(super) fn begin_delete_selected_save(&mut self) {
-        // `x` is a main-view key, so guard it to the one pane it acts on
+        // `X` is a main-view key, so guard it to the one pane it acts on
         if !self.on_saves_pane() {
             return;
         }
@@ -59,13 +59,14 @@ impl App {
     /// Delete the save at `path`, re-list, and keep the selection near where it was
     pub(super) fn delete_selected_save(&mut self, path: &Utf8Path) {
         let name = path.file_name().unwrap_or(path.as_str()).to_owned();
-        let prev = self.saves.list.selected().unwrap_or(0);
+        let prev = self.saves.list.index().unwrap_or(0);
         match saves::delete_save(path, self.session.instance.config.game) {
             Ok(()) => {
                 self.refresh_saves();
                 // The deleted row is gone; clamp the selection to the new bounds
                 let len = self.saves.entries.len();
-                self.saves.list.select((len > 0).then(|| prev.min(len - 1)));
+                self.saves.list.select(Some(prev));
+                self.saves.list.clamp(len);
                 self.ok(format!("Deleted {name}"));
             }
             Err(e) => self.fail(format!("Delete failed: {e}")),

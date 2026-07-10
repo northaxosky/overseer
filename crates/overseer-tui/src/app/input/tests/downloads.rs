@@ -13,6 +13,7 @@ fn pressing_3_switches_to_downloads_and_lists_archives() {
     test_support::write(&instance.downloads_dir().join("notes.txt"), "x");
     let mut app = App::sample();
     app.session.instance = instance;
+    *app.downloads.list.state_mut().offset_mut() = 3;
 
     app.handle_key(key(KeyCode::Char('3')));
 
@@ -25,7 +26,12 @@ fn pressing_3_switches_to_downloads_and_lists_archives() {
         .map(|e| e.name.as_str())
         .collect();
     assert_eq!(names, ["Mod.zip"], "only archives are listed");
-    assert_eq!(app.downloads.list.selected(), Some(0), "first row selected");
+    assert_eq!(app.downloads.list.index(), Some(0), "first row selected");
+    assert_eq!(
+        app.downloads.list.state_mut().offset(),
+        3,
+        "refresh-on-show preserves scroll state"
+    );
 }
 
 #[test]

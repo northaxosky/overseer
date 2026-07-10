@@ -119,21 +119,21 @@ pub(crate) enum ConflictsStatus {
 #[derive(Debug, Default)]
 pub(crate) struct ConflictsState {
     pub(crate) status: ConflictsStatus,
-    pub(crate) list: ListState,
+    pub(crate) list: ListCursor,
 }
 
 /// The downloads workspace's own state
 #[derive(Debug, Default)]
 pub(crate) struct DownloadsState {
     pub(crate) entries: Vec<DownloadEntry>,
-    pub(crate) list: ListState,
+    pub(crate) list: ListCursor,
 }
 
 /// The saves workspace's own state: the current profile's listed `.fos` saves
 #[derive(Debug, Default)]
 pub(crate) struct SavesState {
     pub(crate) entries: Vec<SaveInfo>,
-    pub(crate) list: ListState,
+    pub(crate) list: ListCursor,
 }
 
 /// The loaded domain data for one instance — replaced wholesale on a switch

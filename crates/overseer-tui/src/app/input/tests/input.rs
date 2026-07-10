@@ -130,11 +130,7 @@ fn jk_route_to_the_active_workspace_list() {
     app.conflicts.status = ConflictsStatus::Ready(vec![conflict("a.dds"), conflict("b.dds")]);
     app.conflicts.list.select(Some(0));
     app.move_main_selection(1);
-    assert_eq!(
-        app.conflicts.list.selected(),
-        Some(1),
-        "conflicts list moves"
-    );
+    assert_eq!(app.conflicts.list.index(), Some(1), "conflicts list moves");
     assert_eq!(
         app.plugins_state.selected(),
         Some(1),
@@ -177,11 +173,7 @@ fn scanning_a_temp_instance_reports_a_shared_file() {
         }
         other => panic!("expected a completed scan, got {other:?}"),
     }
-    assert_eq!(
-        app.conflicts.list.selected(),
-        Some(0),
-        "selection lands first"
-    );
+    assert_eq!(app.conflicts.list.index(), Some(0), "selection lands first");
 }
 
 #[test]
@@ -244,7 +236,7 @@ fn o_cycles_saves_sort_key_and_persists() {
         );
         // Name/Asc reorders A before B, and the cursor resets to the top row
         assert_eq!(app.saves.entries[0].file_name, "A.fos");
-        assert_eq!(app.saves.list.selected(), Some(0));
+        assert_eq!(app.saves.list.index(), Some(0));
         let saved = Settings::load_from(&config).expect("load saved settings");
         assert_eq!(saved.saves_sort, app.settings.saves_sort);
     });
@@ -290,7 +282,7 @@ fn o_cycles_downloads_sort_key_and_resets_to_top() {
         );
         // Date/Desc puts the newer A.zip first; the cursor resets to the top row
         assert_eq!(app.downloads.entries[0].name, "A.zip");
-        assert_eq!(app.downloads.list.selected(), Some(0));
+        assert_eq!(app.downloads.list.index(), Some(0));
     });
 }
 
@@ -352,18 +344,14 @@ fn conflicts_selection_length_tracks_the_scan_status() {
     // Stale ⇒ zero rows: movement can select nothing
     app.conflicts.list.select(None);
     app.move_main_selection(1);
-    assert_eq!(
-        app.conflicts.list.selected(),
-        None,
-        "a stale scan has no rows"
-    );
+    assert_eq!(app.conflicts.list.index(), None, "a stale scan has no rows");
 
     // Ready(n) ⇒ n rows: movement walks them
     app.conflicts.status = ConflictsStatus::Ready(vec![conflict("a.dds"), conflict("b.dds")]);
     app.conflicts.list.select(Some(0));
     app.move_main_selection(1);
     assert_eq!(
-        app.conflicts.list.selected(),
+        app.conflicts.list.index(),
         Some(1),
         "a ready scan has n rows"
     );
@@ -374,6 +362,9 @@ fn after_session_changed_resets_selection_and_marks_conflicts_stale() {
     let mut app = App::sample();
     app.mods_state.select(Some(1));
     app.plugins_state.select(Some(1));
+    *app.conflicts.list.state_mut().offset_mut() = 2;
+    *app.downloads.list.state_mut().offset_mut() = 3;
+    *app.saves.list.state_mut().offset_mut() = 4;
     app.conflicts.status = ConflictsStatus::Ready(Vec::new());
     app.workspace = Workspace::Plugins;
 
@@ -393,6 +384,9 @@ fn after_session_changed_resets_selection_and_marks_conflicts_stale() {
         matches!(app.conflicts.status, ConflictsStatus::Stale),
         "a session change invalidates the conflicts scan"
     );
+    assert_eq!(app.conflicts.list.state_mut().offset(), 0);
+    assert_eq!(app.downloads.list.state_mut().offset(), 0);
+    assert_eq!(app.saves.list.state_mut().offset(), 0);
 }
 
 #[test]

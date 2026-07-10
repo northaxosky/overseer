@@ -91,13 +91,19 @@ fn applying_a_sort_moves_the_cursor_to_the_top() {
         download_entry("A.zip", 1, 20, false),
     ];
     app.downloads.list.select(Some(1));
+    *app.downloads.list.state_mut().offset_mut() = 4;
     app.settings.downloads_sort = DownloadsSort {
         key: DownloadsSortKey::Name,
         dir: SortDir::Asc,
     };
     DownloadsPane::resort(&mut app);
     assert_eq!(app.downloads.entries[0].name, "A.zip");
-    assert_eq!(app.downloads.list.selected(), Some(0));
+    assert_eq!(app.downloads.list.index(), Some(0));
+    assert_eq!(
+        app.downloads.list.state_mut().offset(),
+        4,
+        "sorting selects first without replacing scroll state"
+    );
 }
 
 fn sort(key: SavesSortKey, dir: SortDir) -> SavesSort {

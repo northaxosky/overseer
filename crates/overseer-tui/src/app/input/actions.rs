@@ -151,7 +151,7 @@ impl Workspace {
                 false
             }
             Workspace::Saves => {
-                app.note("Press x to delete a save");
+                app.note("Press X to delete a save");
                 false
             }
         }

@@ -261,7 +261,7 @@ fn render_conflicts(app: &mut App, frame: &mut Frame, area: Rect) {
     let selected = app
         .conflicts
         .list
-        .selected()
+        .index()
         .and_then(|i| found.get(i))
         .unwrap_or(&found[0]);
 
@@ -274,7 +274,7 @@ fn render_conflicts(app: &mut App, frame: &mut Frame, area: Rect) {
     if focused {
         list = highlighted(list);
     }
-    frame.render_stateful_widget(list, panes[0], &mut app.conflicts.list);
+    frame.render_stateful_widget(list, panes[0], app.conflicts.list.state_mut());
 
     let detail = Paragraph::new(conflict_detail_lines(selected, panes[1].width as usize))
         .wrap(Wrap { trim: false })
@@ -354,7 +354,14 @@ fn render_downloads(app: &mut App, frame: &mut Frame, area: Rect) {
             }
         })
         .collect();
-    render_pane(frame, area, title, rows, &mut app.downloads.list, focused);
+    render_pane(
+        frame,
+        area,
+        title,
+        rows,
+        app.downloads.list.state_mut(),
+        focused,
+    );
 }
 
 /// The saves workspace: the profile's saves in the active sort order, or an empty-folder note
@@ -384,7 +391,14 @@ fn render_saves(app: &mut App, frame: &mut Frame, area: Rect) {
             None => ListItem::new(s.file_name.clone()).style(theme::style(Role::Muted)),
         })
         .collect();
-    render_pane(frame, area, title, rows, &mut app.saves.list, focused);
+    render_pane(
+        frame,
+        area,
+        title,
+        rows,
+        app.saves.list.state_mut(),
+        focused,
+    );
 }
 
 fn downloads_title(app: &App) -> String {

@@ -18,7 +18,7 @@ use overseer_core::instance::ModKind;
 
 use super::sort::{DownloadsPane, SavesPane};
 use super::{
-    App, ConflictsStatus, Focus, Modal, SelectKind, Workspace, initial_selection, select_first,
+    App, ConflictsStatus, Focus, ListCursor, Modal, SelectKind, Workspace, initial_selection,
     separator_display,
 };
 
@@ -179,7 +179,7 @@ impl App {
         };
     }
 
-    /// Switch the active workspace, loading its lazily-listed data the first time it shows
+    /// Switch the active workspace, refreshing its listed data whenever it shows
     fn switch_workspace(&mut self, ws: Workspace) {
         self.workspace = ws;
         self.refresh_visible_lazy_data();
@@ -193,17 +193,16 @@ impl App {
 
     /// Move the selection within the focused pane, clamped to its bounds
     fn move_main_selection(&mut self, delta: isize) {
-        let (state, len) = match self.focus {
+        match self.focus {
             Focus::Mods => {
                 let len = self.visible_rows().len();
-                (&mut self.mods_state, len)
+                move_in_list(&mut self.mods_state, len, delta);
             }
             Focus::Workspace => {
                 let ws = self.workspace;
-                ws.selection(self)
+                ws.move_selection(self, delta);
             }
-        };
-        move_in_list(state, len, delta);
+        }
     }
 
     /// Walk the enabled mods' staging dirs and record any file they both provide
@@ -211,7 +210,7 @@ impl App {
         let sources = self.session.profile.deploy_sources(&self.session.instance);
         match detect_conflicts(&sources) {
             Ok(found) => {
-                select_first(&mut self.conflicts.list, found.len());
+                self.conflicts.list.select_first(found.len());
                 self.conflicts.status = ConflictsStatus::Ready(found);
             }
             Err(e) => self.conflicts.status = ConflictsStatus::Error(e.to_string()),
@@ -229,6 +228,9 @@ impl App {
         self.plugins_collapsed.clear();
         self.mods_state = initial_selection(self.session.profile.mods.len());
         self.plugins_state = initial_selection(self.plugins_visible_rows().len());
+        self.conflicts.list.reset_first(0);
+        self.downloads.list.reset_first(0);
+        self.saves.list.reset_first(0);
         self.mark_conflicts_stale();
         self.refresh_visible_lazy_data();
     }
@@ -242,6 +244,19 @@ impl App {
 }
 
 impl Workspace {
+    /// Move this workspace's list selection within its current row count
+    fn move_selection(self, app: &mut App, delta: isize) {
+        if self == Workspace::Plugins {
+            let len = app.plugins_visible_rows().len();
+            move_in_list(&mut app.plugins_state, len, delta);
+            return;
+        }
+        let (selection, len) = self
+            .list_parts_mut(app)
+            .expect("non-Plugins workspaces own ListCursor");
+        selection.move_by(len, delta);
+    }
+
     /// Refresh this workspace for either a view-shown or explicit user refresh
     fn refresh(self, app: &mut App, cause: RefreshCause) {
         match self {
@@ -271,27 +286,24 @@ impl Workspace {
         }
     }
 
-    /// This workspace's list selection state and its row count, for cursor movement
-    fn selection(self, app: &mut App) -> (&mut ListState, usize) {
+    /// This workspace's list selection and row count for cursor movement
+    fn list_parts_mut(self, app: &mut App) -> Option<(&mut ListCursor, usize)> {
         match self {
-            Workspace::Plugins => {
-                let len = app.plugins_visible_rows().len();
-                (&mut app.plugins_state, len)
-            }
+            Workspace::Plugins => None,
             Workspace::Conflicts => {
                 let len = match &app.conflicts.status {
                     ConflictsStatus::Ready(v) => v.len(),
                     _ => 0,
                 };
-                (&mut app.conflicts.list, len)
+                Some((&mut app.conflicts.list, len))
             }
             Workspace::Downloads => {
                 let len = app.downloads.entries.len();
-                (&mut app.downloads.list, len)
+                Some((&mut app.downloads.list, len))
             }
             Workspace::Saves => {
                 let len = app.saves.entries.len();
-                (&mut app.saves.list, len)
+                Some((&mut app.saves.list, len))
             }
         }
     }

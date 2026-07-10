@@ -60,6 +60,19 @@ fn flip_in_the_conflicts_workspace_is_read_only() {
 }
 
 #[test]
+fn flip_in_the_saves_workspace_names_the_uppercase_delete_key() {
+    let mut app = App::sample();
+    app.focus = Focus::Workspace;
+    app.workspace = Workspace::Saves;
+
+    assert!(!app.flip_selected());
+    assert_eq!(
+        app.message.as_ref().map(|notice| notice.text.as_str()),
+        Some("Press X to delete a save")
+    );
+}
+
+#[test]
 fn flipping_a_mod_marks_the_conflicts_scan_stale() {
     use crate::app::ConflictsStatus;
     let mut app = App::sample();

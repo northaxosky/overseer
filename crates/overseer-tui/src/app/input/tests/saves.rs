@@ -29,13 +29,19 @@ fn app_with_saves(profile: &str, count: u32) -> (tempfile::TempDir, App) {
 #[test]
 fn pressing_4_switches_to_saves_and_lists_them() {
     let (_tmp, mut app) = app_with_saves("Default", 1);
+    *app.saves.list.state_mut().offset_mut() = 3;
 
     app.handle_key(key(KeyCode::Char('4')));
 
     assert_eq!(app.workspace, Workspace::Saves, "4 switches workspace");
     assert_eq!(app.focus, Focus::Mods, "switching never moves focus");
     assert_eq!(app.saves.entries.len(), 1, "the profile's save is listed");
-    assert_eq!(app.saves.list.selected(), Some(0), "first row selected");
+    assert_eq!(app.saves.list.index(), Some(0), "first row selected");
+    assert_eq!(
+        app.saves.list.state_mut().offset(),
+        3,
+        "refresh-on-show preserves scroll state"
+    );
 }
 
 #[test]
@@ -80,7 +86,7 @@ fn confirming_deletes_the_save_relists_and_clamps_selection() {
     assert!(!doomed.exists(), "the save file is removed");
     assert_eq!(app.saves.entries.len(), 1, "the list is refreshed");
     assert_eq!(
-        app.saves.list.selected(),
+        app.saves.list.index(),
         Some(0),
         "the selection clamps into the shorter list"
     );

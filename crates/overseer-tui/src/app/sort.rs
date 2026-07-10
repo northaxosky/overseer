@@ -10,7 +10,7 @@ use overseer_core::saves::SaveInfo;
 use overseer_core::settings::{DownloadsSort, DownloadsSortKey, SavesSort, SavesSortKey, SortDir};
 use strum::IntoEnumIterator;
 
-use crate::app::{App, cycle_variant, select_first};
+use crate::app::{App, cycle_variant};
 
 /// Re-order saves in place for `sort`, tie-broken by file name for a stable order
 pub(crate) fn sort_saves(entries: &mut [SaveInfo], sort: SavesSort) {
@@ -108,7 +108,7 @@ impl SortablePane for SavesPane {
 
     fn resort(app: &mut App) {
         sort_saves(&mut app.saves.entries, app.settings.saves_sort);
-        select_first(&mut app.saves.list, app.saves.entries.len());
+        app.saves.list.select_first(app.saves.entries.len());
     }
 }
 
@@ -139,7 +139,7 @@ impl SortablePane for DownloadsPane {
 
     fn resort(app: &mut App) {
         sort_downloads(&mut app.downloads.entries, app.settings.downloads_sort);
-        select_first(&mut app.downloads.list, app.downloads.entries.len());
+        app.downloads.list.select_first(app.downloads.entries.len());
     }
 }
 
