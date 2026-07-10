@@ -1,7 +1,7 @@
 //! `overseer merge`: combine a plugin list's BA2 archives into one managed mod, reversibly
 
 use crate::cli::MergeArgs;
-use crate::ui::{Role, heading, styled, success};
+use crate::ui::{Gate, Role, preview_heading, styled, success};
 use anyhow::{Context, Result, bail};
 use camino::Utf8Path;
 use overseer_core::merge::DEFAULT_TEXTURE_GROUP_BYTES;
@@ -41,9 +41,10 @@ pub fn run(args: MergeArgs) -> Result<()> {
         None => DEFAULT_TEXTURE_GROUP_BYTES,
     };
 
-    if args.dry_run || !args.yes {
+    let gate = args.gate.gate();
+    if gate.is_preview() {
         let plan = transaction::resolve(&instance, &profile, &plugins)?;
-        print_merge_plan(&plan, &name, args.dry_run);
+        print_merge_plan(&plan, &name, gate);
         return Ok(());
     }
 
@@ -70,12 +71,8 @@ fn read_plugin_list(file: &Utf8Path) -> Result<Vec<String>> {
         .collect())
 }
 
-fn print_merge_plan(plan: &ResolvedPlan, name: &str, dry_run: bool) {
-    if dry_run {
-        heading("Dry run: nothing will be written");
-    } else {
-        heading("Preview: re-run with --yes to apply");
-    }
+fn print_merge_plan(plan: &ResolvedPlan, name: &str, gate: Gate) {
+    preview_heading(gate);
     let mut sources: usize = 0;
     for item in &plan.items {
         let mut kinds = Vec::new();

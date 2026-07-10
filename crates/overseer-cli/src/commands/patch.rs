@@ -2,7 +2,7 @@
 
 use crate::cli::{GenerationArg, PatchCommand};
 use crate::context::{absolutize, open_instance};
-use crate::ui::{Role, heading, styled, success};
+use crate::ui::{Gate, Role, heading, preview_heading, styled, success};
 use anyhow::{Context, Result, bail};
 use camino::{Utf8Path, Utf8PathBuf};
 use overseer_core::archive::{Ba2Header, Ba2Kind};
@@ -27,45 +27,37 @@ pub fn run(command: PatchCommand) -> Result<()> {
         } => ba2(&path, to, dry_run, yes),
         PatchCommand::Convert {
             to,
-            deltas,
-            instance,
-            game_dir,
+            source,
             exe_delta,
             launcher_delta,
             steamapi_delta,
-            xdelta3,
             allow_incomplete_repair,
-            dry_run,
-            yes,
+            gate,
         } => convert_install(ConvertArgs {
             target: to.into_core(),
-            deltas: deltas.as_deref(),
-            instance: instance.as_deref(),
-            game_dir: game_dir.as_deref(),
+            deltas: source.deltas.as_deref(),
+            instance: source.instance.as_deref(),
+            game_dir: source.game_dir.as_deref(),
             exe_delta: exe_delta.as_deref(),
             launcher_delta: launcher_delta.as_deref(),
             steamapi_delta: steamapi_delta.as_deref(),
-            xdelta3: xdelta3.as_deref(),
+            xdelta3: source.xdelta3.as_deref(),
             allow_incomplete_repair,
-            dry_run,
-            yes,
+            dry_run: gate.dry_run,
+            yes: gate.yes,
         }),
         PatchCommand::DlcConsistency {
-            deltas,
-            instance,
-            game_dir,
-            xdelta3,
+            source,
             allow_incomplete_repair,
-            dry_run,
-            yes,
+            gate,
         } => dlc_consistency_install(DlcArgs {
-            deltas: deltas.as_deref(),
-            instance: instance.as_deref(),
-            game_dir: game_dir.as_deref(),
-            xdelta3: xdelta3.as_deref(),
+            deltas: source.deltas.as_deref(),
+            instance: source.instance.as_deref(),
+            game_dir: source.game_dir.as_deref(),
+            xdelta3: source.xdelta3.as_deref(),
             allow_incomplete_repair,
-            dry_run,
-            yes,
+            dry_run: gate.dry_run,
+            yes: gate.yes,
         }),
     }
 }
@@ -102,21 +94,56 @@ struct ResolvedXdelta3 {
     version: String,
 }
 
-fn convert_install(args: ConvertArgs<'_>) -> Result<()> {
-    if args.allow_incomplete_repair && !args.yes && !args.dry_run {
+/// Shared convert/dlc front matter: gate-flag guard, resolve the game dir, resolve xdelta3
+fn conversion_env(
+    instance: Option<&Utf8Path>,
+    game_dir: Option<&Utf8Path>,
+    xdelta3: Option<&Utf8Path>,
+    allow_incomplete_repair: bool,
+    gate: Gate,
+) -> Result<(Utf8PathBuf, ResolvedXdelta3)> {
+    if allow_incomplete_repair && gate == Gate::Preview {
         bail!("--allow-incomplete-repair requires --yes");
     }
-    let game_dir = resolve_game_dir(args.instance, args.game_dir)?;
+    let game_dir = resolve_game_dir(instance, game_dir)?;
     if !game_dir.is_dir() {
         bail!("no such game directory: {game_dir}");
     }
+    let xdelta3 = resolve_xdelta3(xdelta3)?;
+    Ok((game_dir, xdelta3))
+}
+
+/// Apply the built jobs when the gate says so; returns the converted count, or None on a preview
+fn apply_conversion(
+    game_dir: &Utf8Path,
+    xdelta3: &ResolvedXdelta3,
+    gate: Gate,
+    jobs: &[ConvertJob],
+) -> Result<Option<usize>> {
+    if gate.is_preview() {
+        return Ok(None);
+    }
+    let decoder = Xdelta3CliDecoder::new(xdelta3.path.clone());
+    let outcomes = engine::convert(game_dir, jobs, &decoder)?;
+    print_outcomes(&outcomes);
+    Ok(Some(count_converted(&outcomes)))
+}
+
+fn convert_install(args: ConvertArgs<'_>) -> Result<()> {
+    let gate = Gate::from_flags(args.dry_run, args.yes);
+    let (game_dir, xdelta3) = conversion_env(
+        args.instance,
+        args.game_dir,
+        args.xdelta3,
+        args.allow_incomplete_repair,
+        gate,
+    )?;
     if !convert::target_is_complete(args.target) {
         bail!(
             "target {} is incomplete; refusing conversion",
             args.target.label()
         );
     }
-    let xdelta3 = resolve_xdelta3(args.xdelta3)?;
     let install = detect::detect(GameKind::Fallout4, &game_dir);
     let edition = detect::edition(&install, &game_dir);
     let delta_map = resolve_core_deltas(args.deltas, args)?;
@@ -128,7 +155,7 @@ fn convert_install(args: ConvertArgs<'_>) -> Result<()> {
         any_known_size: &convert::core_any_known_size,
         known_source: &convert::core_known_source,
     };
-    if args.yes && !args.dry_run {
+    if gate == Gate::Apply {
         engine::recover_install(&game_dir, &policy)?;
     }
     let item_plans = engine::plan(&game_dir, &policy)?;
@@ -141,8 +168,7 @@ fn convert_install(args: ConvertArgs<'_>) -> Result<()> {
         plans: &item_plans,
         deltas: &delta_map.mapped,
         allow_incomplete_repair: args.allow_incomplete_repair,
-        dry_run: args.dry_run,
-        yes: args.yes,
+        gate,
     });
     warn_ignored_deltas(
         &delta_map.ignored,
@@ -159,33 +185,28 @@ fn convert_install(args: ConvertArgs<'_>) -> Result<()> {
     if complete_noop {
         bail!("the selected files already match {}", target.label());
     }
-    if args.dry_run || !args.yes {
-        return Ok(());
-    }
-    let decoder = Xdelta3CliDecoder::new(xdelta3.path);
-    let outcomes = engine::convert(&game_dir, &jobs, &decoder)?;
-    print_outcomes(&outcomes);
-    let converted = count_converted(&outcomes);
-    if args.allow_incomplete_repair {
-        success(format!("{converted} file(s) repaired"));
-    } else {
-        success(format!(
-            "{converted} file(s) converted to {}",
-            target.label()
-        ));
+    if let Some(converted) = apply_conversion(&game_dir, &xdelta3, gate, &jobs)? {
+        if args.allow_incomplete_repair {
+            success(format!("{converted} file(s) repaired"));
+        } else {
+            success(format!(
+                "{converted} file(s) converted to {}",
+                target.label()
+            ));
+        }
     }
     Ok(())
 }
 
 fn dlc_consistency_install(args: DlcArgs<'_>) -> Result<()> {
-    if args.allow_incomplete_repair && !args.yes && !args.dry_run {
-        bail!("--allow-incomplete-repair requires --yes");
-    }
-    let game_dir = resolve_game_dir(args.instance, args.game_dir)?;
-    if !game_dir.is_dir() {
-        bail!("no such game directory: {game_dir}");
-    }
-    let xdelta3 = resolve_xdelta3(args.xdelta3)?;
+    let gate = Gate::from_flags(args.dry_run, args.yes);
+    let (game_dir, xdelta3) = conversion_env(
+        args.instance,
+        args.game_dir,
+        args.xdelta3,
+        args.allow_incomplete_repair,
+        gate,
+    )?;
     let allowed: Vec<&str> = dlc::DLC_GROUPS
         .iter()
         .flat_map(|g| g.files.iter().copied())
@@ -197,7 +218,7 @@ fn dlc_consistency_install(args: DlcArgs<'_>) -> Result<()> {
         any_known_size: &dlc_no_known_size,
         known_source: &dlc_no_known_source,
     };
-    if args.yes && !args.dry_run {
+    if gate == Gate::Apply {
         engine::recover_install(&game_dir, &policy)?;
     }
     let item_plans = engine::plan(&game_dir, &policy)?;
@@ -207,8 +228,7 @@ fn dlc_consistency_install(args: DlcArgs<'_>) -> Result<()> {
         plans: &item_plans,
         deltas: &delta_map.mapped,
         allow_incomplete_repair: args.allow_incomplete_repair,
-        dry_run: args.dry_run,
-        yes: args.yes,
+        gate,
     });
     warn_ignored_deltas(
         &delta_map.ignored,
@@ -225,16 +245,11 @@ fn dlc_consistency_install(args: DlcArgs<'_>) -> Result<()> {
     if complete_noop {
         bail!("the selected files already match the DLC consistency revision");
     }
-    if args.dry_run || !args.yes {
-        return Ok(());
+    if let Some(converted) = apply_conversion(&game_dir, &xdelta3, gate, &jobs)? {
+        success(format!(
+            "{converted} file(s) brought to the DLC consistency revision"
+        ));
     }
-    let decoder = Xdelta3CliDecoder::new(xdelta3.path);
-    let outcomes = engine::convert(&game_dir, &jobs, &decoder)?;
-    print_outcomes(&outcomes);
-    let converted = count_converted(&outcomes);
-    success(format!(
-        "{converted} file(s) brought to the DLC consistency revision"
-    ));
     Ok(())
 }
 
@@ -429,15 +444,12 @@ struct ConvertPlanView<'a> {
     plans: &'a [ItemPlan],
     deltas: &'a HashMap<String, Utf8PathBuf>,
     allow_incomplete_repair: bool,
-    dry_run: bool,
-    yes: bool,
+    gate: Gate,
 }
 
 fn print_convert_plan(view: ConvertPlanView<'_>) {
-    if view.dry_run {
-        heading("Dry run - nothing will be written");
-    } else if !view.yes {
-        heading("Preview - re-run with --yes to apply");
+    if view.gate.is_preview() {
+        preview_heading(view.gate);
     } else if view.allow_incomplete_repair {
         heading(format!("Repairing selected binaries in {}", view.game_dir));
     } else {
@@ -460,15 +472,12 @@ struct DlcPlanView<'a> {
     plans: &'a [ItemPlan],
     deltas: &'a HashMap<String, Utf8PathBuf>,
     allow_incomplete_repair: bool,
-    dry_run: bool,
-    yes: bool,
+    gate: Gate,
 }
 
 fn print_dlc_plan(view: DlcPlanView<'_>) {
-    if view.dry_run {
-        heading("Dry run - nothing will be written");
-    } else if !view.yes {
-        heading("Preview - re-run with --yes to apply");
+    if view.gate.is_preview() {
+        preview_heading(view.gate);
     } else if view.allow_incomplete_repair {
         heading(format!("Repairing selected DLC files in {}", view.game_dir));
     } else {

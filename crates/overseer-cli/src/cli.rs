@@ -141,6 +141,41 @@ pub struct ProfileArgs {
     pub profile: String,
 }
 
+/// The apply/preview gate flags shared by every mutating command
+#[derive(Args, Clone, Copy)]
+pub struct ApplyGate {
+    /// Show the plan without writing
+    #[arg(long)]
+    pub dry_run: bool,
+    /// Apply the change (required since it mutates real files)
+    #[arg(long)]
+    pub yes: bool,
+}
+
+impl ApplyGate {
+    /// The [`Gate`](crate::ui::Gate) these flags select
+    pub fn gate(self) -> crate::ui::Gate {
+        crate::ui::Gate::from_flags(self.dry_run, self.yes)
+    }
+}
+
+/// The delta-source flags shared by the xdelta3 conversion commands
+#[derive(Args, Clone)]
+pub struct DeltaSourceArgs {
+    /// Directory containing `.vcdiff` or `.xdelta` files with usable app headers
+    #[arg(long, value_name = "DIR")]
+    pub deltas: Option<Utf8PathBuf>,
+    /// Instance directory; supplies the game dir when `--game-dir` is omitted
+    #[arg(long, value_name = "DIR")]
+    pub instance: Option<Utf8PathBuf>,
+    /// Fallout 4 install directory; overrides the instance config
+    #[arg(long, value_name = "DIR")]
+    pub game_dir: Option<Utf8PathBuf>,
+    /// Path to the `xdelta3` executable
+    #[arg(long, value_name = "PATH")]
+    pub xdelta3: Option<Utf8PathBuf>,
+}
+
 #[derive(Subcommand)]
 pub enum ModCommand {
     /// List the profile's mods (highest priority first)
@@ -329,15 +364,8 @@ pub enum PatchCommand {
         /// Target edition
         #[arg(long, value_name = "og|ng|ae", hide_possible_values = true)]
         to: GenerationArg,
-        /// Directory containing `.vcdiff` or `.xdelta` files with usable app headers
-        #[arg(long, value_name = "DIR")]
-        deltas: Option<Utf8PathBuf>,
-        /// Instance directory; supplies the game dir when `--game-dir` is omitted
-        #[arg(long, value_name = "DIR")]
-        instance: Option<Utf8PathBuf>,
-        /// Fallout 4 install directory; overrides the instance config
-        #[arg(long, value_name = "DIR")]
-        game_dir: Option<Utf8PathBuf>,
+        #[command(flatten)]
+        source: DeltaSourceArgs,
         /// xdelta3 delta for `Fallout4.exe`
         #[arg(long, value_name = "PATH")]
         exe_delta: Option<Utf8PathBuf>,
@@ -347,42 +375,21 @@ pub enum PatchCommand {
         /// xdelta3 delta for `steam_api64.dll`
         #[arg(long, value_name = "PATH")]
         steamapi_delta: Option<Utf8PathBuf>,
-        /// Path to the `xdelta3` executable
-        #[arg(long, value_name = "PATH")]
-        xdelta3: Option<Utf8PathBuf>,
         /// Permit an incomplete repair instead of a complete generation conversion
         #[arg(long)]
         allow_incomplete_repair: bool,
-        /// Show the plan without writing
-        #[arg(long)]
-        dry_run: bool,
-        /// Apply the conversion (required since it mutates the real install)
-        #[arg(long)]
-        yes: bool,
+        #[command(flatten)]
+        gate: ApplyGate,
     },
     /// Bring the Fallout 4 DLC to the cross-storefront consistency revision
     DlcConsistency {
-        /// Directory containing `.vcdiff` or `.xdelta` files with usable app headers
-        #[arg(long, value_name = "DIR")]
-        deltas: Option<Utf8PathBuf>,
-        /// Instance directory; supplies the game dir when `--game-dir` is omitted
-        #[arg(long, value_name = "DIR")]
-        instance: Option<Utf8PathBuf>,
-        /// Fallout 4 install directory; overrides the instance config
-        #[arg(long, value_name = "DIR")]
-        game_dir: Option<Utf8PathBuf>,
-        /// Path to the `xdelta3` executable
-        #[arg(long, value_name = "PATH")]
-        xdelta3: Option<Utf8PathBuf>,
+        #[command(flatten)]
+        source: DeltaSourceArgs,
         /// Permit an incomplete repair instead of a complete consistency revision
         #[arg(long)]
         allow_incomplete_repair: bool,
-        /// Show the plan without writing
-        #[arg(long)]
-        dry_run: bool,
-        /// Apply the revision (required since it mutates the real install)
-        #[arg(long)]
-        yes: bool,
+        #[command(flatten)]
+        gate: ApplyGate,
     },
 }
 
@@ -399,12 +406,8 @@ pub struct MergeArgs {
     /// Uncompressed texture group cap in GiB before a split (default 4)
     #[arg(long, value_name = "GIB")]
     pub texture_cap: Option<u64>,
-    /// Show the plan without writing
-    #[arg(long)]
-    pub dry_run: bool,
-    /// Apply the merge
-    #[arg(long)]
-    pub yes: bool,
+    #[command(flatten)]
+    pub gate: ApplyGate,
 }
 
 /// The mutually exclusive selector for what `merge` acts on
