@@ -271,7 +271,7 @@ impl App {
             .profile
             .insert_separator(anchor, name)
             .map_err(|e| e.to_string())?;
-        if let Err(e) = self.session.profile.save(&self.session.instance) {
+        if let Err(e) = self.session.profile.save_modlist(&self.session.instance) {
             self.session.profile.mods.remove(anchor);
             return Err(format!("Could not save: {e}"));
         }
@@ -410,7 +410,7 @@ impl App {
             .profile
             .rename_separator(index, name)
             .map_err(|e| e.to_string())?;
-        if let Err(e) = self.session.profile.save(&self.session.instance) {
+        if let Err(e) = self.session.profile.save_modlist(&self.session.instance) {
             self.session.profile.mods[index].name = prev;
             return Err(format!("Could not save: {e}"));
         }

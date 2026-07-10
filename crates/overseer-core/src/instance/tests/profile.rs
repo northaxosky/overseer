@@ -351,6 +351,33 @@ fn save_then_load_preserves_the_mod_list() {
     assert_eq!(loaded.mods, profile.mods);
 }
 
+/// `save_modlist` updates mods without rewriting persisted profile settings
+#[test]
+fn save_modlist_updates_mods_without_touching_settings() {
+    let (_tmp, instance) = temp_instance();
+    let mut profile = Profile {
+        name: "Default".to_owned(),
+        mods: vec![entry("A", true)],
+        local_saves: true,
+    };
+    profile.save(&instance).expect("seed profile");
+    let settings_path = instance.profile_dir("Default").join("settings.ini");
+    let settings_before = std::fs::read(&settings_path).expect("read seeded settings");
+
+    profile.mods = vec![entry("B", false)];
+    profile.local_saves = false;
+    profile.save_modlist(&instance).expect("save mod list");
+
+    let loaded = Profile::load(&instance, "Default").expect("reload profile");
+    assert_eq!(loaded.mods, profile.mods);
+    assert!(loaded.local_saves, "the persisted setting remains true");
+    assert_eq!(
+        std::fs::read(settings_path).expect("read settings"),
+        settings_before,
+        "settings.ini remains byte-for-byte unchanged"
+    );
+}
+
 #[test]
 fn save_creates_the_profile_directory() {
     let (_tmp, instance) = temp_instance();

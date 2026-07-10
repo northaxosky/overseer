@@ -83,7 +83,7 @@ impl App {
             self.fail(format!("Delete failed: {e}"));
             return;
         }
-        if let Err(e) = self.session.profile.save(&self.session.instance) {
+        if let Err(e) = self.session.profile.save_modlist(&self.session.instance) {
             self.session.profile.mods.insert(index, removed);
             self.fail(format!("Could not save: {e}"));
             return;

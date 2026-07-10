@@ -3,7 +3,7 @@
 use anyhow::Result;
 use overseer_core::apply;
 use overseer_core::deploy::NullSink;
-use overseer_core::instance::ModKind;
+use overseer_core::instance::{ModKind, Profile};
 use overseer_core::plugins::discover_plugins;
 
 use crate::app::{App, Focus, ModPaneRow, Workspace};
@@ -22,42 +22,54 @@ impl App {
 
     /// Move the selected mod up or down in priority
     pub(super) fn reorder_selected(&mut self, delta: isize) {
-        if !self.shift_selected_mod(delta) {
+        let Some((profile, selection)) = self.reordered_profile(delta) else {
+            return;
+        };
+
+        if let Err(err) = profile.save_modlist(&self.session.instance) {
+            self.fail(format!("Could not save mod list: {err}"));
             return;
         }
-        match self.session.profile.save(&self.session.instance) {
-            Ok(()) => self.ok("Saved"),
-            Err(e) => self.fail(format!("Error: {e}")),
-        }
+
+        self.session.profile = profile;
+        self.mods.select(Some(selection));
+        self.mark_conflicts_stale();
+        self.ok("Saved");
     }
 
-    /// Move the selected mod up or down in priority, in display (MO2) order
-    fn shift_selected_mod(&mut self, display_delta: isize) -> bool {
+    /// Stage a selected mod move in display order without changing live state
+    fn reordered_profile(&mut self, display_delta: isize) -> Option<(Profile, usize)> {
         if self.focus != Focus::Mods {
-            return false;
+            return None;
         }
+
         let rows = self.mods.project(&self.session.profile.mods);
-        let Some(p) = self.mods.index() else {
-            return false;
-        };
-        let q = p as isize + display_delta;
-        if q < 0 || q >= rows.len() as isize {
-            return false;
+        let selected = self.mods.index()?;
+        let destination = selected as isize + display_delta;
+
+        if destination < 0 || destination >= rows.len() as isize {
+            return None;
         }
-        let Some(a) = rows.get(p).copied().map(ModPaneRow::model_index) else {
-            return false;
+
+        let source_index = rows.get(selected).copied().map(ModPaneRow::model_index)?;
+
+        let target_row = rows[destination as usize];
+        let target_index = target_row.model_index();
+
+        let (source, target) = {
+            let mods = &self.session.profile.mods;
+            (mods[source_index].kind, mods[target_index].kind)
         };
-        let target_row = rows[q as usize];
-        let b = target_row.model_index();
-        let mods = &self.session.profile.mods;
-        if mods[a].kind != ModKind::Managed {
+
+        if source != ModKind::Managed {
             self.note("Only mods can be reordered");
-            return false;
+            return None;
         }
-        if mods[b].kind == ModKind::Foreign {
+        if target == ModKind::Foreign {
             self.note("Can't reorder past a base-game entry");
-            return false;
+            return None;
         }
+
         if matches!(
             target_row,
             ModPaneRow::Separator {
@@ -66,14 +78,14 @@ impl App {
             }
         ) {
             self.note("Expand the group to move past it");
-            return false;
+            return None;
         }
 
-        // Both endpoints visible, they are model-adjacent: plain swap is clean
-        self.session.profile.mods.swap(a, b);
-        self.mods.select(Some(q as usize));
-        self.mark_conflicts_stale();
-        true
+        // Both endpoints visible, plain swap is clean
+        let mut profile = self.session.profile.clone();
+        profile.mods.swap(source_index, target_index);
+
+        Some((profile, destination as usize))
     }
 
     /// Flip the mod's `enabled`, or act on the focused workspace pane

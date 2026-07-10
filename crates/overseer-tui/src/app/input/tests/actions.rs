@@ -86,24 +86,28 @@ fn flipping_a_mod_marks_the_conflicts_scan_stale() {
     );
 }
 
+/// Staged reorders move the candidate and return its destination
 #[test]
-fn shift_moves_the_selected_mod_and_keeps_selection() {
+fn staged_reorder_moves_the_selected_mod_and_returns_selection() {
     let mut app = App::sample();
-    assert!(app.shift_selected_mod(1));
-    assert_eq!(app.session.profile.mods[1].name, "CoolMod");
-    assert_eq!(app.mods.index(), Some(1));
-    assert!(app.shift_selected_mod(-1));
-    assert_eq!(app.session.profile.mods[0].name, "CoolMod");
-    assert_eq!(app.mods.index(), Some(0));
+    let (profile, selection) = app.reordered_profile(1).expect("stage move down");
+    assert_eq!(profile.mods[1].name, "CoolMod");
+    assert_eq!(selection, 1);
+    assert_eq!(
+        app.session.profile.mods[0].name, "CoolMod",
+        "live state stays unchanged"
+    );
+    assert_eq!(app.mods.index(), Some(0), "live cursor stays unchanged");
 }
 
+/// Reorder staging is inert at display edges and outside the Mods pane
 #[test]
-fn shift_is_a_noop_at_edges_and_in_the_plugins_pane() {
+fn staged_reorder_is_a_noop_at_edges_and_in_the_plugins_pane() {
     let mut app = App::sample();
-    assert!(!app.shift_selected_mod(-1)); // at the top
+    assert!(app.reordered_profile(-1).is_none()); // at the top
     assert_eq!(app.mods.index(), Some(0));
     app.focus = Focus::Workspace;
-    assert!(!app.shift_selected_mod(1)); // unsupported pane
+    assert!(app.reordered_profile(1).is_none()); // unsupported pane
 }
 
 fn managed(name: &str) -> overseer_core::instance::ModListEntry {
@@ -130,25 +134,23 @@ fn foreign(name: &str) -> overseer_core::instance::ModListEntry {
     }
 }
 
-fn names(app: &App) -> Vec<String> {
-    app.session
-        .profile
-        .mods
-        .iter()
-        .map(|m| m.name.clone())
-        .collect()
+/// Collect profile entry names in model order
+fn names(profile: &Profile) -> Vec<String> {
+    profile.mods.iter().map(|m| m.name.clone()).collect()
 }
 
+/// J stages a downward display move as a priority raise
 #[test]
-fn j_moves_a_mod_down_the_ui_which_raises_its_priority() {
+fn j_stages_a_mod_down_the_ui_which_raises_its_priority() {
     // model [CoolMod(0), OffMod(1)]; display [OffMod, CoolMod] (highest priority at the bottom)
     let mut app = App::sample();
     app.mods.select(Some(0)); // OffMod: lowest priority, top of the UI
-    assert!(app.shift_selected_mod(1)); // J: move down the UI
-    assert_eq!(names(&app), vec!["OffMod", "CoolMod"]); // OffMod is now model 0 = highest priority
-    assert_eq!(app.mods.index(), Some(1), "selection follows the moved mod");
+    let (profile, selection) = app.reordered_profile(1).expect("stage J");
+    assert_eq!(names(&profile), vec!["OffMod", "CoolMod"]);
+    assert_eq!(selection, 1, "the candidate cursor follows the moved mod");
 }
 
+/// Managed mods can cross expanded separators in a staged reorder
 #[test]
 fn a_managed_mod_crosses_an_expanded_separator() {
     let mut app = App::sample();
@@ -160,18 +162,15 @@ fn a_managed_mod_crosses_an_expanded_separator() {
     app.mods.reset(&app.session.profile.mods);
     // display: [TextureX(d0,m2), Group(d1,m1), PatchA(d2,m0)]
     app.mods.select(Some(0)); // TextureX, above the group
-    assert!(
-        app.shift_selected_mod(1),
-        "swaps with the expanded separator, crossing into the group"
-    );
-    assert_eq!(names(&app), vec!["PatchA", "TextureX", "Group_separator"]);
+    let (profile, selection) = app.reordered_profile(1).expect("cross separator");
     assert_eq!(
-        app.mods.index(),
-        Some(1),
-        "selection follows across the boundary"
+        names(&profile),
+        vec!["PatchA", "TextureX", "Group_separator"]
     );
+    assert_eq!(selection, 1, "the candidate cursor crosses the boundary");
 }
 
+/// Reordering past a foreign entry keeps the existing rejection notice
 #[test]
 fn a_move_past_a_foreign_entry_is_refused() {
     let mut app = App::sample();
@@ -180,12 +179,13 @@ fn a_move_past_a_foreign_entry_is_refused() {
     // display: [TextureX(d0,m1), DLCArmor(d1,m0)]
     app.mods.select(Some(0)); // TextureX
     assert!(
-        !app.shift_selected_mod(1),
+        app.reordered_profile(1).is_none(),
         "can't displace a base-game entry"
     );
     assert!(app.message.is_some());
 }
 
+/// Reordering a separator keeps the existing rejection notice
 #[test]
 fn reordering_a_separator_row_is_refused() {
     let mut app = App::sample();
@@ -193,10 +193,14 @@ fn reordering_a_separator_row_is_refused() {
     app.mods.reset(&app.session.profile.mods);
     // display: [Group(d0,m1), PatchA(d1,m0)]
     app.mods.select(Some(0)); // the separator
-    assert!(!app.shift_selected_mod(1), "separators don't reorder in v1");
+    assert!(
+        app.reordered_profile(1).is_none(),
+        "separators don't reorder in v1"
+    );
     assert!(app.message.is_some());
 }
 
+/// Collapsed separators keep blocking staged reorders
 #[test]
 fn a_move_past_a_collapsed_separator_is_refused() {
     let mut app = App::sample();
@@ -211,14 +215,91 @@ fn a_move_past_a_collapsed_separator_is_refused() {
     // display: [Upper(d0), TextureX(d1), Lower▶(d2)]
     app.mods.select(Some(1)); // TextureX
     assert!(
-        !app.shift_selected_mod(1),
+        app.reordered_profile(1).is_none(),
         "the collapsed separator blocks it"
     );
     assert!(app.message.is_some(), "the user is told to expand");
     assert_eq!(
-        names(&app),
+        names(&app.session.profile),
         vec!["PatchA", "Lower_separator", "TextureX", "Upper_separator"],
         "nothing moved"
+    );
+}
+
+/// Build a disk-backed app for reorder persistence tests
+fn persisted_reorder_app() -> (tempfile::TempDir, App) {
+    let (tmp, instance) = overseer_core::test_support::temp_instance();
+    let mut app = App::sample();
+    app.session.instance = instance;
+    app.session
+        .profile
+        .save(&app.session.instance)
+        .expect("seed profile");
+    app.mods.reset(&app.session.profile.mods);
+    app.mods.select(Some(0));
+    (tmp, app)
+}
+
+/// A successful reorder swaps live state only after its mod list reaches disk
+#[test]
+fn successful_reorder_round_trips_and_marks_conflicts_stale() {
+    use crate::app::ConflictsStatus;
+
+    let (_tmp, mut app) = persisted_reorder_app();
+    app.conflicts.status = ConflictsStatus::Ready(Vec::new());
+    let order_before = app.session.order.plugins.clone();
+    let discovered_before = app.session.discovered.clone();
+
+    app.reorder_selected(1);
+
+    assert_eq!(names(&app.session.profile), ["OffMod", "CoolMod"]);
+    assert_eq!(app.mods.index(), Some(1));
+    let loaded = Profile::load(&app.session.instance, "Default").expect("reload reordered profile");
+    assert_eq!(names(&loaded), ["OffMod", "CoolMod"]);
+    assert!(matches!(app.conflicts.status, ConflictsStatus::Stale));
+    assert_eq!(app.session.order.plugins, order_before);
+    assert_eq!(app.session.discovered, discovered_before);
+    assert_eq!(
+        app.message.as_ref().map(|notice| notice.text.as_str()),
+        Some("Saved")
+    );
+}
+
+/// A failed reorder leaves every live state component unchanged
+#[test]
+fn failed_reorder_leaves_profile_cursor_conflicts_and_plugins_unchanged() {
+    use crate::app::ConflictsStatus;
+
+    let (_tmp, mut app) = persisted_reorder_app();
+    app.conflicts.status = ConflictsStatus::Ready(Vec::new());
+    let mods_before = app.session.profile.mods.clone();
+    let local_saves_before = app.session.profile.local_saves;
+    let cursor_before = app.mods.index();
+    let order_before = app.session.order.plugins.clone();
+    let discovered_before = app.session.discovered.clone();
+    let modlist = app
+        .session
+        .instance
+        .profile_dir("Default")
+        .join("modlist.txt");
+    std::fs::remove_file(&modlist).expect("remove mod list");
+    std::fs::create_dir(&modlist).expect("block mod list");
+
+    app.reorder_selected(1);
+
+    assert_eq!(app.session.profile.mods, mods_before);
+    assert_eq!(app.session.profile.local_saves, local_saves_before);
+    assert_eq!(app.mods.index(), cursor_before);
+    assert!(matches!(
+        app.conflicts.status,
+        ConflictsStatus::Ready(ref conflicts) if conflicts.is_empty()
+    ));
+    assert_eq!(app.session.order.plugins, order_before);
+    assert_eq!(app.session.discovered, discovered_before);
+    assert!(
+        app.message
+            .as_ref()
+            .is_some_and(|notice| notice.text.starts_with("Could not save mod list: "))
     );
 }
 
