@@ -30,8 +30,9 @@ fn write_varint(out: &mut Vec<u8>, mut value: usize) {
     out.extend(stack.into_iter().rev());
 }
 
+/// Read a target basename from a VCDIFF application header
 #[test]
-fn reads_xdelta3_app_header_basename() {
+fn reads_vcdiff_application_header_basename() {
     let (_tmp, root) = temp();
     let path = root.join("patch.vcdiff");
     std::fs::write(
@@ -68,7 +69,7 @@ fn malformed_delta_headers_are_rejected() {
     ));
 }
 
-/// The VCD_DECOMPRESS indicator inserts a secondary-compressor id byte; the parser skips it to reach the app-header
+/// The VCD_DECOMPRESS indicator inserts a secondary-compressor id byte before the application header
 #[test]
 fn skips_the_secondary_compressor_byte_to_reach_the_app_header() {
     let mut bytes = vec![0xD6, 0xC3, 0xC4, 0x00, VCD_DECOMPRESS | VCD_APPHEADER];

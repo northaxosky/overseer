@@ -22,13 +22,15 @@ pub enum VcdiffError {
     #[error("VCDIFF file `{path}` has a malformed header")]
     Malformed { path: Utf8PathBuf },
 
-    #[error("delta `{path}` does not contain an app-header basename; pass an explicit delta flag")]
+    #[error(
+        "delta `{path}` does not contain an application-header basename; pass an explicit delta flag"
+    )]
     MissingAppHeaderName { path: Utf8PathBuf },
 
-    #[error("delta `{path}` app-header names a target outside the allowed set")]
+    #[error("delta `{path}` application header names a target outside the allowed set")]
     OffScopeTarget { path: Utf8PathBuf },
 
-    #[error("delta `{path}` app-header names more than one known target: {names}")]
+    #[error("delta `{path}` application header names more than one known target: {names}")]
     AmbiguousAppHeader { path: Utf8PathBuf, names: String },
 
     #[error("more than one delta maps to {name}: `{first}` and `{second}`")]
@@ -54,10 +56,10 @@ pub struct DeltaMap {
     pub ignored: Vec<Utf8PathBuf>,
 }
 
-/// Bytes of a delta scanned for its app-header; xdelta3 path headers are well under a KiB, so this bounds reads of multi-GB bodies
+/// Bytes scanned for an application header while bounding reads of multi-GB delta bodies
 const HEADER_SCAN_LEN: u64 = 64 * 1024;
 
-/// Read the VCDIFF app-header string from `path`, if it carries one
+/// Read the VCDIFF application-header string from `path`, if it carries one
 pub fn app_header(path: &Utf8Path) -> Result<Option<String>, VcdiffError> {
     let bytes = read_prefix(path, HEADER_SCAN_LEN).map_err(|e| io_err(path, e))?;
     parse_app_header(path, &bytes)
@@ -155,7 +157,7 @@ fn assert_unique_basenames(allowed: &[&str]) -> Result<(), VcdiffError> {
     }
 }
 
-/// Parse the app-header string out of raw VCDIFF `bytes` per the RFC 3284 header layout
+/// Parse the application-header string from raw VCDIFF `bytes` per RFC 3284
 fn parse_app_header(path: &Utf8Path, bytes: &[u8]) -> Result<Option<String>, VcdiffError> {
     if bytes.len() < 5 {
         return Err(VcdiffError::TooShort {
