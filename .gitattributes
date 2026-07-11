@@ -29,3 +29,5 @@
 *.png    binary
 *.jpg    binary
 *.ico    binary
+*.vcdiff binary
+*.bin    binary

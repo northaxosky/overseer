@@ -1472,12 +1472,14 @@ dependencies = [
  "serde",
  "serde_json",
  "sevenz-rust2",
+ "sha1",
  "sha2 0.11.0",
  "strum",
  "tempfile",
  "thiserror 2.0.18",
  "toml",
  "tracing",
+ "vcdiff-rs",
  "walkdir",
  "zip",
 ]
@@ -2685,6 +2687,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ba73ea9cf16a25df0c8caa16c51acb937d5712a8429db78a3ee29d5dcacd3a65"
 
 [[package]]
+name = "vcdiff-rs"
+version = "0.1.0"
+source = "git+https://github.com/northaxosky/rust-crates?rev=aca4282161ba607a307e76a48ccb7eec794a650b#aca4282161ba607a307e76a48ccb7eec794a650b"
+dependencies = [
+ "thiserror 2.0.18",
+ "xz4rust",
+]
+
+[[package]]
 name = "version_check"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2998,6 +3009,11 @@ name = "wit-bindgen"
 version = "0.57.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1ebf944e87a7c253233ad6766e082e3cd714b5d03812acc24c318f549614536e"
+
+[[package]]
+name = "xz4rust"
+version = "0.2.1"
+source = "git+https://github.com/northaxosky/xz4rust?rev=7625e9fea5422772f606887cae5cb821c931102a#7625e9fea5422772f606887cae5cb821c931102a"
 
 [[package]]
 name = "zeroize"

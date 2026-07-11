@@ -28,6 +28,7 @@ pelite.workspace = true
 tracing.workspace = true
 sha2.workspace = true
 btdx.workspace = true
+vcdiff-rs.workspace = true
 
 [features]
 test-support = []
@@ -36,3 +37,4 @@ test-support = []
 overseer-core = { path = ".", features = ["test-support"] }
 overseer-diagnostics = { path = "../overseer-diagnostics" }
 dotenvy.workspace = true
+sha1.workspace = true

@@ -34,6 +34,7 @@ libloadorder = "18.8"
 atomicwrites = "0.4"
 dirs = "6"
 crc32fast = "1"
+sha1 = "0.11"
 sha2 = "0.11"
 pelite = "0.10"
 tracing = "0.1"
@@ -45,3 +46,7 @@ strum = { version = "0.28", features = ["derive"] }
 assert_cmd = "2"
 predicates = "3"
 dotenvy = "0.15"
+vcdiff-rs = {
+    git = "https://github.com/northaxosky/rust-crates",
+    rev = "aca4282161ba607a307e76a48ccb7eec794a650b",
+}
