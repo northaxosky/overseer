@@ -89,7 +89,7 @@ pub enum ConvertError {
     Delta {
         item: String,
         #[source]
-        source: DeltaError,
+        source: Box<DeltaError>,
     },
     #[error(
         "`{item}` did not reconstruct the expected target (size {found_size}, crc {found_crc:08X}, sha256 {found_sha256})"
@@ -276,7 +276,7 @@ fn prepare(
         let _ = remove_file_opt(&tmp);
         return Err(ConvertError::Delta {
             item: item.rel_path.to_owned(),
-            source: source_err,
+            source: Box::new(source_err),
         });
     }
     let Some(found) = fingerprint_file(&tmp).inspect_err(|_| {

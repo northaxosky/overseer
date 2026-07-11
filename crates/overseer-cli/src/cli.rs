@@ -159,10 +159,10 @@ impl ApplyGate {
     }
 }
 
-/// The delta-source flags shared by the xdelta3 conversion commands
+/// The delta-source flags shared by the VCDIFF conversion commands
 #[derive(Args, Clone)]
 pub struct DeltaSourceArgs {
-    /// Directory containing `.vcdiff` or `.xdelta` files with usable app headers
+    /// Directory containing `.vcdiff` or `.xdelta` files with usable application headers
     #[arg(long, value_name = "DIR")]
     pub deltas: Option<Utf8PathBuf>,
     /// Instance directory; supplies the game dir when `--game-dir` is omitted
@@ -171,9 +171,6 @@ pub struct DeltaSourceArgs {
     /// Fallout 4 install directory; overrides the instance config
     #[arg(long, value_name = "DIR")]
     pub game_dir: Option<Utf8PathBuf>,
-    /// Path to the `xdelta3` executable
-    #[arg(long, value_name = "PATH")]
-    pub xdelta3: Option<Utf8PathBuf>,
 }
 
 #[derive(Subcommand)]
@@ -366,13 +363,13 @@ pub enum PatchCommand {
         to: GenerationArg,
         #[command(flatten)]
         source: DeltaSourceArgs,
-        /// xdelta3 delta for `Fallout4.exe`
+        /// VCDIFF delta for `Fallout4.exe`
         #[arg(long, value_name = "PATH")]
         exe_delta: Option<Utf8PathBuf>,
-        /// xdelta3 delta for `Fallout4Launcher.exe`
+        /// VCDIFF delta for `Fallout4Launcher.exe`
         #[arg(long, value_name = "PATH")]
         launcher_delta: Option<Utf8PathBuf>,
-        /// xdelta3 delta for `steam_api64.dll`
+        /// VCDIFF delta for `steam_api64.dll`
         #[arg(long, value_name = "PATH")]
         steamapi_delta: Option<Utf8PathBuf>,
         /// Permit an incomplete repair instead of a complete generation conversion

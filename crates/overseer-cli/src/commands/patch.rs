@@ -8,14 +8,12 @@ use camino::{Utf8Path, Utf8PathBuf};
 use overseer_core::archive::{Ba2Header, Ba2Kind};
 use overseer_core::detect::{self, Edition, Generation};
 use overseer_core::game::GameKind;
-use overseer_core::patch::delta::Xdelta3CliDecoder;
+use overseer_core::patch::delta::RustDeltaDecoder;
 use overseer_core::patch::engine::{self, ConvertJob, ItemPlan, ItemState, Outcome, Policy};
 use overseer_core::patch::fallout4::{self, Ba2Edition, PatchOutcome, convert, dlc};
 use overseer_core::patch::fingerprint::VerifiedBy;
 use overseer_core::patch::vcdiff::{self, DeltaMap};
 use std::collections::{HashMap, HashSet};
-use std::env;
-use std::process::Command;
 
 pub fn run(command: PatchCommand) -> Result<()> {
     match command {
@@ -41,7 +39,6 @@ pub fn run(command: PatchCommand) -> Result<()> {
             exe_delta: exe_delta.as_deref(),
             launcher_delta: launcher_delta.as_deref(),
             steamapi_delta: steamapi_delta.as_deref(),
-            xdelta3: source.xdelta3.as_deref(),
             allow_incomplete_repair,
             dry_run: gate.dry_run,
             yes: gate.yes,
@@ -54,7 +51,6 @@ pub fn run(command: PatchCommand) -> Result<()> {
             deltas: source.deltas.as_deref(),
             instance: source.instance.as_deref(),
             game_dir: source.game_dir.as_deref(),
-            xdelta3: source.xdelta3.as_deref(),
             allow_incomplete_repair,
             dry_run: gate.dry_run,
             yes: gate.yes,
@@ -71,7 +67,6 @@ struct ConvertArgs<'a> {
     exe_delta: Option<&'a Utf8Path>,
     launcher_delta: Option<&'a Utf8Path>,
     steamapi_delta: Option<&'a Utf8Path>,
-    xdelta3: Option<&'a Utf8Path>,
     allow_incomplete_repair: bool,
     dry_run: bool,
     yes: bool,
@@ -82,26 +77,18 @@ struct DlcArgs<'a> {
     deltas: Option<&'a Utf8Path>,
     instance: Option<&'a Utf8Path>,
     game_dir: Option<&'a Utf8Path>,
-    xdelta3: Option<&'a Utf8Path>,
     allow_incomplete_repair: bool,
     dry_run: bool,
     yes: bool,
 }
 
-#[derive(Debug)]
-struct ResolvedXdelta3 {
-    path: Utf8PathBuf,
-    version: String,
-}
-
-/// Shared convert/dlc front matter: gate-flag guard, resolve the game dir, resolve xdelta3
+/// Shared convert/dlc front matter: validate gate flags and resolve the game directory
 fn conversion_env(
     instance: Option<&Utf8Path>,
     game_dir: Option<&Utf8Path>,
-    xdelta3: Option<&Utf8Path>,
     allow_incomplete_repair: bool,
     gate: Gate,
-) -> Result<(Utf8PathBuf, ResolvedXdelta3)> {
+) -> Result<Utf8PathBuf> {
     if allow_incomplete_repair && gate == Gate::Preview {
         bail!("--allow-incomplete-repair requires --yes");
     }
@@ -109,21 +96,20 @@ fn conversion_env(
     if !game_dir.is_dir() {
         bail!("no such game directory: {game_dir}");
     }
-    let xdelta3 = resolve_xdelta3(xdelta3)?;
-    Ok((game_dir, xdelta3))
+    Ok(game_dir)
 }
 
 /// Apply the built jobs when the gate says so; returns the converted count, or None on a preview
-fn apply_conversion(
-    game_dir: &Utf8Path,
-    xdelta3: &ResolvedXdelta3,
-    gate: Gate,
-    jobs: &[ConvertJob],
-) -> Result<Option<usize>> {
+fn apply_conversion(game_dir: &Utf8Path, gate: Gate, jobs: &[ConvertJob]) -> Result<Option<usize>> {
     if gate.is_preview() {
         return Ok(None);
     }
-    let decoder = Xdelta3CliDecoder::new(xdelta3.path.clone());
+    let max_target_size = jobs
+        .iter()
+        .map(|job| job.item.target.expected.size)
+        .max()
+        .unwrap_or(0);
+    let decoder = RustDeltaDecoder::new(max_target_size);
     let outcomes = engine::convert(game_dir, jobs, &decoder)?;
     print_outcomes(&outcomes);
     Ok(Some(count_converted(&outcomes)))
@@ -131,10 +117,9 @@ fn apply_conversion(
 
 fn convert_install(args: ConvertArgs<'_>) -> Result<()> {
     let gate = Gate::from_flags(args.dry_run, args.yes);
-    let (game_dir, xdelta3) = conversion_env(
+    let game_dir = conversion_env(
         args.instance,
         args.game_dir,
-        args.xdelta3,
         args.allow_incomplete_repair,
         gate,
     )?;
@@ -164,7 +149,6 @@ fn convert_install(args: ConvertArgs<'_>) -> Result<()> {
         game_dir: &game_dir,
         edition,
         target,
-        xdelta3: &xdelta3,
         plans: &item_plans,
         deltas: &delta_map.mapped,
         allow_incomplete_repair: args.allow_incomplete_repair,
@@ -185,7 +169,7 @@ fn convert_install(args: ConvertArgs<'_>) -> Result<()> {
     if complete_noop {
         bail!("the selected files already match {}", target.label());
     }
-    if let Some(converted) = apply_conversion(&game_dir, &xdelta3, gate, &jobs)? {
+    if let Some(converted) = apply_conversion(&game_dir, gate, &jobs)? {
         if args.allow_incomplete_repair {
             success(format!("{converted} file(s) repaired"));
         } else {
@@ -200,10 +184,9 @@ fn convert_install(args: ConvertArgs<'_>) -> Result<()> {
 
 fn dlc_consistency_install(args: DlcArgs<'_>) -> Result<()> {
     let gate = Gate::from_flags(args.dry_run, args.yes);
-    let (game_dir, xdelta3) = conversion_env(
+    let game_dir = conversion_env(
         args.instance,
         args.game_dir,
-        args.xdelta3,
         args.allow_incomplete_repair,
         gate,
     )?;
@@ -224,7 +207,6 @@ fn dlc_consistency_install(args: DlcArgs<'_>) -> Result<()> {
     let item_plans = engine::plan(&game_dir, &policy)?;
     print_dlc_plan(DlcPlanView {
         game_dir: &game_dir,
-        xdelta3: &xdelta3,
         plans: &item_plans,
         deltas: &delta_map.mapped,
         allow_incomplete_repair: args.allow_incomplete_repair,
@@ -245,7 +227,7 @@ fn dlc_consistency_install(args: DlcArgs<'_>) -> Result<()> {
     if complete_noop {
         bail!("the selected files already match the DLC consistency revision");
     }
-    if let Some(converted) = apply_conversion(&game_dir, &xdelta3, gate, &jobs)? {
+    if let Some(converted) = apply_conversion(&game_dir, gate, &jobs)? {
         success(format!(
             "{converted} file(s) brought to the DLC consistency revision"
         ));
@@ -440,7 +422,6 @@ struct ConvertPlanView<'a> {
     game_dir: &'a Utf8Path,
     edition: Edition,
     target: Generation,
-    xdelta3: &'a ResolvedXdelta3,
     plans: &'a [ItemPlan],
     deltas: &'a HashMap<String, Utf8PathBuf>,
     allow_incomplete_repair: bool,
@@ -460,7 +441,6 @@ fn print_convert_plan(view: ConvertPlanView<'_>) {
         ));
     }
     println!("Detected edition (Fallout4.exe): {:?}", view.edition);
-    println!("xdelta3: {} ({})", view.xdelta3.path, view.xdelta3.version);
     println!("Backups: <binary>.overseer-bak beside each converted file");
     let label = view.target.label().to_owned();
     print_plan_lines(view.plans, view.deltas, |_| label.clone());
@@ -468,7 +448,6 @@ fn print_convert_plan(view: ConvertPlanView<'_>) {
 
 struct DlcPlanView<'a> {
     game_dir: &'a Utf8Path,
-    xdelta3: &'a ResolvedXdelta3,
     plans: &'a [ItemPlan],
     deltas: &'a HashMap<String, Utf8PathBuf>,
     allow_incomplete_repair: bool,
@@ -486,7 +465,6 @@ fn print_dlc_plan(view: DlcPlanView<'_>) {
             view.game_dir
         ));
     }
-    println!("xdelta3: {} ({})", view.xdelta3.path, view.xdelta3.version);
     println!("Backups: <file>.overseer-bak beside each converted file");
     print_plan_lines(view.plans, view.deltas, |plan| {
         format!(
@@ -554,71 +532,6 @@ fn print_plan_line(
         ),
     };
     println!("{}", styled(role, msg));
-}
-
-fn resolve_xdelta3(cli_path: Option<&Utf8Path>) -> Result<ResolvedXdelta3> {
-    let path = if let Some(path) = cli_path {
-        resolve_executable(path)?
-    } else if let Ok(env_path) = env::var("OVERSEER_XDELTA3") {
-        resolve_executable(Utf8Path::new(&env_path))?
-    } else {
-        find_on_path("xdelta3")
-            .context("xdelta3 not found; pass --xdelta3 or set OVERSEER_XDELTA3")?
-    };
-    let output = Command::new(path.as_std_path())
-        .arg("-V")
-        .output()
-        .with_context(|| format!("running {path} -V"))?;
-    if !output.status.success() {
-        bail!("xdelta3 at {path} did not run successfully with -V");
-    }
-    let mut text = String::from_utf8_lossy(&output.stdout).trim().to_owned();
-    if text.is_empty() {
-        text = String::from_utf8_lossy(&output.stderr).trim().to_owned();
-    }
-    Ok(ResolvedXdelta3 {
-        path,
-        version: first_line(&text),
-    })
-}
-
-fn resolve_executable(path: &Utf8Path) -> Result<Utf8PathBuf> {
-    let has_dir = path.parent().is_some_and(|p| !p.as_str().is_empty());
-    if path.is_absolute() || has_dir {
-        return Ok(absolutize(path)?);
-    }
-    find_on_path(path.as_str()).with_context(|| format!("{path} not found on PATH"))
-}
-
-fn find_on_path(name: &str) -> Option<Utf8PathBuf> {
-    let path_var = env::var_os("PATH")?;
-    let extensions = path_extensions(name);
-    for dir in env::split_paths(&path_var) {
-        for ext in &extensions {
-            let candidate = dir.join(format!("{name}{ext}"));
-            if candidate.is_file()
-                && let Ok(path) = candidate.canonicalize()
-                && let Ok(path) = Utf8PathBuf::from_path_buf(path)
-            {
-                return Some(path);
-            }
-        }
-    }
-    None
-}
-
-fn path_extensions(name: &str) -> Vec<String> {
-    if Utf8Path::new(name).extension().is_some() {
-        return vec![String::new()];
-    }
-    let pathext = env::var("PATHEXT").unwrap_or_else(|_| ".EXE;.BAT;.CMD".to_owned());
-    let mut exts = vec![String::new()];
-    exts.extend(pathext.split(';').map(str::to_ascii_lowercase));
-    exts
-}
-
-fn first_line(text: &str) -> String {
-    text.lines().next().unwrap_or("unknown version").to_owned()
 }
 
 fn ba2(path: &Utf8Path, to: GenerationArg, dry_run: bool, yes: bool) -> Result<()> {

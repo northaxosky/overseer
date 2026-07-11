@@ -94,23 +94,6 @@ fn a_fully_converted_selected_group_is_a_noop() {
 }
 
 #[test]
-fn a_bare_tool_name_is_searched_on_path_not_absolutized() {
-    // A bare name (empty parent) must go through PATH lookup, not be absolutized against the CWD
-    let result = resolve_executable(Utf8Path::new("overseer-nonexistent-tool-xyz"));
-    assert!(
-        result.is_err(),
-        "a bare name not on PATH must error, not silently absolutize to the CWD"
-    );
-    assert!(
-        result
-            .unwrap_err()
-            .to_string()
-            .contains("not found on PATH"),
-        "the error must come from the PATH lookup branch"
-    );
-}
-
-#[test]
 fn repair_mode_allows_a_partial_group() {
     // --allow-incomplete-repair converts only the delta-supplied file, not refusing the group
     let plans: Vec<_> = COAST
@@ -150,17 +133,17 @@ fn repair_mode_skips_a_missing_file() {
     assert!(jobs.iter().all(|j| j.item.rel_path != "Data/DLCCoast.esm"));
 }
 
+/// Return from preview before opening the delta or creating adapter output
 #[test]
-fn a_name_with_a_directory_is_absolutized() {
-    // A path with a directory component resolves against the CWD, never PATH-searched
-    let path = resolve_executable(Utf8Path::new("tools/overseer-fake-xdelta3.exe"))
-        .expect("a relative path with a directory must absolutize, not error");
-    assert!(
-        path.is_absolute(),
-        "the resolved tool path must be absolute"
-    );
-    assert!(
-        path.ends_with("tools/overseer-fake-xdelta3.exe"),
-        "absolutizing must preserve the supplied relative path"
-    );
+fn preview_returns_before_decoder_io() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = Utf8PathBuf::from_path_buf(tmp.path().to_owned()).unwrap();
+    std::fs::write(root.join("Fallout4.exe"), b"unrecognized source").unwrap();
+    let jobs = [ConvertJob {
+        item: convert::explicit_item(Generation::OldGen, "Fallout4.exe").unwrap(),
+        delta: root.join("missing.vcdiff"),
+    }];
+
+    assert_eq!(apply_conversion(&root, Gate::Preview, &jobs).unwrap(), None);
+    assert!(!root.join("Fallout4.exe.overseer-tmp").exists());
 }

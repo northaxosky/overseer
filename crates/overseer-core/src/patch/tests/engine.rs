@@ -85,9 +85,9 @@ impl DeltaDecoder for FakeDecoder {
                 std::fs::write(dest, bytes).unwrap();
                 Ok(())
             }
-            FakeDecoder::Fails => Err(DeltaError::Failed {
-                code: Some(1),
-                stderr: "boom".to_owned(),
+            FakeDecoder::Fails => Err(DeltaError::CreateDestination {
+                path: dest.to_owned(),
+                source: std::io::Error::other("simulated decode failure"),
             }),
         }
     }

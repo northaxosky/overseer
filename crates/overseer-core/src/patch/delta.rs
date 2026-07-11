@@ -1,12 +1,16 @@
-//! Applying binary deltas (xdelta3 / VCDIFF) behind a swappable [`DeltaDecoder`] backend
+//! Applying VCDIFF deltas behind a swappable [`DeltaDecoder`] backend
 
-use crate::error::IoError;
 use camino::{Utf8Path, Utf8PathBuf};
-use std::process::Command;
+use std::fs::{File, OpenOptions};
 use thiserror::Error;
+use vcdiff_rs::DecodeOptions;
 
 /// Applies a VCDIFF `delta` to `source`, writing the reconstructed file to `dest`
 pub trait DeltaDecoder {
+    #[allow(
+        clippy::result_large_err,
+        reason = "preserves structured decoder context"
+    )]
     fn apply(&self, source: &Utf8Path, delta: &Utf8Path, dest: &Utf8Path)
     -> Result<(), DeltaError>;
 }
@@ -14,75 +18,99 @@ pub trait DeltaDecoder {
 /// Failure applying a delta
 #[derive(Debug, Error)]
 pub enum DeltaError {
-    /// The decoder binary could not be started (wrong path, not executable, ...)
-    #[error("could not run xdelta3 at `{path}`")]
-    Spawn {
+    /// The source file could not be opened
+    #[error("could not open delta source `{path}`")]
+    OpenSource {
         path: Utf8PathBuf,
         #[source]
         source: std::io::Error,
     },
-    /// The decoder ran but exited non-zero (bad source, corrupt delta, ...)
-    #[error("xdelta3 exited with {code:?}: {stderr}")]
-    Failed { code: Option<i32>, stderr: String },
-    #[error(transparent)]
-    Io(#[from] IoError),
+
+    /// The VCDIFF file could not be opened
+    #[error("could not open VCDIFF delta `{path}`")]
+    OpenDelta {
+        path: Utf8PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+
+    /// The destination file could not be created
+    #[error("could not create delta output `{path}`")]
+    CreateDestination {
+        path: Utf8PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+
+    /// The VCDIFF stream could not be decoded
+    #[error(
+        "could not decode VCDIFF `{delta_path}` with source `{source_path}` into `{dest_path}`"
+    )]
+    Decode {
+        source_path: Utf8PathBuf,
+        delta_path: Utf8PathBuf,
+        dest_path: Utf8PathBuf,
+        #[source]
+        source: vcdiff_rs::DecodeError,
+    },
 }
 
-/// A [`DeltaDecoder`] that shells out to an `xdelta3` executable
-#[derive(Debug, Clone)]
-pub struct Xdelta3CliDecoder {
-    exe: Utf8PathBuf,
+/// A path-based pure-Rust VCDIFF decoder
+#[derive(Debug)]
+pub struct RustDeltaDecoder {
+    options: DecodeOptions,
 }
 
-impl Xdelta3CliDecoder {
-    /// Use the `xdelta3` binary at `exe`
-    pub fn new(exe: impl Into<Utf8PathBuf>) -> Self {
-        Self { exe: exe.into() }
+impl RustDeltaDecoder {
+    /// Decode with an explicit cumulative target-size limit
+    pub fn new(max_target_size: u64) -> Self {
+        let mut options = DecodeOptions::default();
+        options.max_target_size = max_target_size;
+        Self { options }
     }
 }
 
-/// Decode-run arguments: `-d -f -s <source> <delta> <dest>` (decode, force-overwrite, source)
-fn decode_args(source: &Utf8Path, delta: &Utf8Path, dest: &Utf8Path) -> [String; 6] {
-    [
-        "-d".to_owned(),
-        "-f".to_owned(),
-        "-s".to_owned(),
-        source.to_string(),
-        delta.to_string(),
-        dest.to_string(),
-    ]
-}
-
-impl DeltaDecoder for Xdelta3CliDecoder {
+impl DeltaDecoder for RustDeltaDecoder {
+    /// Decode one VCDIFF file into a newly created destination
     fn apply(
         &self,
         source: &Utf8Path,
         delta: &Utf8Path,
         dest: &Utf8Path,
     ) -> Result<(), DeltaError> {
-        let output = Command::new(&self.exe)
-            .args(decode_args(source, delta, dest))
-            .output()
-            .map_err(|source| DeltaError::Spawn {
-                path: self.exe.clone(),
-                source,
-            })?;
-        if !output.status.success() {
-            return Err(DeltaError::Failed {
-                code: output.status.code(),
-                stderr: String::from_utf8_lossy(&output.stderr).trim().to_owned(),
-            });
-        }
-        Ok(())
-    }
-}
+        let mut source_file = File::open(source).map_err(|error| DeltaError::OpenSource {
+            path: source.to_owned(),
+            source: error,
+        })?;
 
-/// CRC32 of a file, read in a streaming fashion (for verifying multi-MB game files)
-#[cfg(test)]
-fn crc32_file(path: &Utf8Path) -> Result<u32, IoError> {
-    let mut hasher = crc32fast::Hasher::new();
-    crate::fs::read_chunks(path, |chunk| hasher.update(chunk))?;
-    Ok(hasher.finalize())
+        let mut delta_file = File::open(delta).map_err(|error| DeltaError::OpenDelta {
+            path: delta.to_owned(),
+            source: error,
+        })?;
+
+        let mut dest_file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create_new(true)
+            .open(dest)
+            .map_err(|error| DeltaError::CreateDestination {
+                path: dest.to_owned(),
+                source: error,
+            })?;
+
+        vcdiff_rs::decode_to(
+            &mut source_file,
+            &mut delta_file,
+            &mut dest_file,
+            &self.options,
+        )
+        .map_err(|error| DeltaError::Decode {
+            source_path: source.to_owned(),
+            delta_path: delta.to_owned(),
+            dest_path: dest.to_owned(),
+            source: error,
+        })
+    }
 }
 
 #[cfg(test)]
