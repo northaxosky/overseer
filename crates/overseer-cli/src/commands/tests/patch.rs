@@ -1,6 +1,7 @@
 //! Tests for the patch CLI plan and summary rendering
 
 use super::*;
+use clap::CommandFactory as _;
 
 const COAST: &[&str] = &[
     "Data/DLCCoast.esm",
@@ -146,4 +147,31 @@ fn preview_returns_before_decoder_io() {
 
     assert_eq!(apply_conversion(&root, Gate::Preview, &jobs).unwrap(), None);
     assert!(!root.join("Fallout4.exe.overseer-tmp").exists());
+}
+
+/// Render long help for one `overseer patch` subcommand
+fn patch_help(name: &str) -> String {
+    let mut command = crate::cli::Cli::command();
+    let patch = command.find_subcommand_mut("patch").unwrap();
+    let subcommand = patch.find_subcommand_mut(name).unwrap();
+    let mut output = Vec::new();
+    subcommand.write_long_help(&mut output).unwrap();
+    String::from_utf8(output).unwrap()
+}
+
+/// Keep convert help pure-Rust and identify every explicit VCDIFF input
+#[test]
+fn convert_help_has_only_vcdiff_delta_inputs() {
+    let help = patch_help("convert");
+    assert!(!help.contains("--xdelta3"));
+    assert!(help.contains("VCDIFF delta for `Fallout4.exe`"));
+    assert!(help.contains("VCDIFF delta for `Fallout4Launcher.exe`"));
+    assert!(help.contains("VCDIFF delta for `steam_api64.dll`"));
+}
+
+/// Keep DLC consistency help free of an external decoder option
+#[test]
+fn dlc_help_has_no_external_decoder_option() {
+    let help = patch_help("dlc-consistency");
+    assert!(!help.contains("--xdelta3"));
 }

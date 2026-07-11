@@ -1,7 +1,7 @@
 //! Tests for the shared, crash-safe conversion engine
 
 use super::*;
-use crate::patch::delta::DeltaError;
+use crate::patch::delta::{DeltaError, RustDeltaDecoder};
 use crate::test_support::temp;
 
 const TEST_TARGET: TargetSpec = TargetSpec {
@@ -12,6 +12,11 @@ const TEST_TARGET: TargetSpec = TargetSpec {
         sha256: Some("15e2b0d3c33891ebb0f1ef609ec419420c20e320ce94c65fbc8c3312448eb225"),
     },
 };
+
+const PARTIAL_THEN_TRUNCATED: &[u8] = &[
+    0xD6, 0xC3, 0xC4, 0x00, 0x00, 0x00, 0x09, 0x03, 0x00, 0x03, 0x01, 0x00, 0x61, 0x62, 0x63, 0x04,
+    0x00,
+];
 
 fn item() -> ConvertItem {
     ConvertItem {
@@ -205,6 +210,27 @@ fn corrupted_delta_cleans_up() {
         std::fs::read(root.join("check.bin")).unwrap(),
         b"AE-version"
     );
+    assert!(!root.join("check.bin.overseer-tmp").exists());
+}
+
+/// Remove real adapter output after a later malformed window fails
+#[test]
+fn real_decoder_mid_stream_failure_cleans_up() {
+    let (_tmp, root) = seed_source(b"AE-version");
+    let source = root.join("check.bin");
+    let delta = root.join("partial.vcdiff");
+    let probe = root.join("partial.bin");
+    std::fs::write(&delta, PARTIAL_THEN_TRUNCATED).unwrap();
+    let decoder = RustDeltaDecoder::new(TEST_TARGET.expected.size);
+
+    let err = decoder.apply(&source, &delta, &probe).unwrap_err();
+    assert!(matches!(err, DeltaError::Decode { .. }));
+    assert_eq!(std::fs::read(&probe).unwrap(), b"abc");
+    std::fs::remove_file(&probe).unwrap();
+
+    let err = convert_item(&root, item(), &delta, &decoder).unwrap_err();
+    assert!(matches!(err, ConvertError::Delta { .. }));
+    assert_eq!(std::fs::read(source).unwrap(), b"AE-version");
     assert!(!root.join("check.bin.overseer-tmp").exists());
 }
 
