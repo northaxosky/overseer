@@ -1,0 +1,88 @@
+//! Validation and application of typed worker results
+
+use overseer_core::install::DownloadEntry;
+
+use super::super::App;
+use super::super::sort::sort_downloads;
+use super::protocol::{OperationContext, OperationOutput, WorkerCompletion};
+use super::runner::{CompletedOperation, OperationState};
+
+impl App {
+    /// Validate and apply one typed worker completion
+    pub(super) fn apply_completion(
+        &mut self,
+        kind: super::OperationKind,
+        completion: WorkerCompletion,
+    ) {
+        if !self.context_matches(&completion.context) {
+            tracing::warn!(
+                captured_root = %completion.context.instance_root,
+                captured_profile = %completion.context.profile,
+                active_root = %self.session.instance.root,
+                active_profile = %self.session.profile.name,
+                "discarding stale background result"
+            );
+
+            self.operation = OperationState::Completed(CompletedOperation::failed(
+                kind,
+                "Discarded background result because the active session changed",
+            ));
+            return;
+        }
+
+        match completion.outcome {
+            Ok(output) => {
+                debug_assert_eq!(kind, output.kind(), "job kind/output mismatch");
+
+                match output {
+                    OperationOutput::RefreshDownloads(entries) => {
+                        self.accept_downloads(entries);
+                        self.operation = OperationState::Idle;
+                    }
+                }
+            }
+            Err(failure) => {
+                self.operation =
+                    OperationState::Completed(CompletedOperation::failed(kind, failure.message));
+            }
+        }
+    }
+
+    /// Check whether captured instance and profile identifiers remain active
+    fn context_matches(&self, captured: &OperationContext) -> bool {
+        self.session
+            .instance
+            .root
+            .as_str()
+            .eq_ignore_ascii_case(captured.instance_root.as_str())
+            && self
+                .session
+                .profile
+                .name
+                .eq_ignore_ascii_case(&captured.profile)
+    }
+
+    /// Replace Downloads using current sorting and stable path selection
+    fn accept_downloads(&mut self, mut entries: Vec<DownloadEntry>) {
+        let previous_index = self.downloads.list.index();
+        let selected_path = previous_index
+            .and_then(|index| self.downloads.entries.get(index))
+            .map(|entry| entry.path.clone());
+
+        sort_downloads(&mut entries, self.settings.downloads_sort);
+
+        let selection = selected_path
+            .as_ref()
+            .and_then(|path| entries.iter().position(|entry| entry.path == *path))
+            .or_else(|| previous_index.map(|index| index.min(entries.len().saturating_sub(1))))
+            .or_else(|| (!entries.is_empty()).then_some(0));
+
+        self.downloads.entries = entries;
+        self.downloads.list.select(selection);
+        self.downloads.list.clamp(self.downloads.entries.len());
+    }
+}
+
+#[cfg(test)]
+#[path = "tests/reducer.rs"]
+mod tests;

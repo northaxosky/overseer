@@ -8,7 +8,8 @@ use ratatui::crossterm::event::KeyCode;
 
 #[test]
 fn pressing_3_switches_to_downloads_and_lists_archives() {
-    let (_tmp, instance) = temp_instance();
+    let (_tmp, scaffold) = temp_instance();
+    let instance = Instance::init(scaffold.root.clone(), scaffold.config.clone()).expect("init");
     test_support::write(&instance.downloads_dir().join("Mod.zip"), "fake");
     test_support::write(&instance.downloads_dir().join("notes.txt"), "x");
     let mut app = App::sample();
@@ -16,6 +17,7 @@ fn pressing_3_switches_to_downloads_and_lists_archives() {
     *app.downloads.list.state_mut().offset_mut() = 3;
 
     app.handle_key(key(KeyCode::Char('3')));
+    app.finish_operation_after_terminal();
 
     assert_eq!(app.workspace, Workspace::Downloads, "3 switches workspace");
     assert_eq!(app.focus, Focus::Mods, "switching never moves focus");
@@ -36,12 +38,14 @@ fn pressing_3_switches_to_downloads_and_lists_archives() {
 
 #[test]
 fn enter_on_an_installable_download_opens_a_confirm_without_installing() {
-    let (_tmp, instance) = temp_instance();
+    let (_tmp, scaffold) = temp_instance();
+    let instance = Instance::init(scaffold.root.clone(), scaffold.config.clone()).expect("init");
     test_support::write(&instance.downloads_dir().join("Mod.zip"), "fake");
     let mut app = App::sample();
     app.session.instance = instance;
 
     app.handle_key(key(KeyCode::Char('3')));
+    app.finish_operation_after_terminal();
     app.focus = Focus::Workspace;
     app.handle_key(key(KeyCode::Enter));
 
@@ -66,13 +70,15 @@ fn enter_on_an_installable_download_opens_a_confirm_without_installing() {
 
 #[test]
 fn enter_on_an_installed_download_just_notes_it() {
-    let (_tmp, instance) = temp_instance();
+    let (_tmp, scaffold) = temp_instance();
+    let instance = Instance::init(scaffold.root.clone(), scaffold.config.clone()).expect("init");
     test_support::write(&instance.downloads_dir().join("Mod.zip"), "fake");
     std::fs::create_dir_all(instance.mods_dir().join("Mod")).expect("seed installed mod");
     let mut app = App::sample();
     app.session.instance = instance;
 
     app.handle_key(key(KeyCode::Char('3')));
+    app.finish_operation_after_terminal();
     app.focus = Focus::Workspace;
     app.handle_key(key(KeyCode::Enter));
 
@@ -102,6 +108,7 @@ fn confirming_installs_the_mod_and_preserves_location() {
     app.conflicts.status = ConflictsStatus::Ready(Vec::new());
 
     app.handle_key(key(KeyCode::Char('3')));
+    app.finish_operation_after_terminal();
     app.focus = Focus::Workspace;
     app.handle_key(key(KeyCode::Enter)); // opens the confirm
     assert!(
@@ -109,6 +116,7 @@ fn confirming_installs_the_mod_and_preserves_location() {
         "confirm is open"
     );
     app.handle_key(key(KeyCode::Char('y'))); // accepts it
+    app.finish_operation_after_terminal();
 
     assert!(app.modal.is_none(), "the confirm closes after accepting");
     assert!(

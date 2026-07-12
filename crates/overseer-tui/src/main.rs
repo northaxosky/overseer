@@ -13,8 +13,11 @@ use anyhow::{Context, Result};
 use overseer_core::settings::Settings;
 use ratatui::DefaultTerminal;
 use ratatui::crossterm::event::{self, Event, KeyEventKind};
+use std::time::{Duration, Instant};
 
 use app::App;
+
+const OPERATION_TICK: Duration = Duration::from_millis(100);
 
 fn main() -> Result<()> {
     // A TUI owns the terminal, so logging is silent on failure (stderr would corrupt the display)
@@ -34,6 +37,7 @@ fn main() -> Result<()> {
     let mut terminal = ratatui::init();
     let result = run(&mut app, &mut terminal);
     ratatui::restore();
+    app.finish_operation_after_terminal();
 
     match &result {
         Ok(()) => tracing::info!("overseer-tui exited"),
@@ -44,15 +48,59 @@ fn main() -> Result<()> {
 
 /// The draw → input → update loop, running until the user quits
 fn run(app: &mut App, terminal: &mut DefaultTerminal) -> Result<()> {
-    while !app.should_quit {
-        terminal.draw(|frame| ui::draw(app, frame))?;
+    let mut dirty = true;
+    let mut deadline = Instant::now() + OPERATION_TICK;
 
-        // Windows reports key release events too; act on presses only
-        if let Event::Key(key) = event::read()?
-            && key.kind == KeyEventKind::Press
-        {
-            app.handle_key(key);
+    while !app.should_quit {
+        if app.operation_running() {
+            dirty |= app.poll_operation();
+
+            if !app.operation_running() {
+                dirty = true;
+                continue;
+            }
+
+            let now = Instant::now();
+
+            if now >= deadline {
+                app.tick_operation();
+
+                while deadline <= now {
+                    deadline += OPERATION_TICK;
+                }
+
+                dirty = true;
+            }
+
+            if dirty {
+                terminal.draw(|frame| ui::draw(app, frame))?;
+                dirty = false;
+            }
+
+            if event::poll(deadline.saturating_duration_since(Instant::now()))?
+                && let Event::Key(key) = event::read()?
+                && key.kind == KeyEventKind::Press
+            {
+                app.handle_key(key);
+                dirty = true;
+            }
+        } else {
+            if dirty {
+                terminal.draw(|frame| ui::draw(app, frame))?;
+            }
+
+            let event = event::read()?;
+            dirty = true;
+
+            if let Event::Key(key) = event
+                && key.kind == KeyEventKind::Press
+            {
+                app.handle_key(key);
+            }
+
+            deadline = Instant::now() + OPERATION_TICK;
         }
     }
+
     Ok(())
 }

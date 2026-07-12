@@ -284,6 +284,25 @@ fn o_cycles_downloads_sort_key_and_resets_to_top() {
 }
 
 #[test]
+fn download_sort_remains_available_and_persists_while_busy() {
+    use crate::app::{OperationKind, RefreshDownloadsJob};
+
+    with_config_dir(|config| {
+        let mut app = App::sample();
+        app.workspace = Workspace::Downloads;
+        let before = app.settings.downloads_sort;
+        app.start_operation(OperationKind::RefreshDownloads, RefreshDownloadsJob);
+
+        app.handle_key(key(KeyCode::Char('o')));
+
+        assert_ne!(app.settings.downloads_sort, before);
+        let saved = Settings::load_from(&config).expect("load saved settings");
+        assert_eq!(saved.downloads_sort, app.settings.downloads_sort);
+        app.finish_operation_after_terminal();
+    });
+}
+
+#[test]
 fn sort_keys_are_inert_outside_saves_and_downloads() {
     let mut app = App::sample();
     app.workspace = Workspace::Plugins;
@@ -391,7 +410,10 @@ fn after_session_changed_refreshes_only_the_active_lazy_pane() {
     use overseer_core::test_support::{self, temp_instance};
 
     // On Downloads, a session change re-lists the archives
-    let (_tmp_a, instance_a) = temp_instance();
+    let (_tmp_a, scaffold_a) = temp_instance();
+    let instance_a =
+        overseer_core::instance::Instance::init(scaffold_a.root.clone(), scaffold_a.config.clone())
+            .expect("init");
     test_support::write(&instance_a.downloads_dir().join("Small.zip"), "x");
     test_support::write(&instance_a.downloads_dir().join("Large.zip"), "larger");
     let mut on_downloads = App::sample();
@@ -403,6 +425,7 @@ fn after_session_changed_refreshes_only_the_active_lazy_pane() {
     };
     on_downloads.downloads.entries.clear();
     on_downloads.after_session_changed();
+    on_downloads.finish_operation_after_terminal();
     let names: Vec<&str> = on_downloads
         .downloads
         .entries

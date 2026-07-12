@@ -3,6 +3,7 @@
 mod input;
 mod list;
 mod modal;
+mod operation;
 mod pane;
 mod sort;
 
@@ -10,6 +11,7 @@ pub(crate) use list::ListCursor;
 pub(crate) use modal::{
     Confirm, ConfirmAction, DoctorReport, Info, Modal, Prompt, PromptKind, Select, SelectKind,
 };
+pub(crate) use operation::{OperationKind, OperationState, RefreshDownloadsJob};
 pub(crate) use pane::{ModPaneRow, ModsPane, PluginPaneRow, PluginsPane};
 pub(crate) use sort::{downloads_sort_label, saves_sort_label};
 
@@ -181,6 +183,7 @@ pub(crate) struct App {
     pub(crate) conflicts: ConflictsState,
     pub(crate) downloads: DownloadsState,
     pub(crate) saves: SavesState,
+    pub(crate) operation: OperationState,
     pub(crate) message: Option<Notice>,
     pub(crate) settings: Settings,
     pub(crate) session: Session,
@@ -213,6 +216,7 @@ impl App {
             conflicts: ConflictsState::default(),
             downloads: DownloadsState::default(),
             saves: SavesState::default(),
+            operation: OperationState::default(),
             message: None,
             mods,
             plugins,

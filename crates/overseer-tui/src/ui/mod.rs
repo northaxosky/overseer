@@ -5,6 +5,7 @@
 
 mod doctor;
 mod modal;
+mod operation;
 
 use overseer_core::apply::DeploymentStatus;
 use overseer_core::deploy::FileConflict;
@@ -20,8 +21,8 @@ use ratatui::{
 use strum::IntoEnumIterator;
 
 use crate::app::{
-    App, ConflictsStatus, Focus, ModPaneRow, PluginPaneRow, Workspace, downloads_sort_label,
-    saves_sort_label, separator_display,
+    App, ConflictsStatus, Focus, ModPaneRow, OperationKind, PluginPaneRow, Workspace,
+    downloads_sort_label, saves_sort_label, separator_display,
 };
 use crate::theme;
 
@@ -42,6 +43,7 @@ pub(crate) fn draw_main(app: &mut App, frame: &mut Frame) {
         Constraint::Length(1), // header
         Constraint::Length(1), // workspace switcher
         Constraint::Fill(1),   // body
+        Constraint::Length(operation::height(app)),
         Constraint::Length(1), // footer
     ])
     .split(frame.area());
@@ -111,6 +113,7 @@ pub(crate) fn draw_main(app: &mut App, frame: &mut Frame) {
     // Right pane: draw the active workspace body
     let ws = app.workspace;
     ws.render(app, frame, cols[1]);
+    operation::render(app, frame, rows[3]);
 
     // Status/message on the left, key hints on the right, sharing the footer row
     let (status_text, status_role) = match &app.message {
@@ -119,15 +122,15 @@ pub(crate) fn draw_main(app: &mut App, frame: &mut Frame) {
     };
     let status_width = status_text.chars().count();
     let status = Paragraph::new(status_text).style(theme::style(status_role));
-    frame.render_widget(status, rows[3]);
+    frame.render_widget(status, rows[4]);
     let full_hint = "1–4 workspace · o sort · s instance · d doctor · ? help · q quit ";
     let compact_hint = "1–4 workspace · s instance · d doctor · ? help · q quit ";
-    let hint = if status_width + full_hint.chars().count() < rows[3].width as usize {
+    let hint = if status_width + full_hint.chars().count() < rows[4].width as usize {
         full_hint
     } else {
         compact_hint
     };
-    frame.render_widget(Paragraph::new(hint).alignment(Alignment::Right), rows[3]);
+    frame.render_widget(Paragraph::new(hint).alignment(Alignment::Right), rows[4]);
 }
 
 impl Workspace {
@@ -339,11 +342,20 @@ fn conflict_detail_lines(conflict: &FileConflict, width: usize) -> Vec<Line<'sta
 fn render_downloads(app: &mut App, frame: &mut Frame, area: Rect) {
     let focused = app.focus == Focus::Workspace;
     let title = downloads_title(app);
+
     if app.downloads.entries.is_empty() {
-        let text = format!(
-            "No archives. Drop .7z/.zip files in {}.",
-            app.session.instance.downloads_dir()
-        );
+        let text = if app
+            .operation
+            .is_running_kind(OperationKind::RefreshDownloads)
+        {
+            "Refreshing downloads…".to_owned()
+        } else {
+            format!(
+                "No archives. Drop .7z/.zip files in {}.",
+                app.session.instance.downloads_dir()
+            )
+        };
+
         return render_workspace_message(frame, area, &title, &text, focused);
     }
     let rows: Vec<ListItem<'static>> = app

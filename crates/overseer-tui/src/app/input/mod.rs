@@ -15,7 +15,7 @@ use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use overseer_core::deploy::detect_conflicts;
 
 use super::sort::{DownloadsPane, SavesPane};
-use super::{App, ConflictsStatus, Focus, ListCursor, Modal, SelectKind, Workspace};
+use super::{App, ConflictsStatus, Focus, ListCursor, Modal, OperationKind, SelectKind, Workspace};
 
 #[derive(Clone, Copy)]
 enum RefreshCause {
@@ -35,6 +35,12 @@ impl App {
 
     /// Handle one key press. Input is read by the run loop in `main`
     pub(crate) fn handle_main_key(&mut self, key: KeyEvent) {
+        if key.code == KeyCode::Enter && self.dismiss_completed_operation() {
+            return;
+        }
+        if self.handle_busy_main_key(key) {
+            return;
+        }
         if is_quit(key) {
             self.should_quit = true;
             return;
@@ -176,6 +182,89 @@ impl App {
         };
         selection.move_by(len, delta);
     }
+
+    /// Apply the running operation's main-view input policy
+    fn handle_busy_main_key(&mut self, key: KeyEvent) -> bool {
+        let Some(active) = self.running_operation_kind() else {
+            return false;
+        };
+
+        if is_quit(key) {
+            if active.is_mutating() {
+                self.note_busy();
+                return true;
+            }
+
+            return false;
+        }
+
+        match key.code {
+            KeyCode::Char('?')
+            | KeyCode::Char('o')
+            | KeyCode::Char('O')
+            | KeyCode::Char('1'..='4')
+            | KeyCode::Char('[')
+            | KeyCode::Char(']')
+            | KeyCode::Char('j')
+            | KeyCode::Char('k')
+            | KeyCode::Down
+            | KeyCode::Up
+            | KeyCode::Tab => false,
+
+            KeyCode::Char('D') => {
+                self.note_blocked_operation(OperationKind::Deploy);
+                true
+            }
+            KeyCode::Char('P') => {
+                self.note_blocked_operation(OperationKind::Purge);
+                true
+            }
+            KeyCode::Char('d') => {
+                self.note_blocked_operation(OperationKind::Doctor);
+                true
+            }
+            KeyCode::Char('r') => {
+                let requested = match self.workspace {
+                    Workspace::Plugins => None,
+                    Workspace::Conflicts => Some(OperationKind::ScanConflicts),
+                    Workspace::Downloads => Some(OperationKind::RefreshDownloads),
+                    Workspace::Saves => Some(OperationKind::RefreshSaves),
+                };
+
+                if let Some(requested) = requested {
+                    self.note_blocked_operation(requested);
+                } else {
+                    self.note_busy();
+                }
+
+                true
+            }
+            KeyCode::Char(' ') | KeyCode::Enter => {
+                if self.focus == Focus::Workspace && self.workspace == Workspace::Downloads {
+                    self.note_blocked_operation(OperationKind::Install);
+                } else {
+                    self.note_busy();
+                }
+
+                true
+            }
+            KeyCode::Char('J')
+            | KeyCode::Char('K')
+            | KeyCode::Char('R')
+            | KeyCode::Char('A')
+            | KeyCode::Char('x')
+            | KeyCode::Delete
+            | KeyCode::Char('X')
+            | KeyCode::Char('L')
+            | KeyCode::Char('l')
+            | KeyCode::Char('p')
+            | KeyCode::Char('s') => {
+                self.note_busy();
+                true
+            }
+            _ => false,
+        }
+    }
 }
 
 impl Workspace {
@@ -197,9 +286,29 @@ impl Workspace {
 
     /// Refresh this workspace for either a view-shown or explicit user refresh
     fn refresh(self, app: &mut App, cause: RefreshCause) {
+        if app.operation_running() {
+            if matches!(cause, RefreshCause::Shown)
+                && matches!(self, Workspace::Downloads | Workspace::Saves)
+            {
+                let active = app
+                    .running_operation_kind()
+                    .expect("running state has an operation kind");
+
+                app.note(format!(
+                    "{} is running; press r to refresh {} afterward",
+                    active.label(),
+                    self.label()
+                ));
+            }
+
+            return;
+        }
+
         match self {
             Workspace::Plugins => {}
-            Workspace::Conflicts if matches!(cause, RefreshCause::Explicit) => app.scan_conflicts(),
+            Workspace::Conflicts if matches!(cause, RefreshCause::Explicit) => {
+                app.scan_conflicts();
+            }
             Workspace::Conflicts => {}
             Workspace::Downloads => app.refresh_downloads(),
             Workspace::Saves => app.refresh_saves(),

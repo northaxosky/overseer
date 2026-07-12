@@ -319,6 +319,61 @@ fn downloads_workspace_empty_state_points_at_the_folder() {
 }
 
 #[test]
+fn empty_downloads_distinguish_refreshing_from_empty() {
+    use crate::app::{OperationKind, RefreshDownloadsJob, Workspace};
+    let mut app = App::sample();
+    app.workspace = Workspace::Downloads;
+    app.start_operation(OperationKind::RefreshDownloads, RefreshDownloadsJob);
+
+    let out = render(&mut app, 80, 24);
+
+    assert!(
+        out.contains("Refreshing"),
+        "the pane shows its loading state"
+    );
+    assert!(out.contains("Downloads refresh"), "the operation is named");
+    assert!(
+        out.contains("Listing archive metadata"),
+        "the phase is named"
+    );
+    app.finish_operation_after_terminal();
+}
+
+#[test]
+fn cached_downloads_remain_visible_during_refresh() {
+    use crate::app::{OperationKind, RefreshDownloadsJob, Workspace};
+    use crate::test_support::download_entry;
+    let mut app = App::sample();
+    app.workspace = Workspace::Downloads;
+    app.downloads.entries = vec![download_entry("Cached.zip", 1, 1, false)];
+    app.downloads.list.select(Some(0));
+    app.start_operation(OperationKind::RefreshDownloads, RefreshDownloadsJob);
+
+    let out = render(&mut app, 80, 24);
+
+    assert!(out.contains("Cached.zip"));
+    assert!(
+        out.contains("/ Downloads refresh"),
+        "running work has a spinner"
+    );
+    app.finish_operation_after_terminal();
+}
+
+#[test]
+fn download_refresh_failure_is_persistent_and_not_color_only() {
+    use crate::app::{OperationKind, RefreshDownloadsJob, Workspace};
+    let mut app = App::sample();
+    app.workspace = Workspace::Downloads;
+    app.start_operation(OperationKind::RefreshDownloads, RefreshDownloadsJob);
+    app.finish_operation_after_terminal();
+
+    let out = render(&mut app, 40, 16);
+
+    assert!(out.contains("FAILED"), "failure has an explicit text state");
+    assert!(out.contains("Downloads refresh"), "the operation is named");
+}
+
+#[test]
 fn saves_workspace_lists_parsed_metadata() {
     use crate::app::Workspace;
     use camino::Utf8PathBuf;
