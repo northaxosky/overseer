@@ -1,7 +1,7 @@
 //! Validation and application of typed worker results
 
 use super::super::sort::{sort_downloads, sort_saves};
-use super::super::{App, ConflictsStatus, DoctorReport, ListCursor, Modal};
+use super::super::{App, ConflictsStatus, DoctorReport, ListCursor, Modal, Session};
 use super::protocol::{
     OperationContext, OperationOutput, OperationRecovery, WorkerCompletion, WorkerEvent,
 };
@@ -55,6 +55,18 @@ impl App {
                         self.open_completed_doctor(report);
                         self.operation = OperationState::Idle;
                     }
+                    OperationOutput::Install {
+                        session,
+                        name,
+                        downloads,
+                    } => {
+                        self.accept_install_session(*session);
+                        self.accept_downloads(downloads);
+                        self.operation = OperationState::Completed(CompletedOperation::succeeded(
+                            kind,
+                            format!("Installed {name}"),
+                        ));
+                    }
                     OperationOutput::Deploy { status, files } => {
                         self.session.status = status;
                         self.operation = OperationState::Completed(CompletedOperation::succeeded(
@@ -74,13 +86,19 @@ impl App {
             Err(failure) => {
                 let message = failure.display_message();
 
-                if matches!(
-                    kind,
-                    super::OperationKind::Deploy | super::OperationKind::Purge
-                ) && let Some(OperationRecovery::DeploymentStatus(status)) = failure.recovery
-                {
-                    self.session.status = status.map(|status| *status);
+                match (kind, failure.recovery) {
+                    (
+                        super::OperationKind::Deploy | super::OperationKind::Purge,
+                        Some(OperationRecovery::DeploymentStatus(status)),
+                    ) => {
+                        self.session.status = status.map(|status| *status);
+                    }
+                    (super::OperationKind::Install, Some(OperationRecovery::Session(session))) => {
+                        self.accept_install_session(*session);
+                    }
+                    _ => {}
                 }
+
                 self.operation =
                     OperationState::Completed(CompletedOperation::failed(kind, message));
             }
@@ -91,6 +109,16 @@ impl App {
     fn accept_conflicts(&mut self, found: Vec<FileConflict>) {
         self.conflicts.list.select_first(found.len());
         self.conflicts.status = ConflictsStatus::Ready(found);
+    }
+
+    /// Accept the only operation result allowed to replace the active session
+    fn accept_install_session(&mut self, session: Session) {
+        self.session = session;
+        self.mods.reconcile_model(&self.session.profile.mods);
+        self.plugins
+            .reconcile_model(&self.session.order.plugins, &self.session.plugin_separators);
+
+        self.mark_conflicts_stale();
     }
 
     /// Replace any open informational modal with the completed Doctor report

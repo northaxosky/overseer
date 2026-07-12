@@ -11,7 +11,7 @@ use overseer_core::test_support::{install_mod, save_profile, temp_instance};
 use overseer_diagnostics::{Finding, Report};
 
 use super::super::protocol::{OperationFailure, OperationKind, OperationRecovery};
-use crate::app::{Focus, Info, Modal, Workspace};
+use crate::app::{Focus, Info, Modal, Session, Workspace};
 use crate::test_support::{download_entry, save_info};
 
 fn completion(app: &App, outcome: Result<OperationOutput, OperationFailure>) -> WorkerCompletion {
@@ -26,6 +26,18 @@ fn conflict(relative: &str, winner: &str) -> FileConflict {
         relative: Utf8PathBuf::from(relative),
         providers: vec!["Loser".to_owned(), winner.to_owned()],
     }
+}
+
+fn session_with_mod(name: &str) -> Session {
+    let mut session = App::sample().session;
+    session.profile.mods = vec![ModListEntry {
+        name: name.to_owned(),
+        enabled: false,
+        kind: ModKind::Managed,
+    }];
+    session.order.plugins.clear();
+    session.discovered.clear();
+    session
 }
 
 fn live_status() -> (tempfile::TempDir, DeploymentStatus) {
@@ -233,7 +245,9 @@ fn mutation_failure_keeps_primary_and_secondary_recovery_errors() {
         Err(OperationFailure {
             message: "Purge failed: primary".to_owned(),
             recovery: None,
-            recovery_error: Some("secondary refresh error".to_owned()),
+            recovery_error: Some(
+                "deployment status recovery failed: secondary refresh error".to_owned(),
+            ),
         }),
     );
 
@@ -244,6 +258,125 @@ fn mutation_failure_keeps_primary_and_secondary_recovery_errors() {
     };
     assert!(completed.message.starts_with("Purge failed: primary"));
     assert!(completed.message.contains("secondary refresh error"));
+}
+
+#[test]
+fn install_success_accepts_session_and_downloads_without_resetting_other_panes() {
+    let mut app = App::sample();
+    app.mods.select(Some(1));
+    app.plugins.select(Some(1));
+    app.focus = Focus::Workspace;
+    app.workspace = Workspace::Saves;
+    app.conflicts.status = ConflictsStatus::Ready(vec![conflict("cached.dds", "Winner")]);
+    *app.conflicts.list.state_mut().offset_mut() = 2;
+    app.downloads.entries = vec![download_entry("Old.zip", 1, 1, false)];
+    app.saves.entries = vec![save_info("Cached.fos", 1, None)];
+    app.saves.list.select(Some(0));
+    *app.saves.list.state_mut().offset_mut() = 4;
+    let result = completion(
+        &app,
+        Ok(OperationOutput::Install {
+            session: Box::new(session_with_mod("Installed")),
+            name: "Installed".to_owned(),
+            downloads: vec![download_entry("Installed.zip", 2, 2, true)],
+        }),
+    );
+
+    app.apply_completion(OperationKind::Install, result);
+
+    assert_eq!(app.session.profile.mods[0].name, "Installed");
+    assert_eq!(app.mods.index(), Some(0));
+    assert_eq!(app.plugins.index(), None);
+    assert_eq!(app.downloads.entries[0].name, "Installed.zip");
+    assert!(app.downloads.entries[0].installed);
+    assert_eq!(app.saves.entries[0].file_name, "Cached.fos");
+    assert_eq!(app.saves.list.state_mut().offset(), 4);
+    assert_eq!(app.conflicts.list.state_mut().offset(), 2);
+    assert!(matches!(app.conflicts.status, ConflictsStatus::Stale));
+    assert_eq!(app.focus, Focus::Workspace);
+    assert_eq!(app.workspace, Workspace::Saves);
+    assert!(matches!(
+        app.operation,
+        OperationState::Completed(CompletedOperation {
+            kind: OperationKind::Install,
+            succeeded: true,
+            ref message,
+        }) if message == "Installed Installed"
+    ));
+}
+
+#[test]
+fn failed_install_accepts_session_recovery_and_keeps_primary_failure() {
+    let mut app = App::sample();
+    app.downloads.entries = vec![download_entry("Cached.zip", 1, 1, false)];
+    app.conflicts.status = ConflictsStatus::Ready(Vec::new());
+    let result = completion(
+        &app,
+        Err(OperationFailure {
+            message: "Install failed: primary".to_owned(),
+            recovery: Some(OperationRecovery::Session(Box::new(session_with_mod(
+                "Recovered",
+            )))),
+            recovery_error: None,
+        }),
+    );
+
+    app.apply_completion(OperationKind::Install, result);
+
+    assert_eq!(app.session.profile.mods[0].name, "Recovered");
+    assert_eq!(app.downloads.entries[0].name, "Cached.zip");
+    assert!(matches!(app.conflicts.status, ConflictsStatus::Stale));
+    assert!(matches!(
+        app.operation,
+        OperationState::Completed(CompletedOperation {
+            kind: OperationKind::Install,
+            succeeded: false,
+            ref message,
+        }) if message == "Install failed: primary"
+    ));
+}
+
+#[test]
+fn non_install_failure_ignores_session_recovery() {
+    let mut app = App::sample();
+    let original_mods = app.session.profile.mods.clone();
+    let result = completion(
+        &app,
+        Err(OperationFailure {
+            message: "Deploy failed: primary".to_owned(),
+            recovery: Some(OperationRecovery::Session(Box::new(session_with_mod(
+                "MustNotApply",
+            )))),
+            recovery_error: None,
+        }),
+    );
+
+    app.apply_completion(OperationKind::Deploy, result);
+
+    assert_eq!(app.session.profile.mods, original_mods);
+}
+
+#[test]
+fn failed_install_keeps_primary_and_secondary_session_errors() {
+    let mut app = App::sample();
+    let result = completion(
+        &app,
+        Err(OperationFailure {
+            message: "Installed Mod, but reloading failed: primary".to_owned(),
+            recovery: None,
+            recovery_error: Some("session recovery failed: secondary".to_owned()),
+        }),
+    );
+
+    app.apply_completion(OperationKind::Install, result);
+
+    let OperationState::Completed(completed) = &app.operation else {
+        panic!("failure remains persistent")
+    };
+    assert_eq!(
+        completed.message,
+        "Installed Mod, but reloading failed: primary; session recovery failed: secondary"
+    );
 }
 
 #[test]

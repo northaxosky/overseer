@@ -39,6 +39,19 @@ impl PluginsPane {
         self.selection.reset_first(len);
     }
 
+    /// Preserve compatible view state while accepting replacement plugin models
+    pub(crate) fn reconcile_model(
+        &mut self,
+        plugins: &[PluginEntry],
+        separators: &PluginSeparators,
+    ) {
+        if self.separators.len() != separators.items.len() {
+            self.separators.reset(separators.items.len());
+        }
+        let len = self.project(plugins, separators).len();
+        self.selection.clamp(len);
+    }
+
     /// Return the selected display-row index
     pub(crate) fn index(&self) -> Option<usize> {
         self.selection.index()

@@ -213,6 +213,57 @@ fn delete_then_recreate_inserts_an_expanded_entry() {
     ));
 }
 
+#[test]
+fn reconcile_preserves_collapse_and_clamps_when_separator_counts_match() {
+    let initial_plugins = vec![plugin("A.esp"), plugin("B.esp"), plugin("C.esp")];
+    let initial_separators = separators(vec![separator("Group", Some("B.esp"))]);
+    let replacement_plugins = vec![plugin("A.esp"), plugin("B.esp")];
+    let replacement_separators = separators(vec![separator("Renamed", Some("B.esp"))]);
+    let mut pane = PluginsPane::new(&initial_plugins, &initial_separators);
+    pane.toggle_separator(0);
+    pane.select(Some(8));
+
+    pane.reconcile_model(&replacement_plugins, &replacement_separators);
+
+    let rows = pane.project(&replacement_plugins, &replacement_separators);
+    assert!(rows.iter().any(|row| matches!(
+        row,
+        PluginPaneRow::Separator {
+            separator_index: 0,
+            collapsed: true,
+            ..
+        }
+    )));
+    assert_eq!(pane.index(), Some(rows.len() - 1));
+}
+
+#[test]
+fn reconcile_resets_mismatched_collapse_before_projection_and_clamps() {
+    let initial_plugins = vec![plugin("A.esp")];
+    let initial_separators = separators(vec![separator("Group", Some("A.esp"))]);
+    let replacement_plugins = vec![plugin("A.esp"), plugin("B.esp")];
+    let replacement_separators = separators(vec![
+        separator("Group", Some("A.esp")),
+        separator("Other", Some("B.esp")),
+    ]);
+    let mut pane = PluginsPane::new(&initial_plugins, &initial_separators);
+    pane.toggle_separator(0);
+    pane.select(Some(8));
+
+    pane.reconcile_model(&replacement_plugins, &replacement_separators);
+
+    let rows = pane.project(&replacement_plugins, &replacement_separators);
+    assert!(rows.iter().all(|row| !matches!(
+        row,
+        PluginPaneRow::Separator {
+            collapsed: true,
+            ..
+        }
+    )));
+    assert_eq!(pane.index(), Some(rows.len() - 1));
+    assert_ne!(pane.index(), Some(0));
+}
+
 /// Projection rejects plugin separator collapse misalignment
 #[test]
 #[should_panic(expected = "plugin separator collapse state must align with sidecar order")]

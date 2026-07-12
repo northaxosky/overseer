@@ -1,7 +1,8 @@
 //! Tests for the downloads workspace's actions
 
 use crate::app::input::test_helpers::key;
-use crate::app::{App, ConflictsStatus, Focus, Session, Workspace};
+use crate::app::{App, ConflictsStatus, Focus, OperationKind, OperationState, Session, Workspace};
+use overseer_core::deploy::NullSink;
 use overseer_core::instance::Instance;
 use overseer_core::test_support::{self, temp_instance};
 use ratatui::crossterm::event::KeyCode;
@@ -92,8 +93,39 @@ fn enter_on_an_installed_download_just_notes_it() {
 }
 
 #[test]
-fn confirming_installs_the_mod_and_preserves_location() {
-    // A real on-disk instance so the post-install reload (Session::load) works
+fn worker_refuses_when_deployment_goes_live_after_confirmation() {
+    let (_tmp, scaffold) = temp_instance();
+    let instance = Instance::init(scaffold.root.clone(), scaffold.config.clone()).expect("init");
+    test_support::install_mod(&instance, "Seed", &[("Textures/seed.dds", "texture")]);
+    test_support::save_profile(&instance, "Default", &[("Seed", true)]);
+    test_support::write_zip(
+        &instance.downloads_dir().join("Blocked.zip"),
+        &[("Textures/a.dds", b"texture")],
+    );
+    let mut app = App::sample();
+    app.session = Session::load(&instance.root, "Default").expect("session");
+
+    app.handle_key(key(KeyCode::Char('3')));
+    app.finish_operation_after_terminal();
+    app.focus = Focus::Workspace;
+    app.handle_key(key(KeyCode::Enter));
+    assert!(matches!(app.modal, Some(crate::app::Modal::Confirm(_))));
+    overseer_core::apply::deploy_profile(&instance, "Default", &NullSink)
+        .expect("deployment becomes live");
+
+    app.handle_key(key(KeyCode::Char('y')));
+    app.finish_operation_after_terminal();
+
+    assert!(!instance.mods_dir().join("Blocked").exists());
+    assert!(matches!(
+        app.operation,
+        OperationState::Completed(ref completed)
+            if !completed.succeeded && completed.message.contains("purge it first")
+    ));
+}
+
+#[test]
+fn confirming_starts_the_install_worker_and_preserves_location() {
     let (_tmp, scaffold) = temp_instance();
     let instance = Instance::init(scaffold.root.clone(), scaffold.config.clone()).expect("init");
     instance.create_profile("Default").expect("profile");
@@ -116,6 +148,20 @@ fn confirming_installs_the_mod_and_preserves_location() {
         "confirm is open"
     );
     app.handle_key(key(KeyCode::Char('y'))); // accepts it
+
+    assert_eq!(
+        app.running_operation_kind(),
+        Some(OperationKind::Install),
+        "confirmation starts the generic worker"
+    );
+    assert!(
+        app.session.profile.position("CoolMod").is_none(),
+        "the worker result is not applied synchronously"
+    );
+    assert!(
+        app.message.is_none(),
+        "the durable operation row needs no transient installing notice"
+    );
     app.finish_operation_after_terminal();
 
     assert!(app.modal.is_none(), "the confirm closes after accepting");
@@ -141,17 +187,29 @@ fn confirming_installs_the_mod_and_preserves_location() {
         .find(|e| e.name == "CoolMod.zip")
         .expect("the archive is still listed");
     assert!(row.installed, "the row now reads as installed");
+    assert!(matches!(
+        app.operation,
+        OperationState::Completed(ref completed)
+            if completed.succeeded && completed.message == "Installed CoolMod"
+    ));
+
+    app.handle_key(key(KeyCode::Char('j')));
     assert!(
-        app.message
-            .as_ref()
-            .is_some_and(|n| n.text.contains("Installed CoolMod")),
-        "a success notice is shown"
+        matches!(app.operation, OperationState::Completed(_)),
+        "ordinary input does not erase durable success"
+    );
+    app.handle_key(key(KeyCode::Enter));
+    assert!(
+        matches!(app.operation, OperationState::Idle),
+        "Enter dismisses durable success"
     );
 }
 
 #[test]
 fn install_download_surfaces_the_fomod_refusal() {
-    let (_tmp, instance) = temp_instance();
+    let (_tmp, scaffold) = temp_instance();
+    let instance = Instance::init(scaffold.root.clone(), scaffold.config.clone()).expect("init");
+    instance.create_profile("Default").expect("profile");
     let archive = instance.downloads_dir().join("Fancy.zip");
     test_support::write_zip(
         &archive,
@@ -161,16 +219,22 @@ fn install_download_surfaces_the_fomod_refusal() {
         ],
     );
     let mut app = App::sample();
-    app.session.instance = instance;
+    app.session = Session::load(&instance.root, "Default").expect("session");
 
     app.install_download(&archive);
-
-    assert!(
-        app.message
-            .as_ref()
-            .is_some_and(|n| n.text.contains("FOMOD")),
-        "the FOMOD refusal is surfaced"
+    assert_eq!(
+        app.running_operation_kind(),
+        Some(OperationKind::Install),
+        "the refusal is produced by the worker"
     );
+    app.finish_operation_after_terminal();
+
+    assert!(matches!(
+        app.operation,
+        OperationState::Completed(ref completed)
+            if !completed.succeeded
+                && completed.message == "FOMOD installers aren't supported yet"
+    ));
     assert!(
         !app.session.instance.mods_dir().join("Fancy").exists(),
         "a refused FOMOD installs nothing"

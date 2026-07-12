@@ -1,8 +1,8 @@
 //! The downloads workspace's actions: listing archives and installing one
 
-use crate::app::{App, Confirm, ConfirmAction, Modal, RefreshDownloadsJob, Session};
+use crate::app::{App, Confirm, ConfirmAction, InstallJob, Modal, RefreshDownloadsJob};
 use camino::Utf8Path;
-use overseer_core::install::{self, DownloadEntry, InstallError};
+use overseer_core::install::DownloadEntry;
 
 impl App {
     /// List the instance's downloads on the background worker
@@ -37,32 +37,14 @@ impl App {
         }));
     }
 
-    /// Install the archive at `path`, then reload the session in place
+    /// Start archive installation on the background worker
     pub(super) fn install_download(&mut self, path: &Utf8Path) {
-        self.note("Installing…");
-        let Some(name) = path.file_stem().map(|s| s.to_owned()) else {
+        let Some(name) = path.file_stem().map(|stem| stem.to_owned()) else {
             self.fail("Could not derive a mod name from the archive");
             return;
         };
-        match install::install(&self.session.instance, path, &name) {
-            Ok(_) => self.reload_after_install(name),
-            Err(InstallError::Fomod) => self.fail("FOMOD installers aren't supported yet"),
-            Err(e) => self.fail(format!("Install failed: {e}")),
-        }
-    }
 
-    /// Reload the domain data after a successful install
-    fn reload_after_install(&mut self, name: String) {
-        let dir = self.session.instance.root.clone();
-        let profile = self.session.profile.name.clone();
-        match Session::load(&dir, &profile) {
-            Ok(session) => {
-                self.session = session;
-                self.after_session_changed();
-                self.ok(format!("Installed {name}"));
-            }
-            Err(e) => self.fail(format!("Installed {name}, but reloading failed: {e}")),
-        }
+        self.start_operation(InstallJob::new(path.to_owned(), name));
     }
 }
 

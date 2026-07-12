@@ -160,6 +160,60 @@ fn delete_then_recreate_inserts_an_expanded_entry() {
     ));
 }
 
+#[test]
+fn reconcile_preserves_collapse_and_clamps_when_separator_counts_match() {
+    let initial = vec![
+        managed("A"),
+        separator("Group"),
+        managed("B"),
+        separator("Other"),
+    ];
+    let replacement = vec![managed("A"), separator("Renamed"), separator("Other")];
+    let mut pane = ModsPane::new(&initial);
+    pane.toggle_separator(0);
+    pane.select(Some(8));
+
+    pane.reconcile_model(&replacement);
+
+    let rows = pane.project(&replacement);
+    assert!(rows.iter().any(|row| matches!(
+        row,
+        ModPaneRow::Separator {
+            separator_index: 0,
+            collapsed: true,
+            ..
+        }
+    )));
+    assert_eq!(pane.index(), Some(rows.len() - 1));
+}
+
+#[test]
+fn reconcile_resets_mismatched_collapse_before_projection_and_clamps() {
+    let initial = vec![managed("A"), separator("Group")];
+    let replacement = vec![
+        managed("A"),
+        separator("Group"),
+        managed("B"),
+        separator("Other"),
+    ];
+    let mut pane = ModsPane::new(&initial);
+    pane.toggle_separator(0);
+    pane.select(Some(8));
+
+    pane.reconcile_model(&replacement);
+
+    let rows = pane.project(&replacement);
+    assert!(rows.iter().all(|row| !matches!(
+        row,
+        ModPaneRow::Separator {
+            collapsed: true,
+            ..
+        }
+    )));
+    assert_eq!(pane.index(), Some(rows.len() - 1));
+    assert_ne!(pane.index(), Some(0));
+}
+
 /// Projection rejects mod separator collapse misalignment
 #[test]
 #[should_panic(expected = "mod separator collapse state must align with profile order")]

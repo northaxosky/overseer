@@ -12,7 +12,7 @@ pub(crate) use modal::{
     Confirm, ConfirmAction, DoctorReport, Info, Modal, Prompt, PromptKind, Select, SelectKind,
 };
 pub(crate) use operation::{
-    DeployJob, DoctorJob, OperationKind, OperationProgress, OperationState, PurgeJob,
+    DeployJob, DoctorJob, InstallJob, OperationKind, OperationProgress, OperationState, PurgeJob,
     RefreshDownloadsJob, RefreshSavesJob, ScanConflictsJob,
 };
 pub(crate) use pane::{ModPaneRow, ModsPane, PluginPaneRow, PluginsPane};

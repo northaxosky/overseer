@@ -9,7 +9,7 @@ use overseer_core::saves::SaveInfo;
 use overseer_diagnostics::Report;
 
 use super::super::runner::{BackgroundJob, OperationReporter, WorkerRequest};
-use crate::app::Session;
+use crate::app::{App, Session};
 
 struct TestJob;
 
@@ -42,6 +42,7 @@ fn runner_boundary_types_are_send() {
 
 #[test]
 fn typed_outputs_map_to_their_operation_kinds() {
+    let install_session = Box::new(App::sample().session);
     let cases = [
         (
             OperationOutput::Deploy {
@@ -49,6 +50,14 @@ fn typed_outputs_map_to_their_operation_kinds() {
                 files: 3,
             },
             OperationKind::Deploy,
+        ),
+        (
+            OperationOutput::Install {
+                session: install_session,
+                name: "Mod".to_owned(),
+                downloads: Vec::new(),
+            },
+            OperationKind::Install,
         ),
         (OperationOutput::Purge(None), OperationKind::Purge),
         (
@@ -79,12 +88,20 @@ fn failure_display_keeps_primary_and_recovery_errors() {
     let failure = OperationFailure {
         message: "Deploy failed: primary".to_owned(),
         recovery: None,
-        recovery_error: Some("secondary".to_owned()),
+        recovery_error: Some("deployment status recovery failed: secondary".to_owned()),
     };
 
     assert_eq!(
         failure.display_message(),
         "Deploy failed: primary; deployment status recovery failed: secondary"
+    );
+}
+
+#[test]
+fn install_phase_labels_cover_session_reload() {
+    assert_eq!(
+        OperationPhase::ReloadingSession.label(),
+        "Reloading session"
     );
 }
 

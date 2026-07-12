@@ -49,6 +49,18 @@ impl ModsPane {
         self.selection.reset_first(len);
     }
 
+    /// Preserve compatible view state while accepting a replacement mod model
+    pub(crate) fn reconcile_model(&mut self, mods: &[ModListEntry]) {
+        let count = separator_count(mods);
+
+        if self.separators.len() != count {
+            self.separators.reset(count);
+        }
+
+        let len = self.project(mods).len();
+        self.selection.clamp(len);
+    }
+
     /// Return the selected display-row index
     pub(crate) fn index(&self) -> Option<usize> {
         self.selection.index()

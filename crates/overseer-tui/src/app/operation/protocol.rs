@@ -67,6 +67,7 @@ pub(crate) enum OperationPhase {
     PlanningDeploy,
     PreparingPurge,
     ExtractingArchive,
+    ReloadingSession,
     ScanningConflicts,
     RunningDiagnostics,
     ReadingSaves,
@@ -84,6 +85,7 @@ impl OperationPhase {
             Self::PlanningDeploy => "Planning deployment",
             Self::PreparingPurge => "Preparing purge",
             Self::ExtractingArchive => "Extracting archive",
+            Self::ReloadingSession => "Reloading session",
             Self::ScanningConflicts => "Scanning enabled mod files",
             Self::RunningDiagnostics => "Gathering setup diagnostics",
             Self::ReadingSaves => "Reading and parsing save headers",
@@ -136,6 +138,11 @@ pub(crate) enum OperationOutput {
         status: Option<DeploymentStatus>,
         files: usize,
     },
+    Install {
+        session: Box<Session>,
+        name: String,
+        downloads: Vec<DownloadEntry>,
+    },
 }
 
 impl OperationOutput {
@@ -148,6 +155,7 @@ impl OperationOutput {
             Self::ScanConflicts(_) => OperationKind::ScanConflicts,
             Self::Purge(_) => OperationKind::Purge,
             Self::Deploy { .. } => OperationKind::Deploy,
+            Self::Install { .. } => OperationKind::Install,
         }
     }
 }
@@ -162,6 +170,7 @@ pub(crate) struct OperationFailure {
 #[derive(Debug)]
 pub(crate) enum OperationRecovery {
     DeploymentStatus(Option<Box<DeploymentStatus>>),
+    Session(Box<Session>),
 }
 
 impl OperationFailure {
@@ -190,7 +199,7 @@ impl OperationFailure {
             Err(error) => Self {
                 message,
                 recovery: None,
-                recovery_error: Some(error.to_string()),
+                recovery_error: Some(format!("deployment status recovery failed: {error}")),
             },
         }
     }
@@ -198,11 +207,38 @@ impl OperationFailure {
     /// Combine primary and secondary failure details for persistent display
     pub(crate) fn display_message(&self) -> String {
         match &self.recovery_error {
-            Some(error) => format!(
-                "{}; deployment status recovery failed: {error}",
-                self.message
-            ),
+            Some(error) => format!("{}; {error}", self.message),
             None => self.message.clone(),
+        }
+    }
+
+    /// Preserve the primary failure while reloading authoritative session state
+    pub(super) fn with_session_recovery(
+        message: impl Into<String>,
+        context: &OperationContext,
+    ) -> Self {
+        let message = message.into();
+
+        match Session::load(&context.instance_root, &context.profile) {
+            Ok(session) => Self {
+                message,
+                recovery: Some(OperationRecovery::Session(Box::new(session))),
+                recovery_error: None,
+            },
+            Err(error) => Self {
+                message,
+                recovery: None,
+                recovery_error: Some(format!("session recovery failed: {error}")),
+            },
+        }
+    }
+
+    /// Carry an authoritative session loaded before a later refresh failed
+    pub(super) fn with_session(message: impl Into<String>, session: Session) -> Self {
+        Self {
+            message: message.into(),
+            recovery: Some(OperationRecovery::Session(Box::new(session))),
+            recovery_error: None,
         }
     }
 }
