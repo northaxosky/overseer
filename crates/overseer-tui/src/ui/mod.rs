@@ -385,15 +385,17 @@ fn render_downloads(app: &mut App, frame: &mut Frame, area: Rect) {
 fn render_saves(app: &mut App, frame: &mut Frame, area: Rect) {
     let focused = app.focus == Focus::Workspace;
     let title = saves_title(app);
+
     if app.saves.entries.is_empty() {
-        return render_workspace_message(
-            frame,
-            area,
-            &title,
-            "No saves in this profile's folder yet.",
-            focused,
-        );
+        let text = if app.operation.is_running_kind(OperationKind::RefreshSaves) {
+            "Refreshing saves…"
+        } else {
+            "No saves in this profile's folder yet."
+        };
+
+        return render_workspace_message(frame, area, &title, text, focused);
     }
+
     let rows: Vec<ListItem<'static>> = app
         .saves
         .entries

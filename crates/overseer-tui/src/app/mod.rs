@@ -11,7 +11,7 @@ pub(crate) use list::ListCursor;
 pub(crate) use modal::{
     Confirm, ConfirmAction, DoctorReport, Info, Modal, Prompt, PromptKind, Select, SelectKind,
 };
-pub(crate) use operation::{OperationKind, OperationState, RefreshDownloadsJob};
+pub(crate) use operation::{OperationKind, OperationState, RefreshDownloadsJob, RefreshSavesJob};
 pub(crate) use pane::{ModPaneRow, ModsPane, PluginPaneRow, PluginsPane};
 pub(crate) use sort::{downloads_sort_label, saves_sort_label};
 

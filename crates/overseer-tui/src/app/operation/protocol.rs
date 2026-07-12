@@ -2,6 +2,7 @@
 
 use camino::Utf8PathBuf;
 use overseer_core::install::DownloadEntry;
+use overseer_core::saves::SaveInfo;
 
 use super::super::Session;
 
@@ -115,6 +116,7 @@ impl OperationContext {
 #[derive(Debug)]
 pub(crate) enum OperationOutput {
     RefreshDownloads(Vec<DownloadEntry>),
+    RefreshSaves(Vec<SaveInfo>),
 }
 
 impl OperationOutput {
@@ -122,6 +124,7 @@ impl OperationOutput {
     pub(super) fn kind(&self) -> OperationKind {
         match self {
             Self::RefreshDownloads(_) => OperationKind::RefreshDownloads,
+            Self::RefreshSaves(_) => OperationKind::RefreshSaves,
         }
     }
 }

@@ -1,34 +1,15 @@
 //! The saves workspace's actions: listing the profile's `.fos` saves and deleting one
 
-use crate::app::sort::sort_saves;
-use crate::app::{App, Confirm, ConfirmAction, Focus, Modal, Workspace};
+use crate::app::{
+    App, Confirm, ConfirmAction, Focus, Modal, OperationKind, RefreshSavesJob, Workspace,
+};
 use camino::Utf8Path;
 use overseer_core::saves::{self, SaveInfo};
 
 impl App {
-    /// List the current profile's saves in the saved sort order, selecting the first row
+    /// List and parse the current profile's saves on the background worker
     pub(super) fn refresh_saves(&mut self) {
-        let game = self.session.instance.config.game;
-        let listed = self
-            .session
-            .instance
-            .saves_dir(&self.session.profile.name)
-            .map_err(|e| format!("Could not locate saves: {e}"))
-            .and_then(|dir| {
-                saves::list_saves(&dir, game).map_err(|e| format!("Could not list saves: {e}"))
-            });
-        match listed {
-            Ok(mut entries) => {
-                sort_saves(&mut entries, self.settings.saves_sort);
-                self.saves.list.select_first(entries.len());
-                self.saves.entries = entries;
-            }
-            Err(msg) => {
-                self.saves.entries.clear();
-                self.saves.list.select(None);
-                self.fail(msg);
-            }
-        }
+        self.start_operation(OperationKind::RefreshSaves, RefreshSavesJob);
     }
 
     /// The currently selected save entry, if any
@@ -56,20 +37,26 @@ impl App {
         }));
     }
 
-    /// Delete the save at `path`, re-list, and keep the selection near where it was
+    /// Delete the save at `path`, remove its cached row, and refresh in the background
     pub(super) fn delete_selected_save(&mut self, path: &Utf8Path) {
         let name = path.file_name().unwrap_or(path.as_str()).to_owned();
-        let prev = self.saves.list.index().unwrap_or(0);
+
+        let previous = self.saves.list.index().unwrap_or(0);
+
         match saves::delete_save(path, self.session.instance.config.game) {
             Ok(()) => {
-                self.refresh_saves();
-                // The deleted row is gone; clamp the selection to the new bounds
+                self.saves.entries.retain(|save| save.path != path);
+
                 let len = self.saves.entries.len();
-                self.saves.list.select(Some(prev));
+                self.saves.list.select(Some(previous));
                 self.saves.list.clamp(len);
+
+                self.refresh_saves();
                 self.ok(format!("Deleted {name}"));
             }
-            Err(e) => self.fail(format!("Delete failed: {e}")),
+            Err(error) => {
+                self.fail(format!("Delete failed: {error}"));
+            }
         }
     }
 

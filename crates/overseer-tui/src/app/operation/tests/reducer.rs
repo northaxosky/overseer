@@ -3,11 +3,11 @@
 use super::*;
 
 use camino::Utf8PathBuf;
-use overseer_core::settings::{DownloadsSort, DownloadsSortKey, SortDir};
+use overseer_core::settings::{DownloadsSort, DownloadsSortKey, SavesSort, SavesSortKey, SortDir};
 
 use super::super::protocol::{OperationFailure, OperationKind};
 use crate::app::{Focus, Workspace};
-use crate::test_support::download_entry;
+use crate::test_support::{download_entry, save_info};
 
 fn completion(app: &App, outcome: Result<OperationOutput, OperationFailure>) -> WorkerCompletion {
     WorkerCompletion {
@@ -85,6 +85,119 @@ fn focus_workspace_and_selection_changes_do_not_discard() {
 
     assert_eq!(app.downloads.entries[0].name, "Kept.zip");
     assert!(matches!(app.operation, OperationState::Idle));
+}
+
+#[test]
+fn successful_saves_result_applies_silently() {
+    let mut app = App::sample();
+    let result = completion(
+        &app,
+        Ok(OperationOutput::RefreshSaves(vec![save_info(
+            "Save1.fos",
+            1,
+            None,
+        )])),
+    );
+
+    app.apply_completion(OperationKind::RefreshSaves, result);
+
+    assert_eq!(app.saves.entries[0].file_name, "Save1.fos");
+    assert!(matches!(app.operation, OperationState::Idle));
+    assert!(app.message.is_none(), "read-only success adds no notice");
+}
+
+#[test]
+fn latest_save_sort_wins_at_acceptance() {
+    let mut app = App::sample();
+    let result = completion(
+        &app,
+        Ok(OperationOutput::RefreshSaves(vec![
+            save_info("Beta.fos", 2, None),
+            save_info("Alpha.fos", 1, None),
+        ])),
+    );
+    app.settings.saves_sort = SavesSort {
+        key: SavesSortKey::Name,
+        dir: SortDir::Asc,
+    };
+
+    app.apply_completion(OperationKind::RefreshSaves, result);
+
+    assert_eq!(
+        app.saves
+            .entries
+            .iter()
+            .map(|entry| entry.file_name.as_str())
+            .collect::<Vec<_>>(),
+        ["Alpha.fos", "Beta.fos"]
+    );
+}
+
+#[test]
+fn selected_save_path_survives_result_reordering() {
+    let mut app = App::sample();
+    app.saves.entries = vec![
+        save_info("Alpha.fos", 1, None),
+        save_info("Beta.fos", 2, None),
+    ];
+    app.saves.list.select(Some(0));
+    let selected_path = app.saves.entries[0].path.clone();
+    let result = completion(
+        &app,
+        Ok(OperationOutput::RefreshSaves(vec![
+            save_info("Alpha.fos", 1, None),
+            save_info("Beta.fos", 2, None),
+        ])),
+    );
+
+    app.apply_completion(OperationKind::RefreshSaves, result);
+
+    assert_eq!(app.saves.list.index(), Some(1));
+    assert_eq!(
+        app.saves.entries[app.saves.list.index().expect("selection")].path,
+        selected_path
+    );
+}
+
+#[test]
+fn missing_selected_save_path_clamps_the_prior_numeric_index() {
+    let mut app = App::sample();
+    app.saves.entries = vec![
+        save_info("A.fos", 3, None),
+        save_info("B.fos", 2, None),
+        save_info("Gone.fos", 1, None),
+    ];
+    app.saves.list.select(Some(2));
+    let result = completion(
+        &app,
+        Ok(OperationOutput::RefreshSaves(vec![
+            save_info("A.fos", 3, None),
+            save_info("B.fos", 2, None),
+        ])),
+    );
+
+    app.apply_completion(OperationKind::RefreshSaves, result);
+
+    assert_eq!(app.saves.list.index(), Some(1));
+}
+
+#[test]
+fn failed_saves_refresh_preserves_cache_and_selection() {
+    let mut app = App::sample();
+    app.saves.entries = vec![
+        save_info("A.fos", 2, None),
+        save_info("Cached.fos", 1, None),
+    ];
+    app.saves.list.select(Some(1));
+    let selected_path = app.saves.entries[1].path.clone();
+    let result = completion(&app, Err(OperationFailure::new("test worker stopped")));
+
+    app.apply_completion(OperationKind::RefreshSaves, result);
+
+    assert_eq!(app.saves.entries.len(), 2);
+    assert_eq!(app.saves.list.index(), Some(1));
+    assert_eq!(app.saves.entries[1].path, selected_path);
+    assert!(matches!(app.operation, OperationState::Completed(_)));
 }
 
 #[test]

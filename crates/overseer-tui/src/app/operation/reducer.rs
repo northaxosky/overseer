@@ -1,9 +1,10 @@
 //! Validation and application of typed worker results
 
 use overseer_core::install::DownloadEntry;
+use overseer_core::saves::SaveInfo;
 
 use super::super::App;
-use super::super::sort::sort_downloads;
+use super::super::sort::{sort_downloads, sort_saves};
 use super::protocol::{OperationContext, OperationOutput, WorkerCompletion};
 use super::runner::{CompletedOperation, OperationState};
 
@@ -37,6 +38,10 @@ impl App {
                 match output {
                     OperationOutput::RefreshDownloads(entries) => {
                         self.accept_downloads(entries);
+                        self.operation = OperationState::Idle;
+                    }
+                    OperationOutput::RefreshSaves(entries) => {
+                        self.accept_saves(entries);
                         self.operation = OperationState::Idle;
                     }
                 }
@@ -80,6 +85,27 @@ impl App {
         self.downloads.entries = entries;
         self.downloads.list.select(selection);
         self.downloads.list.clamp(self.downloads.entries.len());
+    }
+
+    /// Replace Saves using current sorting and stable path selection
+    fn accept_saves(&mut self, mut entries: Vec<SaveInfo>) {
+        let previous_index = self.saves.list.index();
+
+        let selected_path = previous_index
+            .and_then(|index| self.saves.entries.get(index))
+            .map(|entry| entry.path.clone());
+
+        sort_saves(&mut entries, self.settings.saves_sort);
+
+        let selection = selected_path
+            .as_ref()
+            .and_then(|path| entries.iter().position(|entry| entry.path == *path))
+            .or_else(|| previous_index.map(|index| index.min(entries.len().saturating_sub(1))))
+            .or_else(|| (!entries.is_empty()).then_some(0));
+
+        self.saves.entries = entries;
+        self.saves.list.select(selection);
+        self.saves.list.clamp(self.saves.entries.len());
     }
 }
 

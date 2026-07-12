@@ -1,7 +1,7 @@
 //! Tests for the saves workspace's actions
 
 use crate::app::input::test_helpers::key;
-use crate::app::{App, Focus, Modal, Session, Workspace};
+use crate::app::{App, Focus, Modal, OperationKind, Session, Workspace};
 use overseer_core::instance::Instance;
 use overseer_core::settings::{SavesSort, SavesSortKey, SortDir};
 use overseer_core::test_support::{self, temp_instance};
@@ -9,7 +9,9 @@ use ratatui::crossterm::event::KeyCode;
 
 /// A temp instance plus its `App`, with `count` saves seeded for `profile`
 fn app_with_saves(profile: &str, count: u32) -> (tempfile::TempDir, App) {
-    let (tmp, instance) = temp_instance();
+    let (tmp, scaffold) = temp_instance();
+    let instance = Instance::init(scaffold.root.clone(), scaffold.config.clone())
+        .expect("initialize instance");
     let dir = instance.saves_dir(profile).expect("saves dir");
     for n in 1..=count {
         test_support::write_fos(
@@ -23,11 +25,12 @@ fn app_with_saves(profile: &str, count: u32) -> (tempfile::TempDir, App) {
     }
     let mut app = App::sample();
     app.session.instance = instance;
+    app.session.profile.name = profile.to_owned();
     (tmp, app)
 }
 
 #[test]
-fn pressing_4_switches_to_saves_and_lists_them() {
+fn pressing_4_switches_to_saves_and_starts_a_refresh() {
     let (_tmp, mut app) = app_with_saves("Default", 1);
     *app.saves.list.state_mut().offset_mut() = 3;
 
@@ -35,6 +38,15 @@ fn pressing_4_switches_to_saves_and_lists_them() {
 
     assert_eq!(app.workspace, Workspace::Saves, "4 switches workspace");
     assert_eq!(app.focus, Focus::Mods, "switching never moves focus");
+    assert_eq!(
+        app.running_operation_kind(),
+        Some(OperationKind::RefreshSaves)
+    );
+    assert!(
+        app.saves.entries.is_empty(),
+        "workspace switching does not parse synchronously"
+    );
+    app.finish_operation_after_terminal();
     assert_eq!(app.saves.entries.len(), 1, "the profile's save is listed");
     assert_eq!(app.saves.list.index(), Some(0), "first row selected");
     assert_eq!(
@@ -42,6 +54,21 @@ fn pressing_4_switches_to_saves_and_lists_them() {
         3,
         "refresh-on-show preserves scroll state"
     );
+}
+
+#[test]
+fn pressing_r_in_saves_starts_a_refresh() {
+    let (_tmp, mut app) = app_with_saves("Default", 1);
+    app.workspace = Workspace::Saves;
+
+    app.handle_key(key(KeyCode::Char('r')));
+
+    assert_eq!(
+        app.running_operation_kind(),
+        Some(OperationKind::RefreshSaves)
+    );
+    app.finish_operation_after_terminal();
+    assert_eq!(app.saves.entries.len(), 1);
 }
 
 #[test]
@@ -55,6 +82,7 @@ fn capital_x_on_a_save_opens_a_confirm_without_deleting() {
         .join("Save1.fos");
 
     app.handle_key(key(KeyCode::Char('4')));
+    app.finish_operation_after_terminal();
     app.focus = Focus::Workspace;
     app.handle_key(key(KeyCode::Char('X')));
 
@@ -72,11 +100,12 @@ fn capital_x_on_a_save_opens_a_confirm_without_deleting() {
 }
 
 #[test]
-fn confirming_deletes_the_save_relists_and_clamps_selection() {
+fn confirming_deletes_the_cached_row_and_refreshes_in_the_background() {
     let (_tmp, mut app) = app_with_saves("Default", 2);
     app.handle_key(key(KeyCode::Char('4')));
+    app.finish_operation_after_terminal();
     app.focus = Focus::Workspace;
-    app.saves.list.select(Some(1)); // the second, newest-ordered row
+    app.saves.list.select(Some(1));
 
     let doomed = app.saves.entries[1].path.clone();
     app.handle_key(key(KeyCode::Char('X')));
@@ -84,11 +113,19 @@ fn confirming_deletes_the_save_relists_and_clamps_selection() {
 
     assert!(app.modal.is_none(), "the confirm closes after accepting");
     assert!(!doomed.exists(), "the save file is removed");
-    assert_eq!(app.saves.entries.len(), 1, "the list is refreshed");
+    assert_eq!(app.saves.entries.len(), 1, "the cached row is removed");
+    assert!(
+        app.saves.entries.iter().all(|save| save.path != doomed),
+        "the deleted path is absent before refresh completion"
+    );
     assert_eq!(
         app.saves.list.index(),
         Some(0),
         "the selection clamps into the shorter list"
+    );
+    assert_eq!(
+        app.running_operation_kind(),
+        Some(OperationKind::RefreshSaves)
     );
     assert!(
         app.message
@@ -96,6 +133,8 @@ fn confirming_deletes_the_save_relists_and_clamps_selection() {
             .is_some_and(|n| n.text.contains("Deleted")),
         "a success notice is shown"
     );
+    app.finish_operation_after_terminal();
+    assert_eq!(app.saves.entries.len(), 1, "the worker confirms the cache");
 }
 
 #[test]
@@ -106,6 +145,7 @@ fn deleting_removes_the_script_extender_co_save() {
     test_support::write(&co_save, "co-save");
 
     app.handle_key(key(KeyCode::Char('4')));
+    app.finish_operation_after_terminal();
     app.focus = Focus::Workspace;
     app.handle_key(key(KeyCode::Char('X')));
     app.handle_key(key(KeyCode::Char('y')));
@@ -114,12 +154,14 @@ fn deleting_removes_the_script_extender_co_save() {
         !co_save.exists(),
         "the co-save is removed alongside the .fos"
     );
+    app.finish_operation_after_terminal();
 }
 
 #[test]
 fn toggling_local_saves_flips_and_persists() {
     let (_tmp, mut app) = app_with_saves("Default", 1);
     app.handle_key(key(KeyCode::Char('4')));
+    app.finish_operation_after_terminal();
     app.focus = Focus::Workspace;
 
     let name = app.session.profile.name.clone();
@@ -186,12 +228,14 @@ fn switching_profile_while_on_saves_relists_for_the_new_profile() {
     };
 
     app.handle_key(key(KeyCode::Char('4')));
+    app.finish_operation_after_terminal();
     assert!(app.saves.entries.is_empty(), "Default has no saves yet");
 
     // Open the profile picker and switch to Other (sorted second)
     app.handle_key(key(KeyCode::Char('p')));
     app.handle_key(key(KeyCode::Down));
     app.handle_key(key(KeyCode::Enter));
+    app.finish_operation_after_terminal();
 
     assert_eq!(app.session.profile.name, "Other", "the profile switched");
     assert_eq!(app.workspace, Workspace::Saves, "still on the Saves pane");

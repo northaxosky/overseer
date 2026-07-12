@@ -403,15 +403,50 @@ fn saves_workspace_lists_parsed_metadata() {
 }
 
 #[test]
-fn saves_workspace_empty_state_explains_the_pane() {
-    use crate::app::Workspace;
+fn saves_workspace_distinguishes_completed_empty_from_refreshing() {
+    use crate::app::{OperationKind, RefreshSavesJob, Workspace};
+    use overseer_core::instance::Instance;
+    use overseer_core::test_support::temp_instance;
+    let (_tmp, scaffold) = temp_instance();
+    let instance = Instance::init(scaffold.root.clone(), scaffold.config.clone())
+        .expect("initialize instance");
+    let mut app = App::sample();
+    app.session.instance = instance;
+    app.workspace = Workspace::Saves;
+
+    app.start_operation(OperationKind::RefreshSaves, RefreshSavesJob);
+    app.finish_operation_after_terminal();
+    let completed = render(&mut app, 80, 24);
+    assert!(
+        completed.contains("No saves"),
+        "completed empty shows the ordinary message"
+    );
+
+    app.start_operation(OperationKind::RefreshSaves, RefreshSavesJob);
+    let refreshing = render(&mut app, 80, 24);
+    assert!(refreshing.contains("Refreshing saves…"));
+    assert!(!refreshing.contains("No saves"));
+    app.finish_operation_after_terminal();
+}
+
+#[test]
+fn cached_saves_remain_visible_during_refresh() {
+    use crate::app::{OperationKind, RefreshSavesJob, Workspace};
+    use crate::test_support::save_info;
     let mut app = App::sample();
     app.workspace = Workspace::Saves;
+    app.saves.entries = vec![save_info("Cached.fos", 1, None)];
+    app.saves.list.select(Some(0));
+    app.start_operation(OperationKind::RefreshSaves, RefreshSavesJob);
+
     let out = render(&mut app, 80, 24);
+
+    assert!(out.contains("Cached.fos"));
     assert!(
-        out.contains("No saves"),
-        "the empty state explains the pane"
+        out.contains("/ Saves refresh"),
+        "running work has a spinner"
     );
+    app.finish_operation_after_terminal();
 }
 
 #[test]
