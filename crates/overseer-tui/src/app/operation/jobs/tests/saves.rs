@@ -24,7 +24,7 @@ fn refresh_job_parses_save_headers_on_the_worker() {
     let mut app = App::sample();
     app.session.instance = instance;
 
-    app.start_operation(OperationKind::RefreshSaves, RefreshSavesJob);
+    app.start_operation(RefreshSavesJob);
 
     assert_eq!(
         app.running_operation_kind(),

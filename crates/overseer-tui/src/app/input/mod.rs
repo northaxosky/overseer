@@ -10,12 +10,12 @@ mod prompt;
 mod saves;
 mod select;
 
-use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-
-use overseer_core::deploy::detect_conflicts;
-
 use super::sort::{DownloadsPane, SavesPane};
-use super::{App, ConflictsStatus, Focus, ListCursor, Modal, OperationKind, SelectKind, Workspace};
+use super::{
+    App, ConflictsStatus, Focus, ListCursor, Modal, OperationKind, ScanConflictsJob, SelectKind,
+    Workspace,
+};
+use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 #[derive(Clone, Copy)]
 enum RefreshCause {
@@ -147,16 +147,9 @@ impl App {
         }
     }
 
-    /// Walk the enabled mods' staging dirs and record any file they both provide
+    /// Start a profile-global conflict scan on the background worker
     fn scan_conflicts(&mut self) {
-        let sources = self.session.profile.deploy_sources(&self.session.instance);
-        match detect_conflicts(&sources) {
-            Ok(found) => {
-                self.conflicts.list.select_first(found.len());
-                self.conflicts.status = ConflictsStatus::Ready(found);
-            }
-            Err(e) => self.conflicts.status = ConflictsStatus::Error(e.to_string()),
-        }
+        self.start_operation(ScanConflictsJob);
     }
 
     /// Invalidate the last conflicts scan after the enabled mod set changes

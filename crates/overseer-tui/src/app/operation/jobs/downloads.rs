@@ -2,16 +2,20 @@
 
 use overseer_core::install;
 
-use super::super::protocol::{OperationContext, OperationFailure, OperationOutput, OperationPhase};
+use super::super::protocol::{
+    OperationContext, OperationFailure, OperationKind, OperationOutput, OperationPhase,
+};
 use super::super::runner::{BackgroundJob, OperationReporter};
 
 #[derive(Debug, Default, Clone, Copy)]
 pub(crate) struct RefreshDownloadsJob;
 
 impl BackgroundJob for RefreshDownloadsJob {
+    const KIND: OperationKind = OperationKind::RefreshDownloads;
+
     /// Reload the instance and list its download archives
     fn run(
-        self: Box<Self>,
+        self,
         context: &OperationContext,
         reporter: &OperationReporter,
     ) -> Result<OperationOutput, OperationFailure> {

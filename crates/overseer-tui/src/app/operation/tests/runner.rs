@@ -17,8 +17,10 @@ struct OutputJob {
 }
 
 impl BackgroundJob for OutputJob {
+    const KIND: OperationKind = OperationKind::RefreshDownloads;
+
     fn run(
-        self: Box<Self>,
+        self,
         _context: &OperationContext,
         reporter: &OperationReporter,
     ) -> Result<OperationOutput, OperationFailure> {
@@ -27,14 +29,50 @@ impl BackgroundJob for OutputJob {
     }
 }
 
-struct GatedFailureJob {
+struct MismatchedOutputJob;
+
+impl BackgroundJob for MismatchedOutputJob {
+    const KIND: OperationKind = OperationKind::Deploy;
+
+    fn run(
+        self,
+        _context: &OperationContext,
+        reporter: &OperationReporter,
+    ) -> Result<OperationOutput, OperationFailure> {
+        reporter.phase(OperationPhase::ListingDownloads);
+        Ok(OperationOutput::RefreshDownloads(Vec::new()))
+    }
+}
+
+struct GatedReadOnlyJob {
     ready: GateSender<()>,
     release: GateReceiver<()>,
 }
 
-impl BackgroundJob for GatedFailureJob {
+impl BackgroundJob for GatedReadOnlyJob {
+    const KIND: OperationKind = OperationKind::RefreshDownloads;
+
     fn run(
-        self: Box<Self>,
+        self,
+        _context: &OperationContext,
+        _reporter: &OperationReporter,
+    ) -> Result<OperationOutput, OperationFailure> {
+        self.ready.send(()).expect("test receives ready");
+        self.release.recv().expect("test releases worker");
+        Err(OperationFailure::new("test worker stopped"))
+    }
+}
+
+struct GatedMutatingJob {
+    ready: GateSender<()>,
+    release: GateReceiver<()>,
+}
+
+impl BackgroundJob for GatedMutatingJob {
+    const KIND: OperationKind = OperationKind::Deploy;
+
+    fn run(
+        self,
         _context: &OperationContext,
         _reporter: &OperationReporter,
     ) -> Result<OperationOutput, OperationFailure> {
@@ -47,8 +85,10 @@ impl BackgroundJob for GatedFailureJob {
 struct PanicJob;
 
 impl BackgroundJob for PanicJob {
+    const KIND: OperationKind = OperationKind::RefreshDownloads;
+
     fn run(
-        self: Box<Self>,
+        self,
         _context: &OperationContext,
         _reporter: &OperationReporter,
     ) -> Result<OperationOutput, OperationFailure> {
@@ -59,8 +99,10 @@ impl BackgroundJob for PanicJob {
 struct SaturatingJob;
 
 impl BackgroundJob for SaturatingJob {
+    const KIND: OperationKind = OperationKind::RefreshDownloads;
+
     fn run(
-        self: Box<Self>,
+        self,
         _context: &OperationContext,
         reporter: &OperationReporter,
     ) -> Result<OperationOutput, OperationFailure> {
@@ -84,16 +126,24 @@ fn ctrl_c() -> KeyEvent {
     KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL)
 }
 
-fn start_gated(app: &mut App, kind: OperationKind) -> GateSender<()> {
+fn start_read_only_gated(app: &mut App) -> GateSender<()> {
     let (ready_tx, ready_rx) = sync_channel(0);
     let (release_tx, release_rx) = sync_channel(0);
-    app.start_operation(
-        kind,
-        GatedFailureJob {
-            ready: ready_tx,
-            release: release_rx,
-        },
-    );
+    app.start_operation(GatedReadOnlyJob {
+        ready: ready_tx,
+        release: release_rx,
+    });
+    ready_rx.recv().expect("worker starts");
+    release_tx
+}
+
+fn start_mutating_gated(app: &mut App) -> GateSender<()> {
+    let (ready_tx, ready_rx) = sync_channel(0);
+    let (release_tx, release_rx) = sync_channel(0);
+    app.start_operation(GatedMutatingJob {
+        ready: ready_tx,
+        release: release_rx,
+    });
     ready_rx.recv().expect("worker starts");
     release_tx
 }
@@ -122,7 +172,6 @@ fn running_from_parts(
 fn synthetic_job_runs_through_operation_agnostic_worker() {
     let context = OperationContext::capture(&App::sample().session);
     let request = WorkerRequest::new(
-        OperationKind::RefreshDownloads,
         context.clone(),
         OutputJob {
             entries: vec![download_entry("Mod.zip", 1, 2, false)],
@@ -152,13 +201,7 @@ fn synthetic_job_runs_through_operation_agnostic_worker() {
 #[test]
 fn mismatched_dispatch_and_output_kind_panics_before_completion() {
     let context = OperationContext::capture(&App::sample().session);
-    let request = WorkerRequest::new(
-        OperationKind::Deploy,
-        context,
-        OutputJob {
-            entries: Vec::new(),
-        },
-    );
+    let request = WorkerRequest::new(context, MismatchedOutputJob);
     let (sender, receiver) = sync_channel(CHANNEL_CAPACITY);
 
     let result = catch_unwind(AssertUnwindSafe(|| run_worker(request, sender)));
@@ -173,7 +216,7 @@ fn mismatched_dispatch_and_output_kind_panics_before_completion() {
 #[test]
 fn named_thread_is_installed_only_after_successful_spawn() {
     let mut app = App::sample();
-    let release = start_gated(&mut app, OperationKind::RefreshDownloads);
+    let release = start_read_only_gated(&mut app);
     let running = app.operation.running().expect("running state");
     assert_eq!(
         running
@@ -209,7 +252,7 @@ fn spawn_failure_never_enters_running() {
 #[test]
 fn worker_panic_becomes_persistent_failure() {
     let mut app = App::sample();
-    app.start_operation(OperationKind::RefreshDownloads, PanicJob);
+    app.start_operation(PanicJob);
 
     app.finish_operation_after_terminal();
 
@@ -326,7 +369,7 @@ fn blocked_busy_key_table_covers_every_domain_action() {
         let mut app = App::sample();
         let mods = app.session.profile.mods.clone();
         let plugins = app.session.order.plugins.clone();
-        let release = start_gated(&mut app, OperationKind::RefreshDownloads);
+        let release = start_read_only_gated(&mut app);
 
         app.handle_key(key(code));
 
@@ -350,7 +393,7 @@ fn navigation_focus_workspace_and_help_stay_available_while_busy() {
     for code in [KeyCode::Char('j'), KeyCode::Down] {
         let mut app = App::sample();
         app.mods.select(Some(0));
-        let release = start_gated(&mut app, OperationKind::Doctor);
+        let release = start_read_only_gated(&mut app);
         app.handle_key(key(code));
         assert_eq!(app.mods.index(), Some(1), "{code:?} moves down");
         release_and_finish(&mut app, release);
@@ -358,14 +401,14 @@ fn navigation_focus_workspace_and_help_stay_available_while_busy() {
     for code in [KeyCode::Char('k'), KeyCode::Up] {
         let mut app = App::sample();
         app.mods.select(Some(1));
-        let release = start_gated(&mut app, OperationKind::Doctor);
+        let release = start_read_only_gated(&mut app);
         app.handle_key(key(code));
         assert_eq!(app.mods.index(), Some(0), "{code:?} moves up");
         release_and_finish(&mut app, release);
     }
 
     let mut app = App::sample();
-    let release = start_gated(&mut app, OperationKind::Doctor);
+    let release = start_read_only_gated(&mut app);
     app.handle_key(key(KeyCode::Tab));
     assert_eq!(app.focus, Focus::Workspace);
     app.handle_key(key(KeyCode::Char('4')));
@@ -393,7 +436,7 @@ fn all_workspace_digit_keys_remain_available_while_busy() {
         let mut app = App::sample();
         app.workspace = Workspace::Saves;
         app.downloads.entries = vec![download_entry("Cached.zip", 1, 1, false)];
-        let release = start_gated(&mut app, OperationKind::Doctor);
+        let release = start_read_only_gated(&mut app);
 
         app.handle_key(key(KeyCode::Char(digit)));
 
@@ -407,46 +450,45 @@ fn all_workspace_digit_keys_remain_available_while_busy() {
 }
 #[test]
 fn quit_keys_are_allowed_for_read_only_and_blocked_for_mutating_jobs() {
-    let quit_keys = [key(KeyCode::Char('q')), key(KeyCode::Esc), ctrl_c()];
-    for kind in [
-        OperationKind::ScanConflicts,
-        OperationKind::Doctor,
-        OperationKind::RefreshSaves,
-        OperationKind::RefreshDownloads,
-    ] {
-        for quit in quit_keys {
-            let mut app = App::sample();
-            let release = start_gated(&mut app, kind);
-            app.handle_key(quit);
-            assert!(app.should_quit, "{quit:?} quits during {kind:?}");
-            release_and_finish(&mut app, release);
-        }
+    let policies = [
+        (OperationKind::Deploy, true),
+        (OperationKind::Purge, true),
+        (OperationKind::Install, true),
+        (OperationKind::ScanConflicts, false),
+        (OperationKind::Doctor, false),
+        (OperationKind::RefreshSaves, false),
+        (OperationKind::RefreshDownloads, false),
+    ];
+    for (kind, expected) in policies {
+        assert_eq!(kind.is_mutating(), expected, "{kind:?} mutation policy");
     }
 
-    for kind in [
-        OperationKind::Deploy,
-        OperationKind::Purge,
-        OperationKind::Install,
-    ] {
-        for quit in quit_keys {
-            let mut app = App::sample();
-            let release = start_gated(&mut app, kind);
-            app.handle_key(quit);
-            assert!(!app.should_quit, "{quit:?} is blocked during {kind:?}");
-            assert!(
-                app.message
-                    .as_ref()
-                    .is_some_and(|notice| notice.text.contains("running"))
-            );
-            release_and_finish(&mut app, release);
-        }
+    for quit in [key(KeyCode::Char('q')), key(KeyCode::Esc), ctrl_c()] {
+        let mut app = App::sample();
+        let release = start_read_only_gated(&mut app);
+        app.handle_key(quit);
+        assert!(app.should_quit, "{quit:?} quits during read-only work");
+        release_and_finish(&mut app, release);
+    }
+
+    for quit in [key(KeyCode::Char('q')), key(KeyCode::Esc), ctrl_c()] {
+        let mut app = App::sample();
+        let release = start_mutating_gated(&mut app);
+        app.handle_key(quit);
+        assert!(!app.should_quit, "{quit:?} is blocked during mutating work");
+        assert!(
+            app.message
+                .as_ref()
+                .is_some_and(|notice| notice.text.contains("running"))
+        );
+        release_and_finish(&mut app, release);
     }
 }
 #[test]
 fn repeated_and_different_requests_are_not_queued() {
     let mut app = App::sample();
     app.workspace = Workspace::Downloads;
-    let release = start_gated(&mut app, OperationKind::RefreshDownloads);
+    let release = start_read_only_gated(&mut app);
 
     app.handle_key(key(KeyCode::Char('r')));
     assert_eq!(
@@ -469,7 +511,7 @@ fn repeated_and_different_requests_are_not_queued() {
 fn spinner_ticks_without_touching_transient_message() {
     let mut app = App::sample();
     app.note("keep me");
-    let release = start_gated(&mut app, OperationKind::RefreshDownloads);
+    let release = start_read_only_gated(&mut app);
 
     app.tick_operation();
 
@@ -486,7 +528,7 @@ fn spinner_ticks_without_touching_transient_message() {
 #[test]
 fn terminal_shutdown_drains_a_full_control_channel_before_join() {
     let mut app = App::sample();
-    app.start_operation(OperationKind::RefreshDownloads, SaturatingJob);
+    app.start_operation(SaturatingJob);
 
     app.finish_operation_after_terminal();
 
@@ -495,7 +537,7 @@ fn terminal_shutdown_drains_a_full_control_channel_before_join() {
 #[test]
 fn completed_state_survives_ordinary_keys_and_enter_dismisses_it() {
     let mut app = App::sample();
-    let release = start_gated(&mut app, OperationKind::RefreshDownloads);
+    let release = start_read_only_gated(&mut app);
     release_and_finish(&mut app, release);
     assert!(matches!(app.operation, OperationState::Completed(_)));
 
@@ -512,8 +554,11 @@ fn starting_a_new_job_replaces_completed_state() {
         "old failure",
     ));
 
-    let release = start_gated(&mut app, OperationKind::Doctor);
+    let release = start_read_only_gated(&mut app);
 
-    assert_eq!(app.running_operation_kind(), Some(OperationKind::Doctor));
+    assert_eq!(
+        app.running_operation_kind(),
+        Some(OperationKind::RefreshDownloads)
+    );
     release_and_finish(&mut app, release);
 }

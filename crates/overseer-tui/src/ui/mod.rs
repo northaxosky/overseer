@@ -237,28 +237,23 @@ fn render_conflicts(app: &mut App, frame: &mut Frame, area: Rect) {
     let focused = app.focus == Focus::Workspace;
     let found = match &app.conflicts.status {
         ConflictsStatus::Stale => {
-            return render_workspace_message(
-                frame,
-                area,
-                CONFLICTS_TITLE,
-                "Press r to scan for conflicts.",
-                focused,
-            );
-        }
-        ConflictsStatus::Error(msg) => {
-            let text = format!("Conflict scan failed: {msg} — press r to retry.");
-            return render_workspace_message(frame, area, CONFLICTS_TITLE, &text, focused);
+            let text = if app.operation.is_running_kind(OperationKind::ScanConflicts) {
+                "Scanning conflicts..."
+            } else {
+                "Press r to scan for conflicts."
+            };
+
+            return render_workspace_message(frame, area, CONFLICTS_TITLE, text, focused);
         }
         ConflictsStatus::Ready(found) if found.is_empty() => {
             return render_workspace_message(
                 frame,
                 area,
                 CONFLICTS_TITLE,
-                "No file conflicts among enabled mods.",
+                "No conflicts detected.",
                 focused,
             );
         }
-        // Each row is a priority chain; providers are winner-last, so the rightmost wins
         ConflictsStatus::Ready(found) => found,
     };
 

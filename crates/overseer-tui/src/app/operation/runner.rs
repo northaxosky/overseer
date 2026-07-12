@@ -13,36 +13,25 @@ use super::protocol::{
 const CHANNEL_CAPACITY: usize = 64;
 
 pub(crate) trait BackgroundJob: Send + 'static {
+    const KIND: OperationKind;
+
     /// Execute this job using owned context and worker reporting
     fn run(
-        self: Box<Self>,
+        self,
         context: &OperationContext,
         reporter: &OperationReporter,
     ) -> Result<OperationOutput, OperationFailure>;
 }
 
-pub(crate) struct WorkerRequest {
-    kind: OperationKind,
+pub(crate) struct WorkerRequest<J: BackgroundJob> {
     context: OperationContext,
-    job: Box<dyn BackgroundJob>,
+    job: J,
 }
 
-impl WorkerRequest {
-    /// Erase a concrete job behind the worker trait-object boundary
-    pub(crate) fn new<J>(kind: OperationKind, context: OperationContext, job: J) -> Self
-    where
-        J: BackgroundJob,
-    {
-        Self {
-            kind,
-            context,
-            job: Box::new(job),
-        }
-    }
-
-    /// Return the operation kind known before execution
-    pub(crate) fn kind(&self) -> OperationKind {
-        self.kind
+impl<J: BackgroundJob> WorkerRequest<J> {
+    /// Create a request for one concrete background job
+    pub(crate) fn new(context: OperationContext, job: J) -> Self {
+        Self { context, job }
     }
 
     /// Return the captured operation context
@@ -70,8 +59,9 @@ impl OperationReporter {
 }
 
 /// Execute one request and send at most one completion
-fn run_worker(request: WorkerRequest, sender: SyncSender<WorkerEvent>) {
-    let WorkerRequest { kind, context, job } = request;
+fn run_worker<J: BackgroundJob>(request: WorkerRequest<J>, sender: SyncSender<WorkerEvent>) {
+    let kind = J::KIND;
+    let WorkerRequest { context, job } = request;
     let reporter = OperationReporter::new(sender.clone());
     let outcome = job.run(&context, &reporter);
 
@@ -166,17 +156,13 @@ impl App {
     }
 
     /// Start one owned job on a named background thread
-    pub(crate) fn start_operation<J>(&mut self, kind: OperationKind, job: J)
-    where
-        J: BackgroundJob,
-    {
+    pub(crate) fn start_operation<J: BackgroundJob>(&mut self, job: J) {
+        let kind = J::KIND;
         if self.operation_running() {
             self.note_blocked_operation(kind);
             return;
         }
-
-        let request = WorkerRequest::new(kind, OperationContext::capture(&self.session), job);
-        let kind = request.kind();
+        let request = WorkerRequest::new(OperationContext::capture(&self.session), job);
         let context = request.context().clone();
         let (sender, receiver) = sync_channel(CHANNEL_CAPACITY);
 

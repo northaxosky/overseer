@@ -2,26 +2,51 @@
 
 use super::*;
 
+use overseer_core::deploy::FileConflict;
 use overseer_core::install::DownloadEntry;
 use overseer_core::saves::SaveInfo;
+use overseer_diagnostics::Report;
 
-use super::super::runner::{BackgroundJob, WorkerRequest};
+use super::super::runner::{BackgroundJob, OperationReporter, WorkerRequest};
 use crate::app::Session;
+
+struct TestJob;
+
+impl BackgroundJob for TestJob {
+    const KIND: OperationKind = OperationKind::RefreshDownloads;
+
+    fn run(
+        self,
+        _context: &OperationContext,
+        _reporter: &OperationReporter,
+    ) -> Result<OperationOutput, OperationFailure> {
+        Ok(OperationOutput::RefreshDownloads(Vec::new()))
+    }
+}
 
 #[test]
 fn runner_boundary_types_are_send() {
     fn assert_send<T: Send>() {}
 
     assert_send::<Session>();
+    assert_send::<Report>();
+    assert_send::<Vec<FileConflict>>();
     assert_send::<Vec<SaveInfo>>();
     assert_send::<Vec<DownloadEntry>>();
-    assert_send::<WorkerRequest>();
-    assert_send::<Box<dyn BackgroundJob>>();
+    assert_send::<WorkerRequest<TestJob>>();
 }
 
 #[test]
 fn typed_outputs_map_to_their_operation_kinds() {
     let cases = [
+        (
+            OperationOutput::ScanConflicts(Vec::new()),
+            OperationKind::ScanConflicts,
+        ),
+        (
+            OperationOutput::Doctor(Report::new(Vec::new())),
+            OperationKind::Doctor,
+        ),
         (
             OperationOutput::RefreshSaves(Vec::new()),
             OperationKind::RefreshSaves,

@@ -3,16 +3,20 @@
 use overseer_core::instance::Instance;
 use overseer_core::saves;
 
-use super::super::protocol::{OperationContext, OperationFailure, OperationOutput, OperationPhase};
+use super::super::protocol::{
+    OperationContext, OperationFailure, OperationKind, OperationOutput, OperationPhase,
+};
 use super::super::runner::{BackgroundJob, OperationReporter};
 
 #[derive(Debug, Default, Clone, Copy)]
 pub(crate) struct RefreshSavesJob;
 
 impl BackgroundJob for RefreshSavesJob {
+    const KIND: OperationKind = OperationKind::RefreshSaves;
+
     /// Reload the instance and parse the profile's save headers
     fn run(
-        self: Box<Self>,
+        self,
         context: &OperationContext,
         reporter: &OperationReporter,
     ) -> Result<OperationOutput, OperationFailure> {

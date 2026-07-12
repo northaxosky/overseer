@@ -1,15 +1,13 @@
 //! The saves workspace's actions: listing the profile's `.fos` saves and deleting one
 
-use crate::app::{
-    App, Confirm, ConfirmAction, Focus, Modal, OperationKind, RefreshSavesJob, Workspace,
-};
+use crate::app::{App, Confirm, ConfirmAction, Focus, Modal, RefreshSavesJob, Workspace};
 use camino::Utf8Path;
 use overseer_core::saves::{self, SaveInfo};
 
 impl App {
     /// List and parse the current profile's saves on the background worker
     pub(super) fn refresh_saves(&mut self) {
-        self.start_operation(OperationKind::RefreshSaves, RefreshSavesJob);
+        self.start_operation(RefreshSavesJob);
     }
 
     /// The currently selected save entry, if any

@@ -3,16 +3,25 @@
 use super::*;
 
 use camino::Utf8PathBuf;
+use overseer_core::deploy::FileConflict;
 use overseer_core::settings::{DownloadsSort, DownloadsSortKey, SavesSort, SavesSortKey, SortDir};
+use overseer_diagnostics::{Finding, Report};
 
 use super::super::protocol::{OperationFailure, OperationKind};
-use crate::app::{Focus, Workspace};
+use crate::app::{Focus, Info, Modal, Workspace};
 use crate::test_support::{download_entry, save_info};
 
 fn completion(app: &App, outcome: Result<OperationOutput, OperationFailure>) -> WorkerCompletion {
     WorkerCompletion {
         context: OperationContext::capture(&app.session),
         outcome,
+    }
+}
+
+fn conflict(relative: &str, winner: &str) -> FileConflict {
+    FileConflict {
+        relative: Utf8PathBuf::from(relative),
+        providers: vec!["Loser".to_owned(), winner.to_owned()],
     }
 }
 
@@ -66,6 +75,186 @@ fn same_context_applies_and_profile_or_root_changes_discard() {
         changed_root.operation,
         OperationState::Completed(_)
     ));
+}
+
+#[test]
+fn successful_conflict_result_replaces_cache_and_selects_the_first_row() {
+    let mut app = App::sample();
+    app.conflicts.status = ConflictsStatus::Ready(vec![conflict("old.dds", "Old")]);
+    let result = completion(
+        &app,
+        Ok(OperationOutput::ScanConflicts(vec![
+            conflict("a.dds", "Alpha"),
+            conflict("b.dds", "Beta"),
+        ])),
+    );
+
+    app.apply_completion(OperationKind::ScanConflicts, result);
+
+    let ConflictsStatus::Ready(found) = &app.conflicts.status else {
+        panic!("conflicts are ready")
+    };
+    assert_eq!(
+        found
+            .iter()
+            .map(|entry| entry.relative.as_str())
+            .collect::<Vec<_>>(),
+        ["a.dds", "b.dds"]
+    );
+    assert_eq!(app.conflicts.list.index(), Some(0));
+    assert!(matches!(app.operation, OperationState::Idle));
+}
+
+#[test]
+fn failed_conflict_scan_preserves_cached_results_and_selection() {
+    let mut app = App::sample();
+    app.conflicts.status =
+        ConflictsStatus::Ready(vec![conflict("a.dds", "Alpha"), conflict("b.dds", "Beta")]);
+    app.conflicts.list.select(Some(1));
+    let result = completion(&app, Err(OperationFailure::new("scan stopped")));
+
+    app.apply_completion(OperationKind::ScanConflicts, result);
+
+    let ConflictsStatus::Ready(found) = &app.conflicts.status else {
+        panic!("cached conflicts remain ready")
+    };
+    assert_eq!(found[1].relative.as_str(), "b.dds");
+    assert_eq!(app.conflicts.list.index(), Some(1));
+    assert!(matches!(
+        app.operation,
+        OperationState::Completed(CompletedOperation {
+            kind: OperationKind::ScanConflicts,
+            succeeded: false,
+            ref message,
+        }) if message == "scan stopped"
+    ));
+}
+
+#[test]
+fn profile_global_conflicts_accept_after_selection_and_workspace_changes() {
+    let mut app = App::sample();
+    let result = completion(
+        &app,
+        Ok(OperationOutput::ScanConflicts(vec![conflict(
+            "shared.dds",
+            "Winner",
+        )])),
+    );
+    app.mods.select(Some(1));
+    app.focus = Focus::Workspace;
+    app.workspace = Workspace::Saves;
+
+    app.apply_completion(OperationKind::ScanConflicts, result);
+
+    assert!(matches!(
+        app.conflicts.status,
+        ConflictsStatus::Ready(ref found) if found[0].relative.as_str() == "shared.dds"
+    ));
+    assert!(matches!(app.operation, OperationState::Idle));
+}
+
+#[test]
+fn doctor_success_opens_a_selected_report_and_returns_idle() {
+    let mut app = App::sample();
+    let result = completion(
+        &app,
+        Ok(OperationOutput::Doctor(Report::new(vec![Finding::info(
+            "Healthy",
+        )]))),
+    );
+
+    app.apply_completion(OperationKind::Doctor, result);
+
+    let Some(Modal::Doctor(doctor)) = &app.modal else {
+        panic!("Doctor modal opens")
+    };
+    assert_eq!(doctor.report.findings[0].title, "Healthy");
+    assert_eq!(doctor.list.index(), Some(0));
+    assert!(matches!(app.operation, OperationState::Idle));
+}
+
+#[test]
+fn empty_doctor_success_still_opens_the_modal() {
+    let mut app = App::sample();
+    let result = completion(&app, Ok(OperationOutput::Doctor(Report::new(Vec::new()))));
+
+    app.apply_completion(OperationKind::Doctor, result);
+
+    let Some(Modal::Doctor(doctor)) = &app.modal else {
+        panic!("empty Doctor modal opens")
+    };
+    assert!(doctor.report.findings.is_empty());
+    assert_eq!(doctor.list.index(), None);
+    assert!(matches!(app.operation, OperationState::Idle));
+}
+
+#[test]
+fn doctor_success_replaces_help_opened_while_it_was_running() {
+    let mut app = App::sample();
+    let result = completion(
+        &app,
+        Ok(OperationOutput::Doctor(Report::new(vec![Finding::info(
+            "Result",
+        )]))),
+    );
+    app.modal = Some(Modal::Info(Info {
+        title: "Help".to_owned(),
+        entries: vec![("?".to_owned(), "help".to_owned())],
+        state: ListCursor::first(1),
+    }));
+
+    app.apply_completion(OperationKind::Doctor, result);
+
+    assert!(matches!(app.modal, Some(Modal::Doctor(_))));
+    assert!(matches!(app.operation, OperationState::Idle));
+}
+
+#[test]
+fn doctor_failure_opens_no_modal_and_remains_persistent() {
+    let mut app = App::sample();
+    let result = completion(&app, Err(OperationFailure::new("diagnostics stopped")));
+
+    app.apply_completion(OperationKind::Doctor, result);
+
+    assert!(app.modal.is_none());
+    assert!(matches!(
+        app.operation,
+        OperationState::Completed(CompletedOperation {
+            kind: OperationKind::Doctor,
+            succeeded: false,
+            ref message,
+        }) if message == "diagnostics stopped"
+    ));
+}
+
+#[test]
+fn changed_profile_or_root_discards_doctor_reports() {
+    for change_root in [false, true] {
+        let mut app = App::sample();
+        let result = completion(
+            &app,
+            Ok(OperationOutput::Doctor(Report::new(vec![Finding::info(
+                "Stale",
+            )]))),
+        );
+        if change_root {
+            app.session.instance.root = Utf8PathBuf::from("different-instance");
+        } else {
+            app.session.profile.name = "Other".to_owned();
+        }
+
+        app.apply_completion(OperationKind::Doctor, result);
+
+        assert!(app.modal.is_none());
+        assert!(matches!(
+            app.operation,
+            OperationState::Completed(CompletedOperation {
+                kind: OperationKind::Doctor,
+                ref message,
+                ..
+            }) if message.contains("active session changed")
+        ));
+    }
 }
 
 #[test]

@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::app::input::test_helpers::{key, modal_selection};
+use crate::app::{DoctorReport, ListCursor, Modal, OperationKind};
 use overseer_diagnostics::{Finding, Report, Severity};
 
 /// Seed an open Doctor modal with `titles` findings, selecting the first
@@ -22,24 +23,14 @@ fn open_with(app: &mut App, titles: &[&str]) {
 }
 
 #[test]
-fn d_opens_a_doctor_modal_that_ran_diagnostics() {
-    use overseer_core::test_support::temp_instance;
-    let (_tmp, instance) = temp_instance();
+fn d_starts_a_worker_without_opening_a_doctor_modal() {
     let mut app = App::sample();
-    app.session.instance = instance;
 
     app.handle_key(key(KeyCode::Char('d')));
 
-    match &app.modal {
-        Some(Modal::Doctor(doctor)) => {
-            assert!(
-                !doctor.report.findings.is_empty(),
-                "opening runs diagnostics and populates findings"
-            );
-            assert_eq!(doctor.list.index(), Some(0), "opens on the first finding");
-        }
-        _ => panic!("d opens a Doctor modal"),
-    }
+    assert_eq!(app.running_operation_kind(), Some(OperationKind::Doctor));
+    assert!(app.modal.is_none());
+    app.finish_operation_after_terminal();
 }
 
 #[test]

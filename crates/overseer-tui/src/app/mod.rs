@@ -11,7 +11,10 @@ pub(crate) use list::ListCursor;
 pub(crate) use modal::{
     Confirm, ConfirmAction, DoctorReport, Info, Modal, Prompt, PromptKind, Select, SelectKind,
 };
-pub(crate) use operation::{OperationKind, OperationState, RefreshDownloadsJob, RefreshSavesJob};
+pub(crate) use operation::{
+    DoctorJob, OperationKind, OperationState, RefreshDownloadsJob, RefreshSavesJob,
+    ScanConflictsJob,
+};
 pub(crate) use pane::{ModPaneRow, ModsPane, PluginPaneRow, PluginsPane};
 pub(crate) use sort::{downloads_sort_label, saves_sort_label};
 
@@ -112,7 +115,6 @@ pub(crate) enum ConflictsStatus {
     #[default]
     Stale,
     Ready(Vec<FileConflict>),
-    Error(String),
 }
 
 /// The conflicts workspace's own state (grouped so `App` doesn't get loose fields)

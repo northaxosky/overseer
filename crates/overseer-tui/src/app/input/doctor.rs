@@ -1,11 +1,8 @@
 //! The Doctor modal: an on-open diagnostics run shown as a read-only, dismiss-only
 //! surface with a selectable findings list and a live detail pane.
 
+use crate::app::{App, DoctorJob};
 use ratatui::crossterm::event::{KeyCode, KeyEvent};
-
-use overseer_diagnostics::diagnose;
-
-use crate::app::{App, DoctorReport, ListCursor, Modal};
 
 impl App {
     /// Keys for a Doctor modal: scroll the findings list or dismiss. It has no submit
@@ -19,15 +16,9 @@ impl App {
         }
     }
 
-    /// Run setup diagnostics for the active session and show them as a Doctor modal
+    /// Start setup diagnostics without opening a modal
     pub(super) fn open_doctor(&mut self) {
-        match diagnose(&self.session.instance, &self.session.profile.name) {
-            Ok(report) => {
-                let list = ListCursor::first(report.findings.len());
-                self.modal = Some(Modal::Doctor(DoctorReport { report, list }));
-            }
-            Err(e) => self.fail(format!("Diagnostics failed: {e}")),
-        }
+        self.start_operation(DoctorJob);
     }
 }
 

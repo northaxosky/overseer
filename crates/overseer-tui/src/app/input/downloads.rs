@@ -1,13 +1,13 @@
 //! The downloads workspace's actions: listing archives and installing one
 
-use crate::app::{App, Confirm, ConfirmAction, Modal, OperationKind, RefreshDownloadsJob, Session};
+use crate::app::{App, Confirm, ConfirmAction, Modal, RefreshDownloadsJob, Session};
 use camino::Utf8Path;
 use overseer_core::install::{self, DownloadEntry, InstallError};
 
 impl App {
     /// List the instance's downloads on the background worker
     pub(super) fn refresh_downloads(&mut self) {
-        self.start_operation(OperationKind::RefreshDownloads, RefreshDownloadsJob);
+        self.start_operation(RefreshDownloadsJob);
     }
 
     /// The currently selected download entry, if any

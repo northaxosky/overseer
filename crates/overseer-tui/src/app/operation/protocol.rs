@@ -1,8 +1,10 @@
 //! Typed operation messages shared by jobs, the runner, and the reducer
 
 use camino::Utf8PathBuf;
+use overseer_core::deploy::FileConflict;
 use overseer_core::install::DownloadEntry;
 use overseer_core::saves::SaveInfo;
+use overseer_diagnostics::Report;
 
 use super::super::Session;
 
@@ -117,6 +119,8 @@ impl OperationContext {
 pub(crate) enum OperationOutput {
     RefreshDownloads(Vec<DownloadEntry>),
     RefreshSaves(Vec<SaveInfo>),
+    Doctor(Report),
+    ScanConflicts(Vec<FileConflict>),
 }
 
 impl OperationOutput {
@@ -125,6 +129,8 @@ impl OperationOutput {
         match self {
             Self::RefreshDownloads(_) => OperationKind::RefreshDownloads,
             Self::RefreshSaves(_) => OperationKind::RefreshSaves,
+            Self::Doctor(_) => OperationKind::Doctor,
+            Self::ScanConflicts(_) => OperationKind::ScanConflicts,
         }
     }
 }

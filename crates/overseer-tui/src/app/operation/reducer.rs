@@ -1,12 +1,13 @@
 //! Validation and application of typed worker results
 
-use overseer_core::install::DownloadEntry;
-use overseer_core::saves::SaveInfo;
-
-use super::super::App;
 use super::super::sort::{sort_downloads, sort_saves};
+use super::super::{App, ConflictsStatus, DoctorReport, ListCursor, Modal};
 use super::protocol::{OperationContext, OperationOutput, WorkerCompletion};
 use super::runner::{CompletedOperation, OperationState};
+use overseer_core::deploy::FileConflict;
+use overseer_core::install::DownloadEntry;
+use overseer_core::saves::SaveInfo;
+use overseer_diagnostics::Report;
 
 impl App {
     /// Validate and apply one typed worker completion
@@ -44,6 +45,14 @@ impl App {
                         self.accept_saves(entries);
                         self.operation = OperationState::Idle;
                     }
+                    OperationOutput::ScanConflicts(found) => {
+                        self.accept_conflicts(found);
+                        self.operation = OperationState::Idle;
+                    }
+                    OperationOutput::Doctor(report) => {
+                        self.open_completed_doctor(report);
+                        self.operation = OperationState::Idle;
+                    }
                 }
             }
             Err(failure) => {
@@ -51,6 +60,18 @@ impl App {
                     OperationState::Completed(CompletedOperation::failed(kind, failure.message));
             }
         }
+    }
+
+    /// Replace the conflict cache and select its first row
+    fn accept_conflicts(&mut self, found: Vec<FileConflict>) {
+        self.conflicts.list.select_first(found.len());
+        self.conflicts.status = ConflictsStatus::Ready(found);
+    }
+
+    /// Replace any open informational modal with the completed Doctor report
+    fn open_completed_doctor(&mut self, report: Report) {
+        let list = ListCursor::first(report.findings.len());
+        self.modal = Some(Modal::Doctor(DoctorReport { report, list }));
     }
 
     /// Check whether captured instance and profile identifiers remain active

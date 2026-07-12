@@ -136,41 +136,17 @@ fn jk_route_to_the_active_workspace_list() {
 }
 
 #[test]
-fn scanning_a_temp_instance_reports_a_shared_file() {
-    use overseer_core::instance::{ModKind, ModListEntry};
-    use overseer_core::test_support::{install_mod, temp_instance};
-
-    let (_tmp, instance) = temp_instance();
-    install_mod(&instance, "A", &[("Textures/shared.dds", "from-a")]);
-    install_mod(&instance, "B", &[("Textures/shared.dds", "from-b")]);
-
+fn r_starts_a_conflict_worker_without_scanning_immediately() {
     let mut app = App::sample();
-    app.session.instance = instance;
-    app.session.profile.mods = vec![
-        ModListEntry {
-            name: "A".to_owned(),
-            enabled: true,
-            kind: ModKind::Managed,
-        },
-        ModListEntry {
-            name: "B".to_owned(),
-            enabled: true,
-            kind: ModKind::Managed,
-        },
-    ];
-
     app.handle_key(KeyEvent::new(KeyCode::Char('2'), KeyModifiers::NONE));
     app.handle_key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE));
 
-    match &app.conflicts.status {
-        ConflictsStatus::Ready(found) => {
-            assert_eq!(found.len(), 1, "the shared file is the only conflict");
-            // deploy_sources feeds detect_conflicts lowest priority first, so the higher-priority mod (top of the list) lands last as the winner
-            assert_eq!(found[0].providers, ["B", "A"]);
-        }
-        other => panic!("expected a completed scan, got {other:?}"),
-    }
-    assert_eq!(app.conflicts.list.index(), Some(0), "selection lands first");
+    assert_eq!(
+        app.running_operation_kind(),
+        Some(OperationKind::ScanConflicts)
+    );
+    assert!(matches!(app.conflicts.status, ConflictsStatus::Stale));
+    app.finish_operation_after_terminal();
 }
 
 #[test]
@@ -285,13 +261,13 @@ fn o_cycles_downloads_sort_key_and_resets_to_top() {
 
 #[test]
 fn download_sort_remains_available_and_persists_while_busy() {
-    use crate::app::{OperationKind, RefreshDownloadsJob};
+    use crate::app::RefreshDownloadsJob;
 
     with_config_dir(|config| {
         let mut app = App::sample();
         app.workspace = Workspace::Downloads;
         let before = app.settings.downloads_sort;
-        app.start_operation(OperationKind::RefreshDownloads, RefreshDownloadsJob);
+        app.start_operation(RefreshDownloadsJob);
 
         app.handle_key(key(KeyCode::Char('o')));
 

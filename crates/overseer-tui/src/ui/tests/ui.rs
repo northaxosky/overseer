@@ -165,6 +165,20 @@ fn conflicts_workspace_stale_prompts_to_scan() {
     assert!(!out.contains(" detail "), "no split before a scan");
 }
 
+#[test]
+fn empty_conflicts_show_scanning_while_the_worker_runs() {
+    use crate::app::{ScanConflictsJob, Workspace};
+    let mut app = App::sample();
+    app.workspace = Workspace::Conflicts;
+    app.start_operation(ScanConflictsJob);
+
+    let out = render(&mut app, 80, 24);
+
+    assert!(out.contains("Scanning conflicts..."));
+    assert!(!out.contains("Press r to scan"));
+    app.finish_operation_after_terminal();
+}
+
 fn conflict(relative: &str, providers: &[&str]) -> overseer_core::deploy::FileConflict {
     overseer_core::deploy::FileConflict {
         relative: camino::Utf8PathBuf::from(relative),
@@ -258,7 +272,7 @@ fn conflicts_workspace_empty_state_stays_a_message() {
     app.conflicts.status = ConflictsStatus::Ready(Vec::new());
     let out = render(&mut app, 80, 24);
     assert!(
-        out.contains("No file conflicts"),
+        out.contains("No conflicts detected"),
         "an empty scan still renders its message"
     );
     assert!(
@@ -268,17 +282,23 @@ fn conflicts_workspace_empty_state_stays_a_message() {
 }
 
 #[test]
-fn conflicts_workspace_error_state_stays_a_message() {
-    use crate::app::{ConflictsStatus, Workspace};
+fn cached_conflicts_remain_visible_during_rescan_and_after_failure() {
+    use crate::app::{ConflictsStatus, ScanConflictsJob, Workspace};
     let mut app = App::sample();
     app.workspace = Workspace::Conflicts;
-    app.conflicts.status = ConflictsStatus::Error("boom".to_owned());
-    let out = render(&mut app, 80, 24);
-    assert!(out.contains("Conflict scan failed: boom"), "error message");
-    assert!(
-        !out.contains(" detail "),
-        "the list/detail split is only used when conflicts exist"
-    );
+    app.conflicts.status =
+        ConflictsStatus::Ready(vec![conflict("Textures/cached.dds", &["Low", "High"])]);
+    app.conflicts.list.select(Some(0));
+    app.start_operation(ScanConflictsJob);
+
+    let running = render(&mut app, 80, 24);
+    assert!(running.contains("Textures/cached.dds"));
+    assert!(running.contains("Scanning enabled mod files"));
+
+    app.finish_operation_after_terminal();
+    let failed = render(&mut app, 80, 24);
+    assert!(failed.contains("Textures/cached.dds"));
+    assert!(failed.contains("FAILED"));
 }
 
 #[test]
@@ -320,10 +340,10 @@ fn downloads_workspace_empty_state_points_at_the_folder() {
 
 #[test]
 fn empty_downloads_distinguish_refreshing_from_empty() {
-    use crate::app::{OperationKind, RefreshDownloadsJob, Workspace};
+    use crate::app::{RefreshDownloadsJob, Workspace};
     let mut app = App::sample();
     app.workspace = Workspace::Downloads;
-    app.start_operation(OperationKind::RefreshDownloads, RefreshDownloadsJob);
+    app.start_operation(RefreshDownloadsJob);
 
     let out = render(&mut app, 80, 24);
 
@@ -341,13 +361,13 @@ fn empty_downloads_distinguish_refreshing_from_empty() {
 
 #[test]
 fn cached_downloads_remain_visible_during_refresh() {
-    use crate::app::{OperationKind, RefreshDownloadsJob, Workspace};
+    use crate::app::{RefreshDownloadsJob, Workspace};
     use crate::test_support::download_entry;
     let mut app = App::sample();
     app.workspace = Workspace::Downloads;
     app.downloads.entries = vec![download_entry("Cached.zip", 1, 1, false)];
     app.downloads.list.select(Some(0));
-    app.start_operation(OperationKind::RefreshDownloads, RefreshDownloadsJob);
+    app.start_operation(RefreshDownloadsJob);
 
     let out = render(&mut app, 80, 24);
 
@@ -361,10 +381,10 @@ fn cached_downloads_remain_visible_during_refresh() {
 
 #[test]
 fn download_refresh_failure_is_persistent_and_not_color_only() {
-    use crate::app::{OperationKind, RefreshDownloadsJob, Workspace};
+    use crate::app::{RefreshDownloadsJob, Workspace};
     let mut app = App::sample();
     app.workspace = Workspace::Downloads;
-    app.start_operation(OperationKind::RefreshDownloads, RefreshDownloadsJob);
+    app.start_operation(RefreshDownloadsJob);
     app.finish_operation_after_terminal();
 
     let out = render(&mut app, 40, 16);
@@ -404,7 +424,7 @@ fn saves_workspace_lists_parsed_metadata() {
 
 #[test]
 fn saves_workspace_distinguishes_completed_empty_from_refreshing() {
-    use crate::app::{OperationKind, RefreshSavesJob, Workspace};
+    use crate::app::{RefreshSavesJob, Workspace};
     use overseer_core::instance::Instance;
     use overseer_core::test_support::temp_instance;
     let (_tmp, scaffold) = temp_instance();
@@ -414,7 +434,7 @@ fn saves_workspace_distinguishes_completed_empty_from_refreshing() {
     app.session.instance = instance;
     app.workspace = Workspace::Saves;
 
-    app.start_operation(OperationKind::RefreshSaves, RefreshSavesJob);
+    app.start_operation(RefreshSavesJob);
     app.finish_operation_after_terminal();
     let completed = render(&mut app, 80, 24);
     assert!(
@@ -422,7 +442,7 @@ fn saves_workspace_distinguishes_completed_empty_from_refreshing() {
         "completed empty shows the ordinary message"
     );
 
-    app.start_operation(OperationKind::RefreshSaves, RefreshSavesJob);
+    app.start_operation(RefreshSavesJob);
     let refreshing = render(&mut app, 80, 24);
     assert!(refreshing.contains("Refreshing saves…"));
     assert!(!refreshing.contains("No saves"));
@@ -431,13 +451,13 @@ fn saves_workspace_distinguishes_completed_empty_from_refreshing() {
 
 #[test]
 fn cached_saves_remain_visible_during_refresh() {
-    use crate::app::{OperationKind, RefreshSavesJob, Workspace};
+    use crate::app::{RefreshSavesJob, Workspace};
     use crate::test_support::save_info;
     let mut app = App::sample();
     app.workspace = Workspace::Saves;
     app.saves.entries = vec![save_info("Cached.fos", 1, None)];
     app.saves.list.select(Some(0));
-    app.start_operation(OperationKind::RefreshSaves, RefreshSavesJob);
+    app.start_operation(RefreshSavesJob);
 
     let out = render(&mut app, 80, 24);
 
