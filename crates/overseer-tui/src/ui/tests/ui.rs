@@ -391,6 +391,48 @@ fn download_refresh_failure_is_persistent_and_not_color_only() {
 
     assert!(out.contains("FAILED"), "failure has an explicit text state");
     assert!(out.contains("Downloads refresh"), "the operation is named");
+    assert_eq!(operation::height(&app), 2);
+}
+
+#[test]
+fn deploy_before_progress_uses_an_indeterminate_spinner() {
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    let mut app = App::sample();
+    app.handle_key(KeyEvent::new(KeyCode::Char('D'), KeyModifiers::NONE));
+    app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+    let out = render(&mut app, 60, 16);
+
+    assert!(out.contains("/ Deploy"));
+    assert!(out.contains("Planning deployment"));
+    app.finish_operation_after_terminal();
+}
+
+#[test]
+fn deploy_success_remains_persistent_with_exact_file_count() {
+    use overseer_core::instance::{Instance, Profile};
+    use overseer_core::test_support::{install_mod, save_profile, temp_instance};
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    let (_temp, scaffold) = temp_instance();
+    let instance = Instance::init(scaffold.root.clone(), scaffold.config.clone())
+        .expect("initialize instance");
+    install_mod(&instance, "CoolMod", &[("Textures/a.dds", "pixels")]);
+    save_profile(&instance, "Default", &[("CoolMod", true)]);
+
+    let mut app = App::sample();
+    app.session.profile = Profile::load(&instance, "Default").expect("load profile");
+    app.session.instance = instance;
+    app.handle_key(KeyEvent::new(KeyCode::Char('D'), KeyModifiers::NONE));
+    app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    app.finish_operation_after_terminal();
+
+    let out = render(&mut app, 44, 16);
+
+    assert!(out.contains("COMPLETE"));
+    assert!(out.contains("Deploy"));
+    assert!(out.contains("Deployed 1 files"));
+    assert_eq!(operation::height(&app), 2);
 }
 
 #[test]

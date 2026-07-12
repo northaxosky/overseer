@@ -3,11 +3,14 @@
 use super::*;
 
 use camino::Utf8PathBuf;
-use overseer_core::deploy::FileConflict;
+use overseer_core::apply::{self, DeploymentStatus};
+use overseer_core::deploy::{FileConflict, NullSink};
+use overseer_core::instance::{Instance, ModKind, ModListEntry};
 use overseer_core::settings::{DownloadsSort, DownloadsSortKey, SavesSort, SavesSortKey, SortDir};
+use overseer_core::test_support::{install_mod, save_profile, temp_instance};
 use overseer_diagnostics::{Finding, Report};
 
-use super::super::protocol::{OperationFailure, OperationKind};
+use super::super::protocol::{OperationFailure, OperationKind, OperationRecovery};
 use crate::app::{Focus, Info, Modal, Workspace};
 use crate::test_support::{download_entry, save_info};
 
@@ -23,6 +26,61 @@ fn conflict(relative: &str, winner: &str) -> FileConflict {
         relative: Utf8PathBuf::from(relative),
         providers: vec!["Loser".to_owned(), winner.to_owned()],
     }
+}
+
+fn live_status() -> (tempfile::TempDir, DeploymentStatus) {
+    let (temp, scaffold) = temp_instance();
+    let instance = Instance::init(scaffold.root.clone(), scaffold.config.clone())
+        .expect("initialize instance");
+    install_mod(&instance, "CoolMod", &[("Textures/a.dds", "pixels")]);
+    save_profile(&instance, "Default", &[("CoolMod", true)]);
+    apply::deploy_profile(&instance, "Default", &NullSink).expect("deploy fixture");
+    let status = apply::status(&instance)
+        .expect("read status")
+        .expect("live deployment");
+    (temp, status)
+}
+
+fn seed_ephemeral_view_state(app: &mut App) {
+    app.session.profile.mods.push(ModListEntry {
+        name: "Group_separator".to_owned(),
+        enabled: false,
+        kind: ModKind::Separator,
+    });
+    app.mods.reset(&app.session.profile.mods);
+    app.mods.toggle_separator(0);
+    app.mods.select(Some(1));
+    app.plugins.select(Some(1));
+    app.focus = Focus::Workspace;
+    app.workspace = Workspace::Saves;
+    app.conflicts.status = ConflictsStatus::Ready(vec![conflict("cached.dds", "Winner")]);
+    app.downloads.entries = vec![download_entry("Cached.zip", 1, 1, false)];
+    app.saves.entries = vec![save_info("Cached.fos", 1, None)];
+}
+
+fn assert_ephemeral_view_state(app: &App) {
+    assert_eq!(app.mods.index(), Some(1));
+    assert_eq!(app.plugins.index(), Some(1));
+    assert_eq!(app.focus, Focus::Workspace);
+    assert_eq!(app.workspace, Workspace::Saves);
+    assert!(
+        app.mods
+            .project(&app.session.profile.mods)
+            .iter()
+            .any(|row| matches!(
+                row,
+                crate::app::ModPaneRow::Separator {
+                    collapsed: true,
+                    ..
+                }
+            ))
+    );
+    assert!(matches!(
+        app.conflicts.status,
+        ConflictsStatus::Ready(ref found) if found[0].relative == "cached.dds"
+    ));
+    assert_eq!(app.downloads.entries[0].name, "Cached.zip");
+    assert_eq!(app.saves.entries[0].file_name, "Cached.fos");
 }
 
 #[test]
@@ -75,6 +133,117 @@ fn same_context_applies_and_profile_or_root_changes_discard() {
         changed_root.operation,
         OperationState::Completed(_)
     ));
+}
+
+#[test]
+fn deploy_success_updates_only_status_and_persistent_completion() {
+    let (_temp, status) = live_status();
+    let mut app = App::sample();
+    seed_ephemeral_view_state(&mut app);
+    let root_before = app.session.instance.root.clone();
+    let mods_before = app.session.profile.mods.clone();
+    let plugins_before = app.session.order.plugins.clone();
+    let discovered_before = app.session.discovered.clone();
+    let separators_before = app.session.plugin_separators.items.clone();
+    let result = completion(
+        &app,
+        Ok(OperationOutput::Deploy {
+            status: Some(status),
+            files: 1,
+        }),
+    );
+
+    app.apply_completion(OperationKind::Deploy, result);
+
+    assert!(app.session.status.is_some());
+    assert_eq!(app.session.instance.root, root_before);
+    assert_eq!(app.session.profile.mods, mods_before);
+    assert_eq!(app.session.order.plugins, plugins_before);
+    assert_eq!(app.session.discovered, discovered_before);
+    assert_eq!(app.session.plugin_separators.items, separators_before);
+    assert_ephemeral_view_state(&app);
+    assert!(matches!(
+        app.operation,
+        OperationState::Completed(CompletedOperation {
+            kind: OperationKind::Deploy,
+            succeeded: true,
+            ref message,
+        }) if message == "Deployed 1 files"
+    ));
+}
+
+#[test]
+fn purge_success_clears_only_status_and_preserves_view_state() {
+    let (_temp, status) = live_status();
+    let mut app = App::sample();
+    app.session.status = Some(status);
+    seed_ephemeral_view_state(&mut app);
+    let mods_before = app.session.profile.mods.clone();
+    let plugins_before = app.session.order.plugins.clone();
+    let result = completion(&app, Ok(OperationOutput::Purge(None)));
+
+    app.apply_completion(OperationKind::Purge, result);
+
+    assert!(app.session.status.is_none());
+    assert_eq!(app.session.profile.mods, mods_before);
+    assert_eq!(app.session.order.plugins, plugins_before);
+    assert_ephemeral_view_state(&app);
+    assert!(matches!(
+        app.operation,
+        OperationState::Completed(CompletedOperation {
+            kind: OperationKind::Purge,
+            succeeded: true,
+            ref message,
+        }) if message == "Purged the live deployment"
+    ));
+}
+
+#[test]
+fn mutation_failure_applies_typed_status_recovery() {
+    let (_temp, status) = live_status();
+    let mut app = App::sample();
+    app.session.status = None;
+    let result = completion(
+        &app,
+        Err(OperationFailure {
+            message: "Deploy failed: primary".to_owned(),
+            recovery: Some(OperationRecovery::DeploymentStatus(Some(Box::new(status)))),
+            recovery_error: None,
+        }),
+    );
+
+    app.apply_completion(OperationKind::Deploy, result);
+
+    assert!(app.session.status.is_some());
+    assert!(matches!(
+        app.operation,
+        OperationState::Completed(CompletedOperation {
+            succeeded: false,
+            ref message,
+            ..
+        }) if message == "Deploy failed: primary"
+    ));
+}
+
+#[test]
+fn mutation_failure_keeps_primary_and_secondary_recovery_errors() {
+    let mut app = App::sample();
+    let result = completion(
+        &app,
+        Err(OperationFailure {
+            message: "Purge failed: primary".to_owned(),
+            recovery: None,
+            recovery_error: Some("secondary refresh error".to_owned()),
+        }),
+    );
+
+    app.apply_completion(OperationKind::Purge, result);
+
+    let OperationState::Completed(completed) = &app.operation else {
+        panic!("failure remains persistent")
+    };
+    assert!(completed.message.starts_with("Purge failed: primary"));
+    assert!(completed.message.contains("secondary refresh error"));
 }
 
 #[test]

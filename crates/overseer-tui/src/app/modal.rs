@@ -186,6 +186,10 @@ pub(crate) enum ConfirmAction {
     DeleteModSeparator { index: usize },
     /// Delete the plugin separator at this index
     DeletePluginSeparator { index: usize },
+    /// Deploy the active profile
+    Deploy,
+    /// Purge the live deployment
+    Purge,
 }
 
 /// A dismiss-only reference modal with a title and key/description rows

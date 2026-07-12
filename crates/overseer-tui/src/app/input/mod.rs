@@ -96,8 +96,8 @@ impl App {
             KeyCode::Up | KeyCode::Char('k') => self.move_main_selection(-1),
             KeyCode::Char('J') => self.reorder_selected(1),
             KeyCode::Char('K') => self.reorder_selected(-1),
-            KeyCode::Char('D') => self.deploy(),
-            KeyCode::Char('P') => self.purge(),
+            KeyCode::Char('D') => self.begin_deploy(),
+            KeyCode::Char('P') => self.begin_purge(),
             _ => {}
         }
     }

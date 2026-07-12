@@ -1,10 +1,8 @@
 //! Main-view mutations: toggling, reordering, deploying, and purging.
 
-use overseer_core::apply;
-use overseer_core::deploy::NullSink;
 use overseer_core::instance::{ModKind, Profile};
 
-use crate::app::{App, Focus, ModPaneRow, Workspace};
+use crate::app::{App, Confirm, ConfirmAction, Focus, ModPaneRow, Modal, Workspace};
 
 impl App {
     /// Toggle the selected item in the focused pane & report the outcome
@@ -133,34 +131,20 @@ impl App {
         }
     }
 
-    /// Deploy the active profile & report the outcome
-    pub(super) fn deploy(&mut self) {
-        match apply::deploy_profile(
-            &self.session.instance,
-            &self.session.profile.name,
-            &NullSink,
-        ) {
-            Ok(d) => self.ok(format!("Deployed {} files", d.record.entries.len())),
-            Err(e) => self.fail(format!("Deploy failed: {e}")),
-        }
-        self.refresh_status();
+    /// Ask before deploying the active profile on the background worker
+    pub(super) fn begin_deploy(&mut self) {
+        self.modal = Some(Modal::Confirm(Confirm {
+            message: format!("Deploy profile {}?", self.session.profile.name),
+            action: ConfirmAction::Deploy,
+        }));
     }
 
-    /// Purge the live deployment & report the outcome
-    pub(super) fn purge(&mut self) {
-        match apply::purge(&self.session.instance, &NullSink) {
-            Ok(()) => self.ok("Purged the live deployment"),
-            Err(e) => self.fail(format!("Purge failed: {e}")),
-        }
-        self.refresh_status();
-    }
-
-    /// Refresh cached deployment status after deploy/purge without surfacing probe failures
-    fn refresh_status(&mut self) {
-        self.session.status = apply::status(&self.session.instance).unwrap_or_else(|e| {
-            tracing::warn!(error = %e, "could not read deployment status");
-            None
-        });
+    /// Ask before purging the live deployment on the background worker
+    pub(super) fn begin_purge(&mut self) {
+        self.modal = Some(Modal::Confirm(Confirm {
+            message: "Purge the live deployment?".to_owned(),
+            action: ConfirmAction::Purge,
+        }));
     }
 }
 

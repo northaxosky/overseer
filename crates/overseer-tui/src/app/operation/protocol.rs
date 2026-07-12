@@ -1,8 +1,10 @@
 //! Typed operation messages shared by jobs, the runner, and the reducer
 
 use camino::Utf8PathBuf;
+use overseer_core::apply::{self, DeploymentStatus};
 use overseer_core::deploy::FileConflict;
 use overseer_core::install::DownloadEntry;
+use overseer_core::instance::Instance;
 use overseer_core::saves::SaveInfo;
 use overseer_diagnostics::Report;
 
@@ -69,6 +71,10 @@ pub(crate) enum OperationPhase {
     RunningDiagnostics,
     ReadingSaves,
     ListingDownloads,
+    Deploying,
+    Purging,
+    Restoring,
+    Finalizing,
 }
 
 impl OperationPhase {
@@ -82,6 +88,10 @@ impl OperationPhase {
             Self::RunningDiagnostics => "Gathering setup diagnostics",
             Self::ReadingSaves => "Reading and parsing save headers",
             Self::ListingDownloads => "Listing archive metadata",
+            Self::Deploying => "Deploying and backing up",
+            Self::Purging => "Purging deployment",
+            Self::Restoring => "Restoring deployment",
+            Self::Finalizing => "Finalizing",
         }
     }
 
@@ -121,6 +131,11 @@ pub(crate) enum OperationOutput {
     RefreshSaves(Vec<SaveInfo>),
     Doctor(Report),
     ScanConflicts(Vec<FileConflict>),
+    Purge(Option<DeploymentStatus>),
+    Deploy {
+        status: Option<DeploymentStatus>,
+        files: usize,
+    },
 }
 
 impl OperationOutput {
@@ -131,6 +146,8 @@ impl OperationOutput {
             Self::RefreshSaves(_) => OperationKind::RefreshSaves,
             Self::Doctor(_) => OperationKind::Doctor,
             Self::ScanConflicts(_) => OperationKind::ScanConflicts,
+            Self::Purge(_) => OperationKind::Purge,
+            Self::Deploy { .. } => OperationKind::Deploy,
         }
     }
 }
@@ -138,6 +155,13 @@ impl OperationOutput {
 #[derive(Debug)]
 pub(crate) struct OperationFailure {
     pub(crate) message: String,
+    pub(crate) recovery: Option<OperationRecovery>,
+    pub(crate) recovery_error: Option<String>,
+}
+
+#[derive(Debug)]
+pub(crate) enum OperationRecovery {
+    DeploymentStatus(Option<Box<DeploymentStatus>>),
 }
 
 impl OperationFailure {
@@ -145,6 +169,40 @@ impl OperationFailure {
     pub(super) fn new(message: impl Into<String>) -> Self {
         Self {
             message: message.into(),
+            recovery: None,
+            recovery_error: None,
+        }
+    }
+
+    /// Preserve the primary failure while probing authoritative deployment status
+    pub(super) fn with_deployment_recovery(
+        message: impl Into<String>,
+        instance: &Instance,
+    ) -> Self {
+        let message = message.into();
+
+        match apply::status(instance) {
+            Ok(status) => Self {
+                message,
+                recovery: Some(OperationRecovery::DeploymentStatus(status.map(Box::new))),
+                recovery_error: None,
+            },
+            Err(error) => Self {
+                message,
+                recovery: None,
+                recovery_error: Some(error.to_string()),
+            },
+        }
+    }
+
+    /// Combine primary and secondary failure details for persistent display
+    pub(crate) fn display_message(&self) -> String {
+        match &self.recovery_error {
+            Some(error) => format!(
+                "{}; deployment status recovery failed: {error}",
+                self.message
+            ),
+            None => self.message.clone(),
         }
     }
 }
@@ -158,7 +216,11 @@ pub(super) struct WorkerCompletion {
 #[derive(Debug)]
 pub(super) enum WorkerEvent {
     Phase(OperationPhase),
-    Completion(WorkerCompletion),
+    Started(usize),
+    Deployed { index: usize, relative: Utf8PathBuf },
+    Removed { index: usize, relative: Utf8PathBuf },
+    Finished,
+    Completion(Box<WorkerCompletion>),
 }
 
 #[cfg(test)]

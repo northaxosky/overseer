@@ -1,7 +1,7 @@
 //! Tests for the Confirm modal
 
 use crate::app::input::test_helpers::key;
-use crate::app::{App, Confirm, ConfirmAction, Focus, ModPaneRow, Modal};
+use crate::app::{App, Confirm, ConfirmAction, Focus, ModPaneRow, Modal, OperationKind};
 use overseer_core::instance::{ModKind, ModListEntry, Profile};
 use ratatui::crossterm::event::KeyCode;
 
@@ -45,6 +45,30 @@ fn enter_accepts_the_confirm_and_runs_its_action() {
         app.message.is_some(),
         "Enter runs the staged action, unlike n/Esc which do nothing"
     );
+}
+
+#[test]
+fn accepting_deploy_confirmation_submits_the_concrete_job() {
+    let mut app = App::sample();
+    app.handle_key(key(KeyCode::Char('D')));
+
+    app.handle_key(key(KeyCode::Enter));
+
+    assert!(app.modal.is_none());
+    assert_eq!(app.running_operation_kind(), Some(OperationKind::Deploy));
+    app.finish_operation_after_terminal();
+}
+
+#[test]
+fn accepting_purge_confirmation_submits_the_concrete_job() {
+    let mut app = App::sample();
+    app.handle_key(key(KeyCode::Char('P')));
+
+    app.handle_key(key(KeyCode::Char('y')));
+
+    assert!(app.modal.is_none());
+    assert_eq!(app.running_operation_kind(), Some(OperationKind::Purge));
+    app.finish_operation_after_terminal();
 }
 
 /// A three-row profile `[A, <separator>, B]` seeded on disk under a temp instance

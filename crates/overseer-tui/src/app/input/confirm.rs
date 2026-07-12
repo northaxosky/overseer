@@ -1,6 +1,8 @@
 //! The Confirm modal: a yes/no gate that runs a [`ConfirmAction`] on accept
 
-use crate::app::{App, Confirm, ConfirmAction, Focus, ModPaneRow, Modal, separator_display};
+use crate::app::{
+    App, Confirm, ConfirmAction, DeployJob, Focus, ModPaneRow, Modal, PurgeJob, separator_display,
+};
 use ratatui::crossterm::event::{KeyCode, KeyEvent};
 
 impl App {
@@ -24,6 +26,8 @@ impl App {
             ConfirmAction::RemoveExe(name) => self.remove_exe(&name),
             ConfirmAction::DeleteModSeparator { index } => self.delete_mod_separator(index),
             ConfirmAction::DeletePluginSeparator { index } => self.delete_plugin_separator(index),
+            ConfirmAction::Deploy => self.start_operation(DeployJob),
+            ConfirmAction::Purge => self.start_operation(PurgeJob),
         }
     }
 

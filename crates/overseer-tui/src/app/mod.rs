@@ -12,8 +12,8 @@ pub(crate) use modal::{
     Confirm, ConfirmAction, DoctorReport, Info, Modal, Prompt, PromptKind, Select, SelectKind,
 };
 pub(crate) use operation::{
-    DoctorJob, OperationKind, OperationState, RefreshDownloadsJob, RefreshSavesJob,
-    ScanConflictsJob,
+    DeployJob, DoctorJob, OperationKind, OperationProgress, OperationState, PurgeJob,
+    RefreshDownloadsJob, RefreshSavesJob, ScanConflictsJob,
 };
 pub(crate) use pane::{ModPaneRow, ModsPane, PluginPaneRow, PluginsPane};
 pub(crate) use sort::{downloads_sort_label, saves_sort_label};

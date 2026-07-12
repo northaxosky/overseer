@@ -2,8 +2,10 @@
 
 use super::super::sort::{sort_downloads, sort_saves};
 use super::super::{App, ConflictsStatus, DoctorReport, ListCursor, Modal};
-use super::protocol::{OperationContext, OperationOutput, WorkerCompletion};
-use super::runner::{CompletedOperation, OperationState};
+use super::protocol::{
+    OperationContext, OperationOutput, OperationRecovery, WorkerCompletion, WorkerEvent,
+};
+use super::runner::{CompletedOperation, OperationProgress, OperationState, RunningOperation};
 use overseer_core::deploy::FileConflict;
 use overseer_core::install::DownloadEntry;
 use overseer_core::saves::SaveInfo;
@@ -53,11 +55,34 @@ impl App {
                         self.open_completed_doctor(report);
                         self.operation = OperationState::Idle;
                     }
+                    OperationOutput::Deploy { status, files } => {
+                        self.session.status = status;
+                        self.operation = OperationState::Completed(CompletedOperation::succeeded(
+                            kind,
+                            format!("Deployed {files} files"),
+                        ));
+                    }
+                    OperationOutput::Purge(status) => {
+                        self.session.status = status;
+                        self.operation = OperationState::Completed(CompletedOperation::succeeded(
+                            kind,
+                            "Purged the live deployment",
+                        ));
+                    }
                 }
             }
             Err(failure) => {
+                let message = failure.display_message();
+
+                if matches!(
+                    kind,
+                    super::OperationKind::Deploy | super::OperationKind::Purge
+                ) && let Some(OperationRecovery::DeploymentStatus(status)) = failure.recovery
+                {
+                    self.session.status = status.map(|status| *status);
+                }
                 self.operation =
-                    OperationState::Completed(CompletedOperation::failed(kind, failure.message));
+                    OperationState::Completed(CompletedOperation::failed(kind, message));
             }
         }
     }
@@ -127,6 +152,33 @@ impl App {
         self.saves.entries = entries;
         self.saves.list.select(selection);
         self.saves.list.clamp(self.saves.entries.len());
+    }
+}
+
+/// Reduce one worker event into running operation state
+pub(super) fn reduce_worker_event(running: &mut RunningOperation, event: WorkerEvent) {
+    match event {
+        WorkerEvent::Phase(phase) => {
+            running.view.phase = phase;
+        }
+        WorkerEvent::Started(total) => {
+            running.view.progress = Some(OperationProgress::new(total));
+        }
+        WorkerEvent::Deployed { index, relative } | WorkerEvent::Removed { index, relative } => {
+            if let Some(progress) = &mut running.view.progress {
+                progress.completed = index.saturating_add(1).min(progress.total);
+                progress.current = Some(relative);
+            }
+        }
+        WorkerEvent::Finished => {
+            if let Some(progress) = &mut running.view.progress {
+                progress.completed = progress.total;
+                progress.finished = true;
+            }
+        }
+        WorkerEvent::Completion(completion) => {
+            running.completion = Some(completion);
+        }
     }
 }
 

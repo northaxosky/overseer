@@ -1,10 +1,13 @@
 //! Background operation execution and UI state
 
 mod jobs;
+mod progress;
 pub(crate) mod protocol;
 mod reducer;
 pub(crate) mod runner;
 
-pub(crate) use jobs::{DoctorJob, RefreshDownloadsJob, RefreshSavesJob, ScanConflictsJob};
+pub(crate) use jobs::{
+    DeployJob, DoctorJob, PurgeJob, RefreshDownloadsJob, RefreshSavesJob, ScanConflictsJob,
+};
 pub(crate) use protocol::OperationKind;
-pub(crate) use runner::OperationState;
+pub(crate) use runner::{OperationProgress, OperationState};

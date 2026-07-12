@@ -6,6 +6,8 @@ use std::io;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::mpsc::{Receiver as GateReceiver, SyncSender as GateSender};
 
+use camino::Utf8PathBuf;
+use overseer_core::deploy::{ProgressEvent, ProgressSink};
 use overseer_core::install::DownloadEntry;
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
@@ -115,6 +117,38 @@ impl BackgroundJob for SaturatingJob {
             reporter.phase(phase);
         }
         Ok(OperationOutput::RefreshDownloads(Vec::new()))
+    }
+}
+
+struct SaturatingTelemetryJob {
+    ready: GateSender<()>,
+    release: GateReceiver<()>,
+}
+
+impl BackgroundJob for SaturatingTelemetryJob {
+    const KIND: OperationKind = OperationKind::Deploy;
+
+    fn run(
+        self,
+        _context: &OperationContext,
+        reporter: &OperationReporter,
+    ) -> Result<OperationOutput, OperationFailure> {
+        let progress = reporter.progress_sink();
+        let total = CHANNEL_CAPACITY * 2;
+        progress.on_event(ProgressEvent::Started { total });
+        for index in 0..total {
+            progress.on_event(ProgressEvent::Deployed {
+                index,
+                relative: camino::Utf8Path::new("Textures/a.dds"),
+            });
+        }
+        self.ready.send(()).expect("test receives saturation");
+        self.release.recv().expect("test releases completion");
+        progress.on_event(ProgressEvent::Finished);
+        Ok(OperationOutput::Deploy {
+            status: None,
+            files: total,
+        })
     }
 }
 
@@ -271,7 +305,7 @@ fn completion_is_discarded_when_join_panics() {
     let context = OperationContext::capture(&app.session);
     let (sender, receiver) = sync_channel(CHANNEL_CAPACITY);
     sender
-        .send(WorkerEvent::Completion(WorkerCompletion {
+        .send(WorkerEvent::Completion(Box::new(WorkerCompletion {
             context: context.clone(),
             outcome: Ok(OperationOutput::RefreshDownloads(vec![download_entry(
                 "Ignored.zip",
@@ -279,7 +313,7 @@ fn completion_is_discarded_when_join_panics() {
                 1,
                 false,
             )])),
-        }))
+        })))
         .expect("queue completion");
     drop(sender);
     let handle = thread::spawn(|| panic!("panic after queued completion"));
@@ -324,7 +358,7 @@ fn queued_completion_is_reduced_before_disconnect() {
         .send(WorkerEvent::Phase(OperationPhase::ListingDownloads))
         .expect("queue phase");
     sender
-        .send(WorkerEvent::Completion(WorkerCompletion {
+        .send(WorkerEvent::Completion(Box::new(WorkerCompletion {
             context: context.clone(),
             outcome: Ok(OperationOutput::RefreshDownloads(vec![download_entry(
                 "Applied.zip",
@@ -332,7 +366,7 @@ fn queued_completion_is_reduced_before_disconnect() {
                 1,
                 false,
             )])),
-        }))
+        })))
         .expect("queue completion");
     drop(sender);
     let handle = thread::spawn(|| {});
@@ -534,6 +568,138 @@ fn terminal_shutdown_drains_a_full_control_channel_before_join() {
 
     assert!(matches!(app.operation, OperationState::Idle));
 }
+
+#[test]
+fn saturated_file_telemetry_preserves_lifecycle_and_completion() {
+    let context = OperationContext::capture(&App::sample().session);
+    let (ready_sender, ready_receiver) = sync_channel(0);
+    let (release_sender, release_receiver) = sync_channel(0);
+    let request = WorkerRequest::new(
+        context,
+        SaturatingTelemetryJob {
+            ready: ready_sender,
+            release: release_receiver,
+        },
+    );
+    let (sender, receiver) = sync_channel(CHANNEL_CAPACITY);
+    let handle = thread::spawn(move || run_worker(request, sender));
+
+    ready_receiver.recv().expect("worker saturates channel");
+    let mut started = false;
+    let mut deployed = 0;
+    while let Ok(event) = receiver.try_recv() {
+        match event {
+            WorkerEvent::Started(_) => started = true,
+            WorkerEvent::Deployed { .. } => deployed += 1,
+            WorkerEvent::Phase(_) => {}
+            WorkerEvent::Removed { .. } | WorkerEvent::Finished | WorkerEvent::Completion(_) => {
+                panic!("worker is gated before terminal events")
+            }
+        }
+    }
+    assert!(started, "Started remains lossless");
+    assert!(
+        deployed < CHANNEL_CAPACITY * 2,
+        "full-channel file events are dropped"
+    );
+
+    release_sender.send(()).expect("release worker");
+    assert!(matches!(
+        receiver.recv().expect("finish"),
+        WorkerEvent::Finished
+    ));
+    assert!(matches!(
+        receiver.recv().expect("completion"),
+        WorkerEvent::Completion(_)
+    ));
+    handle.join().expect("worker joins");
+}
+
+fn event_running(kind: OperationKind) -> RunningOperation {
+    let context = OperationContext::capture(&App::sample().session);
+    let (_sender, receiver) = sync_channel(1);
+    RunningOperation {
+        context,
+        view: OperationView::new(kind),
+        receiver,
+        handle: Some(thread::spawn(|| {})),
+        completion: None,
+    }
+}
+
+#[test]
+fn every_started_event_resets_the_progress_cycle() {
+    let mut running = event_running(OperationKind::Deploy);
+    reduce_worker_event(&mut running, WorkerEvent::Started(3));
+    reduce_worker_event(
+        &mut running,
+        WorkerEvent::Deployed {
+            index: 1,
+            relative: Utf8PathBuf::from("Textures/a.dds"),
+        },
+    );
+    reduce_worker_event(&mut running, WorkerEvent::Finished);
+    reduce_worker_event(&mut running, WorkerEvent::Started(0));
+
+    let progress = running.view.progress.as_ref().expect("fresh progress");
+    assert_eq!(progress.completed, 0);
+    assert_eq!(progress.total, 0);
+    assert!(progress.current.is_none());
+    assert!(!progress.finished);
+    running.handle.take().expect("handle").join().expect("join");
+}
+
+#[test]
+fn file_events_clamp_completion_and_replace_the_current_path() {
+    let mut running = event_running(OperationKind::Deploy);
+    reduce_worker_event(&mut running, WorkerEvent::Started(2));
+    reduce_worker_event(
+        &mut running,
+        WorkerEvent::Deployed {
+            index: usize::MAX,
+            relative: Utf8PathBuf::from("Textures/last.dds"),
+        },
+    );
+    let progress = running.view.progress.as_ref().expect("progress");
+    assert_eq!(progress.completed, 2);
+    assert_eq!(
+        progress.current.as_deref(),
+        Some(camino::Utf8Path::new("Textures/last.dds"))
+    );
+
+    reduce_worker_event(
+        &mut running,
+        WorkerEvent::Removed {
+            index: 0,
+            relative: Utf8PathBuf::from("Meshes/first.nif"),
+        },
+    );
+    let progress = running.view.progress.as_ref().expect("progress");
+    assert_eq!(progress.completed, 1);
+    assert_eq!(
+        progress.current.as_deref(),
+        Some(camino::Utf8Path::new("Meshes/first.nif"))
+    );
+    running.handle.take().expect("handle").join().expect("join");
+}
+
+#[test]
+fn finished_marks_zero_total_progress_complete_without_division() {
+    let mut running = event_running(OperationKind::Purge);
+    reduce_worker_event(&mut running, WorkerEvent::Started(0));
+    assert_eq!(
+        running.view.progress.as_ref().expect("progress").fraction(),
+        0.0
+    );
+
+    reduce_worker_event(&mut running, WorkerEvent::Finished);
+    let progress = running.view.progress.as_ref().expect("progress");
+    assert_eq!(progress.completed, 0);
+    assert!(progress.finished);
+    assert_eq!(progress.fraction(), 1.0);
+    running.handle.take().expect("handle").join().expect("join");
+}
+
 #[test]
 fn completed_state_survives_ordinary_keys_and_enter_dismisses_it() {
     let mut app = App::sample();

@@ -5,10 +5,12 @@ use std::sync::mpsc::{Receiver, SyncSender, TryRecvError, sync_channel};
 use std::thread::{self, JoinHandle};
 
 use super::super::App;
+use super::progress::ChannelProgressSink;
 use super::protocol::{
     OperationContext, OperationFailure, OperationKind, OperationOutput, OperationPhase,
     WorkerCompletion, WorkerEvent,
 };
+use super::reducer::reduce_worker_event;
 
 const CHANNEL_CAPACITY: usize = 64;
 
@@ -41,13 +43,14 @@ impl<J: BackgroundJob> WorkerRequest<J> {
 }
 
 pub(crate) struct OperationReporter {
+    kind: OperationKind,
     sender: SyncSender<WorkerEvent>,
 }
 
 impl OperationReporter {
     /// Create a reporter over the worker event channel
-    fn new(sender: SyncSender<WorkerEvent>) -> Self {
-        Self { sender }
+    fn new(kind: OperationKind, sender: SyncSender<WorkerEvent>) -> Self {
+        Self { kind, sender }
     }
 
     /// Send a lossless phase update to the UI
@@ -56,13 +59,18 @@ impl OperationReporter {
             tracing::debug!("operation receiver closed before phase update");
         }
     }
+
+    /// Build an owned-path progress adapter over this reporter's channel
+    pub(super) fn progress_sink(&self) -> ChannelProgressSink {
+        ChannelProgressSink::new(self.kind, self.sender.clone())
+    }
 }
 
 /// Execute one request and send at most one completion
 fn run_worker<J: BackgroundJob>(request: WorkerRequest<J>, sender: SyncSender<WorkerEvent>) {
     let kind = J::KIND;
     let WorkerRequest { context, job } = request;
-    let reporter = OperationReporter::new(sender.clone());
+    let reporter = OperationReporter::new(kind, sender.clone());
     let outcome = job.run(&context, &reporter);
 
     if let Ok(output) = &outcome {
@@ -70,7 +78,10 @@ fn run_worker<J: BackgroundJob>(request: WorkerRequest<J>, sender: SyncSender<Wo
     }
 
     let completion = WorkerCompletion { context, outcome };
-    if sender.send(WorkerEvent::Completion(completion)).is_err() {
+    if sender
+        .send(WorkerEvent::Completion(Box::new(completion)))
+        .is_err()
+    {
         tracing::debug!("operation receiver closed before completion");
     }
 }
@@ -80,6 +91,7 @@ pub(crate) struct OperationView {
     pub(crate) kind: OperationKind,
     pub(crate) phase: OperationPhase,
     pub(crate) spinner: usize,
+    pub(crate) progress: Option<OperationProgress>,
 }
 
 impl OperationView {
@@ -89,7 +101,36 @@ impl OperationView {
             kind,
             phase: OperationPhase::initial(kind),
             spinner: 0,
+            progress: None,
         }
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct OperationProgress {
+    pub(crate) completed: usize,
+    pub(crate) total: usize,
+    pub(crate) current: Option<camino::Utf8PathBuf>,
+    pub(crate) finished: bool,
+}
+
+impl OperationProgress {
+    /// Begin a fresh progress cycle with no completed entries
+    pub(super) fn new(total: usize) -> Self {
+        Self {
+            completed: 0,
+            total,
+            current: None,
+            finished: false,
+        }
+    }
+
+    /// Return a clamped fraction with explicit zero-total completion
+    pub(crate) fn fraction(&self) -> f64 {
+        if self.total == 0 {
+            return f64::from(self.finished);
+        }
+        self.completed.min(self.total) as f64 / self.total as f64
     }
 }
 
@@ -99,7 +140,7 @@ pub(crate) struct RunningOperation {
     pub(crate) view: OperationView,
     receiver: Receiver<WorkerEvent>,
     handle: Option<JoinHandle<()>>,
-    completion: Option<WorkerCompletion>,
+    pub(super) completion: Option<Box<WorkerCompletion>>,
 }
 
 #[derive(Debug)]
@@ -115,6 +156,15 @@ impl CompletedOperation {
         Self {
             kind,
             succeeded: false,
+            message: message.into(),
+        }
+    }
+
+    /// Build a persistent successful completion
+    pub(super) fn succeeded(kind: OperationKind, message: impl Into<String>) -> Self {
+        Self {
+            kind,
+            succeeded: true,
             message: message.into(),
         }
     }
@@ -349,17 +399,7 @@ impl App {
         };
 
         debug_assert_eq!(running.context, completion.context);
-        self.apply_completion(running.view.kind, completion);
-    }
-}
-
-/// Reduce one worker event into the running operation state
-fn reduce_worker_event(running: &mut RunningOperation, event: WorkerEvent) {
-    match event {
-        WorkerEvent::Phase(phase) => running.view.phase = phase,
-        WorkerEvent::Completion(completion) => {
-            running.completion = Some(completion);
-        }
+        self.apply_completion(running.view.kind, *completion);
     }
 }
 

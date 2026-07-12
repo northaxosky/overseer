@@ -2,6 +2,7 @@
 
 use super::*;
 
+use overseer_core::apply::DeploymentStatus;
 use overseer_core::deploy::FileConflict;
 use overseer_core::install::DownloadEntry;
 use overseer_core::saves::SaveInfo;
@@ -29,16 +30,27 @@ fn runner_boundary_types_are_send() {
     fn assert_send<T: Send>() {}
 
     assert_send::<Session>();
+    assert_send::<DeploymentStatus>();
     assert_send::<Report>();
     assert_send::<Vec<FileConflict>>();
     assert_send::<Vec<SaveInfo>>();
     assert_send::<Vec<DownloadEntry>>();
+    assert_send::<OperationOutput>();
+    assert_send::<OperationRecovery>();
     assert_send::<WorkerRequest<TestJob>>();
 }
 
 #[test]
 fn typed_outputs_map_to_their_operation_kinds() {
     let cases = [
+        (
+            OperationOutput::Deploy {
+                status: None,
+                files: 3,
+            },
+            OperationKind::Deploy,
+        ),
+        (OperationOutput::Purge(None), OperationKind::Purge),
         (
             OperationOutput::ScanConflicts(Vec::new()),
             OperationKind::ScanConflicts,
@@ -60,6 +72,20 @@ fn typed_outputs_map_to_their_operation_kinds() {
     for (output, expected) in cases {
         assert_eq!(output.kind(), expected);
     }
+}
+
+#[test]
+fn failure_display_keeps_primary_and_recovery_errors() {
+    let failure = OperationFailure {
+        message: "Deploy failed: primary".to_owned(),
+        recovery: None,
+        recovery_error: Some("secondary".to_owned()),
+    };
+
+    assert_eq!(
+        failure.display_message(),
+        "Deploy failed: primary; deployment status recovery failed: secondary"
+    );
 }
 
 #[test]
