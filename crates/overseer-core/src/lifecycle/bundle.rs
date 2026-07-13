@@ -15,7 +15,10 @@ const BUNDLE_DIR: &str = "pending-mod-operation";
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub(super) enum Operation {
+    Install,
     Remove,
+    Replace,
+    Reinstall,
 }
 
 #[derive(Debug, Serialize)]

@@ -299,3 +299,26 @@ fn plan_excludes_a_mods_meta_ini() {
         Utf8Path::new("Textures").join("x.dds")
     );
 }
+
+#[test]
+fn plan_excludes_overseer_provenance_only_at_mod_root() {
+    let (_tmp, base) = temp();
+    let m = base.join("mods/A");
+    write(&m.join(".overseer-mod.toml"), "format = 1");
+    write(&m.join("nested/.overseer-mod.toml"), "game content");
+    write(&m.join("Textures/x.dds"), "pix");
+
+    let plan = DeployPlan::from_mods(base.join("Data"), &[ModSource::new("A", &m)]).expect("plan");
+
+    assert_eq!(plan.len(), 2);
+    assert!(
+        plan.files()
+            .iter()
+            .any(|file| file.relative == Utf8Path::new("nested/.overseer-mod.toml"))
+    );
+    assert!(
+        plan.files()
+            .iter()
+            .all(|file| file.relative != Utf8Path::new(".overseer-mod.toml"))
+    );
+}

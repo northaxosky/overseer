@@ -205,3 +205,17 @@ fn per_mod_meta_ini_is_excluded_from_conflicts() {
         Utf8Path::new("Textures").join("shared.dds")
     );
 }
+
+#[test]
+fn overseer_provenance_is_excluded_from_conflicts() {
+    let (_tmp, base) = temp();
+    let a = base.join("mods/A");
+    let b = base.join("mods/B");
+    write(&a.join(".overseer-mod.toml"), "archive = \"A.zip\"");
+    write(&b.join(".OVERSEER-MOD.TOML"), "archive = \"B.zip\"");
+
+    let conflicts =
+        detect_conflicts(&[ModSource::new("A", &a), ModSource::new("B", &b)]).expect("detect");
+
+    assert!(conflicts.is_empty());
+}

@@ -122,8 +122,11 @@ pub(super) fn walk_mod_files(
             .expect("walked entry is always under a staging dir")
             .to_owned();
 
-        // Exclude per mod `meta.ini`: its metadata, not game content
-        if relative.as_str().eq_ignore_ascii_case("meta.ini") {
+        // Exclude root metadata that is not game content
+        if ["meta.ini", ".overseer-mod.toml"]
+            .iter()
+            .any(|name| relative.as_str().eq_ignore_ascii_case(name))
+        {
             continue;
         }
         f(relative, abs.to_owned())?;

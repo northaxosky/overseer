@@ -94,6 +94,30 @@ fn cleanup_failure_returns_success_and_preserves_exact_manifest() {
     );
 }
 
+#[test]
+fn archive_operations_serialize_operation_and_archive_fields() {
+    let (_temp, instance) = instance();
+    let pending = pending_path(&instance);
+    for (operation, expected) in [
+        (bundle::Operation::Install, "install"),
+        (bundle::Operation::Replace, "replace"),
+        (bundle::Operation::Reinstall, "reinstall"),
+    ] {
+        let manifest = bundle::Manifest {
+            operation,
+            mod_name: "CoolMod".to_owned(),
+            archive: Some("Cool.zip".to_owned()),
+            profiles: Vec::new(),
+        };
+        let value: serde_json::Value =
+            serde_json::from_slice(&bundle::serialize(&pending, &manifest).expect("serialize"))
+                .expect("parse");
+
+        assert_eq!(value["operation"], expected);
+        assert_eq!(value["archive"], "Cool.zip");
+    }
+}
+
 /// Assert that cleanup residue still owns the removed tree
 fn assert_live_tree_in_bundle(pending: &camino::Utf8Path) {
     let path = pending.join("old").join("nested").join("file.txt");

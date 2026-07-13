@@ -50,4 +50,7 @@ pub enum InstallError {
 
     #[error("FOMOD installers aren't supported yet")]
     Fomod,
+
+    #[error("archive content root contains reserved `.overseer-mod.toml` provenance")]
+    ReservedProvenance,
 }

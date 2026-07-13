@@ -190,7 +190,10 @@ impl RemoveTransaction<'_> {
 }
 
 /// Restore one exact supported original modlist
-fn restore_profile(path: &Utf8Path, original: Option<&str>) -> Result<(), crate::IoError> {
+pub(super) fn restore_profile(
+    path: &Utf8Path,
+    original: Option<&str>,
+) -> Result<(), crate::IoError> {
     #[cfg(test)]
     super::failpoint::check(super::failpoint::Point::Restore, path)?;
 

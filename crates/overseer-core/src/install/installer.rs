@@ -1,4 +1,4 @@
-//! The mod installer: extract an archive, find its content root, and stage it under `mods/`
+//! The mod installer: prepare archive content and publish legacy installs under `mods/`
 
 use super::archive::extract;
 use super::error::InstallError;
@@ -27,21 +27,35 @@ pub fn install(
     let staging_root = Utf8Path::from_path(staging.path())
         .ok_or_else(|| InstallError::NonUtf8Path(non_utf8(staging.path())))?;
 
-    extract(archive, staging_root)?;
-    let content_root = find_content_root(staging_root)?;
-
-    if fomod_in_chain(staging_root, &content_root)? {
-        return Err(InstallError::Fomod);
-    }
-
-    if read_dir_is_empty(&content_root)? {
-        return Err(InstallError::EmptyArchive);
-    }
-    move_dir(&content_root, &dest)?;
+    let candidate = prepare_candidate(archive, staging_root)?;
+    move_dir(&candidate, &dest)?;
 
     Ok(InstalledMod {
         name: name.to_owned(),
     })
+}
+
+/// Extract and normalize an archive into `bundle/new`
+pub(crate) fn prepare_candidate(
+    archive: &Utf8Path,
+    bundle: &Utf8Path,
+) -> Result<Utf8PathBuf, InstallError> {
+    let work = bundle.join("work");
+    let candidate = bundle.join("new");
+    extract(archive, &work)?;
+    let content_root = find_content_root(&work)?;
+    if fomod_in_chain(&work, &content_root)? {
+        return Err(InstallError::Fomod);
+    }
+    if child_named(&content_root, ".overseer-mod.toml", false)?.is_some() {
+        return Err(InstallError::ReservedProvenance);
+    }
+    if read_dir_is_empty(&content_root)? {
+        return Err(InstallError::EmptyArchive);
+    }
+    move_dir(&content_root, &candidate)?;
+    fs::remove_dir_all_opt(&work)?;
+    Ok(candidate)
 }
 
 fn read_dir_is_empty(dir: &Utf8Path) -> Result<bool, InstallError> {

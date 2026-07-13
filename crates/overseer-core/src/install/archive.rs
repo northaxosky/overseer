@@ -29,7 +29,7 @@ impl ArchiveFormat {
     }
 
     /// Recognize a format from a path's extension (case-insensitive)
-    pub(super) fn from_path(path: &Utf8Path) -> Option<Self> {
+    pub(crate) fn from_path(path: &Utf8Path) -> Option<Self> {
         path.extension()?.to_ascii_lowercase().parse().ok()
     }
 
