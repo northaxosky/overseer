@@ -29,6 +29,23 @@ fn lists_supported_archives_sorted_ignoring_other_entries() {
 }
 
 #[test]
+fn ignores_symlinked_archives_when_supported() {
+    let (_tmp, instance) = temp_instance();
+    let target = instance.root.join("Outside.zip");
+    touch(&target);
+    let link = instance.downloads_dir().join("Linked.zip");
+    std::fs::create_dir_all(instance.downloads_dir()).expect("create downloads");
+    if let Err(error) = create_file_symlink(&target, &link) {
+        if cfg!(windows) && error.kind() == std::io::ErrorKind::PermissionDenied {
+            return;
+        }
+        panic!("create archive symlink: {error}");
+    }
+
+    assert!(list_downloads(&instance).expect("list").is_empty());
+}
+
+#[test]
 fn installed_flag_tracks_the_mods_directory() {
     let (_tmp, instance) = temp_instance();
     touch(&instance.downloads_dir().join("CoolMod.zip"));
@@ -58,4 +75,14 @@ fn entries_include_size_and_modified_time() {
     assert_eq!(entries.len(), 1);
     assert_eq!(entries[0].size, 3);
     assert_eq!(entries[0].modified, modified);
+}
+
+#[cfg(unix)]
+fn create_file_symlink(target: &camino::Utf8Path, link: &camino::Utf8Path) -> std::io::Result<()> {
+    std::os::unix::fs::symlink(target, link)
+}
+
+#[cfg(windows)]
+fn create_file_symlink(target: &camino::Utf8Path, link: &camino::Utf8Path) -> std::io::Result<()> {
+    std::os::windows::fs::symlink_file(target, link)
 }

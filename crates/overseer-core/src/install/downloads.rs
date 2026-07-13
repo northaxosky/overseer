@@ -32,7 +32,7 @@ pub fn list_downloads(instance: &Instance) -> Result<Vec<DownloadEntry>, Install
     let mut downloads = Vec::new();
     for entry in entries {
         let entry = entry.map_err(|e| io_err(&dir, e))?;
-        if entry.file_type().map_err(|e| io_err(&dir, e))?.is_dir() {
+        if !entry.file_type().map_err(|e| io_err(&dir, e))?.is_file() {
             continue;
         }
         let name = entry.file_name().to_string_lossy().into_owned();
