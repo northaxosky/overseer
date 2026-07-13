@@ -130,7 +130,7 @@ fn failed_install_recovers_the_authoritative_session() {
 }
 
 #[test]
-fn reload_failure_reports_install_success_and_secondary_recovery_error() {
+fn newly_installed_invalid_plugin_stays_safe_while_disabled() {
     let (_temp, mut app) = initialized_app();
     let archive = app.session.instance.downloads_dir().join("BadPlugin.zip");
     write_zip(&archive, &[("BadPlugin.esp", b"not a TES4 plugin")]);
@@ -139,10 +139,15 @@ fn reload_failure_reports_install_success_and_secondary_recovery_error() {
     app.finish_operation_after_terminal();
 
     assert!(app.session.instance.mods_dir().join("BadPlugin").exists());
-    let (message, succeeded) = completed_message(&app);
-    assert!(!succeeded);
-    assert!(message.starts_with("Installed BadPlugin, but reloading failed: "));
-    assert!(message.contains("session recovery failed: "));
+    let entry = app
+        .session
+        .profile
+        .mods
+        .iter()
+        .find(|entry| entry.name == "BadPlugin")
+        .expect("installed profile row");
+    assert!(!entry.enabled);
+    assert_eq!(completed_message(&app), ("Installed BadPlugin", true));
 }
 
 #[test]

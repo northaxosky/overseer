@@ -295,7 +295,7 @@ impl Profile {
             if !self.contains(&m.name) {
                 self.mods.push(ModListEntry {
                     name: m.name.clone(),
-                    enabled: true,
+                    enabled: false,
                     kind: ModKind::Managed,
                 });
                 added += 1;

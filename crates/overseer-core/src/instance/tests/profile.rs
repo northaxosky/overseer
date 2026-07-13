@@ -651,7 +651,7 @@ fn reconcile_appends_newly_installed_at_lowest_priority() {
     assert!(changed);
     // New mod is appended at the back (lowest priority), existing order kept
     assert_eq!(names_of(&profile), ["Existing", "BrandNew"]);
-    assert!(profile.mods[1].enabled);
+    assert!(!profile.mods[1].enabled);
 }
 
 #[test]
