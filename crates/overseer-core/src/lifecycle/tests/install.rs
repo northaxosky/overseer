@@ -5,198 +5,160 @@ use std::io::Write;
 use super::support::*;
 use super::*;
 use crate::install::InstallError;
-use crate::instance::InstanceError;
-use crate::lifecycle::install::install_with;
+use crate::instance::{InstanceError, Profile};
 
 #[test]
-fn install_reuses_direct_download_and_adds_disabled_first_row() {
+fn install_publishes_direct_download_and_leaves_profiles_unchanged() {
     let (_temp, instance) = instance();
-    write_modlist(&instance, "Default", "+Existing\r\n");
-    let archive = download_zip(
+    install_tree(&instance, "Existing");
+    let original = "+Existing\r\n";
+    write_modlist(&instance, "Default", original);
+    download_zip(
         &instance,
         "Cool.zip",
         &[("Textures/a.dds", b"new"), ("Cool.esp", b"plugin")],
     );
-    let archive_bytes = std::fs::read(&archive).expect("read archive");
 
-    let report = install(&instance, "Default", &archive, "CoolMod").expect("install");
+    let report = install(&instance, "Cool.zip", "CoolMod").expect("install");
 
     assert_eq!(report.name, "CoolMod");
-    assert_eq!(report.archive.as_deref(), Some("Cool.zip"));
     assert_eq!(report.residue_warning, None);
-    assert_eq!(read_modlist(&instance, "Default"), "-CoolMod\n+Existing\n");
-    assert_eq!(std::fs::read(&archive).expect("read reused"), archive_bytes);
+    assert_eq!(read_modlist(&instance, "Default"), original);
     assert_eq!(
         std::fs::read_to_string(instance.mods_dir().join("CoolMod/Textures/a.dds"))
             .expect("read installed"),
         "new"
     );
-    assert_eq!(
-        std::fs::read_to_string(
-            instance
-                .mods_dir()
-                .join("CoolMod")
-                .join(crate::lifecycle::archive::PROVENANCE)
-        )
-        .expect("read provenance"),
-        "format = 1\narchive = \"Cool.zip\"\n"
+    assert!(
+        !instance
+            .mods_dir()
+            .join("CoolMod/.overseer-mod.toml")
+            .exists()
     );
-    let entries: Vec<_> = std::fs::read_dir(instance.mods_dir())
-        .expect("read mods")
-        .map(|entry| entry.expect("entry").file_name())
-        .collect();
-    assert_eq!(entries, [std::ffi::OsString::from("CoolMod")]);
     assert!(!pending_path(&instance).exists());
 }
 
 #[test]
-fn install_copies_external_archive_into_downloads() {
-    let (temp, instance) = instance();
-    write_modlist(&instance, "Default", "");
-    let source = camino::Utf8Path::from_path(temp.path())
-        .expect("UTF-8 temp")
-        .join("External.zip");
-    make_zip(&source, &[("Meshes/a.nif", b"mesh")]);
-    let bytes = std::fs::read(&source).expect("read source");
+fn profile_reconcile_discovers_an_install_disabled() {
+    let (_temp, instance) = instance();
+    install_tree(&instance, "Existing");
+    write_modlist(&instance, "Default", "+Existing\r\n");
+    download_zip(&instance, "Cool.zip", &[("Textures/a.dds", b"new")]);
+    install(&instance, "Cool.zip", "CoolMod").expect("install");
 
-    install(&instance, "Default", &source, "External").expect("install");
+    let mut profile = Profile::load_existing(&instance, "Default").expect("load profile");
+    assert!(profile.reconcile(&instance).expect("reconcile"));
+    let entry = profile
+        .mods
+        .iter()
+        .find(|entry| entry.name == "CoolMod")
+        .expect("new mod row");
 
-    assert_eq!(
-        std::fs::read(instance.downloads_dir().join("External.zip")).expect("read copy"),
-        bytes
-    );
-    assert!(instance.mods_dir().join("External/Meshes/a.nif").is_file());
+    assert!(!entry.enabled);
+    profile.save_modlist(&instance).expect("save modlist");
+    assert_eq!(read_modlist(&instance, "Default"), "+Existing\n-CoolMod\n");
 }
 
 #[test]
-fn install_save_failure_restores_exact_profile_and_keeps_import() {
-    let (temp, instance) = instance();
-    let original = "# exact\r\n+Keep";
-    let modlist = write_modlist(&instance, "Default", original);
-    let source = camino::Utf8Path::from_path(temp.path())
-        .expect("UTF-8 temp")
-        .join("Imported.zip");
-    make_zip(&source, &[("Textures/a.dds", b"new")]);
+fn install_duplicate_check_precedes_archive_resolution() {
+    let (_temp, instance) = instance();
+    install_tree(&instance, "CoolMod");
 
-    let error = install_with(
-        &instance,
-        "Default",
-        &source,
-        "Imported",
-        |profile, instance| {
-            profile.save_modlist(instance)?;
-            Err(operation_failure(&modlist).into())
-        },
-    )
-    .expect_err("save failure");
+    let error = install(&instance, "Missing.zip", "coolmod").expect_err("duplicate");
 
     assert!(matches!(
         error,
-        LifecycleError::Instance(InstanceError::Io(_))
+        LifecycleError::Instance(InstanceError::ModAlreadyInstalled(name)) if name == "coolmod"
     ));
-    assert_eq!(read_modlist(&instance, "Default"), original);
-    assert!(!instance.mods_dir().join("Imported").exists());
-    assert!(instance.downloads_dir().join("Imported.zip").is_file());
+    assert_live_tree(&instance, "CoolMod");
     assert!(!pending_path(&instance).exists());
 }
 
 #[test]
-fn install_save_failure_restores_absent_modlist() {
-    let (_temp, instance) = instance();
-    std::fs::create_dir_all(instance.profile_dir("Default")).expect("create profile");
-    let archive = download_zip(&instance, "Absent.zip", &[("Textures/a.dds", b"new")]);
-    let modlist = modlist_path(&instance, "Default");
-
-    install_with(
-        &instance,
-        "Default",
-        &archive,
-        "Absent",
-        |profile, instance| {
-            profile.save_modlist(instance)?;
-            Err(operation_failure(&modlist).into())
-        },
-    )
-    .expect_err("save failure");
-
-    assert!(!modlist.exists());
-    assert!(!instance.mods_dir().join("Absent").exists());
-    assert!(!pending_path(&instance).exists());
-}
-
-#[test]
-fn lifecycle_candidate_preserves_fomod_and_empty_refusals() {
-    for (name, entries, expected) in [
+fn candidate_validation_cleans_pending_work() {
+    for (archive_name, entries, expected) in [
         (
-            "Fomod",
+            "Fomod.zip",
             vec![
                 ("fomod/ModuleConfig.xml", b"<config/>".as_slice()),
                 ("Textures/a.dds", b"x".as_slice()),
             ],
             "fomod",
         ),
-        ("Empty", Vec::new(), "empty"),
+        ("Empty.zip", Vec::new(), "empty"),
+        (
+            "Reserved.zip",
+            vec![
+                (".OVERSEER-MOD.TOML", b"reserved".as_slice()),
+                ("Textures/a.dds", b"x".as_slice()),
+            ],
+            "reserved",
+        ),
     ] {
         let (_temp, instance) = instance();
-        write_modlist(&instance, "Default", "+Keep\r\n");
-        let archive = download_zip(&instance, &format!("{name}.zip"), &entries);
+        download_zip(&instance, archive_name, &entries);
 
-        let error = install(&instance, "Default", &archive, name).expect_err("candidate refusal");
+        let error = install(&instance, archive_name, "Rejected").expect_err("candidate refusal");
 
         assert!(
             matches!(
                 (&error, expected),
                 (LifecycleError::Install(InstallError::Fomod), "fomod")
                     | (LifecycleError::Install(InstallError::EmptyArchive), "empty")
+                    | (
+                        LifecycleError::Install(InstallError::ReservedMetadata),
+                        "reserved"
+                    )
             ),
             "got {error:?}"
         );
-        assert_eq!(read_modlist(&instance, "Default"), "+Keep\r\n");
-        assert!(!instance.mods_dir().join(name).exists());
+        assert!(!instance.mods_dir().join("Rejected").exists());
         assert!(!pending_path(&instance).exists());
     }
 }
 
 #[test]
+fn install_rename_failure_cleans_candidate_and_does_not_publish() {
+    let (_temp, instance) = instance();
+    download_zip(&instance, "Cool.zip", &[("Textures/a.dds", b"new")]);
+    let candidate = pending_path(&instance).join("new");
+    let _fail = failpoint::scoped([(failpoint::Point::Rename, candidate)]);
+
+    let error = install(&instance, "Cool.zip", "CoolMod").expect_err("publication failure");
+
+    assert!(matches!(error, LifecycleError::Io(_)));
+    assert!(!instance.mods_dir().join("CoolMod").exists());
+    assert!(!pending_path(&instance).exists());
+}
+
+#[test]
+fn install_cleanup_failure_reports_committed_residue() {
+    let (_temp, instance) = instance();
+    download_zip(&instance, "Cool.zip", &[("Textures/a.dds", b"new")]);
+    let pending = pending_path(&instance);
+    let _fail = failpoint::scoped([(failpoint::Point::Cleanup, pending.clone())]);
+
+    let report = install(&instance, "Cool.zip", "CoolMod").expect("committed install");
+
+    assert_eq!(report.residue_warning, Some(pending.clone()));
+    assert!(instance.mods_dir().join("CoolMod/Textures/a.dds").is_file());
+    assert!(pending.is_dir());
+}
+
+#[test]
 fn lifecycle_candidate_preserves_root_detection() {
     let (_temp, instance) = instance();
-    write_modlist(&instance, "Default", "");
-    let archive = download_zip(&instance, "Rooted.zip", &[("Wrapper/Root/x.dll", b"root")]);
+    download_zip(&instance, "Rooted.zip", &[("Wrapper/Root/x.dll", b"root")]);
 
-    install(&instance, "Default", &archive, "Rooted").expect("install rooted");
+    install(&instance, "Rooted.zip", "Rooted").expect("install rooted");
 
     assert!(instance.mods_dir().join("Rooted/Root/x.dll").is_file());
     assert!(!instance.mods_dir().join("Rooted/Wrapper").exists());
 }
 
 #[test]
-fn lifecycle_candidate_rejects_archive_provenance() {
-    let (_temp, instance) = instance();
-    let original = "+Keep\r\n";
-    write_modlist(&instance, "Default", original);
-    let archive = download_zip(
-        &instance,
-        "Spoofed.zip",
-        &[
-            (".OVERSEER-MOD.TOML", b"format = 1"),
-            ("Textures/a.dds", b"x"),
-        ],
-    );
-
-    let error = install(&instance, "Default", &archive, "Spoofed").expect_err("reserved file");
-
-    assert!(matches!(
-        error,
-        LifecycleError::Install(InstallError::ReservedProvenance)
-    ));
-    assert_eq!(read_modlist(&instance, "Default"), original);
-    assert!(!instance.mods_dir().join("Spoofed").exists());
-}
-
-#[test]
 fn lifecycle_candidate_preserves_bomb_guard() {
     let (_temp, instance) = instance();
-    write_modlist(&instance, "Default", "");
     let archive = instance.downloads_dir().join("Bomb.zip");
     std::fs::create_dir_all(instance.downloads_dir()).expect("create downloads");
     let file = std::fs::File::create(&archive).expect("create bomb zip");
@@ -211,31 +173,12 @@ fn lifecycle_candidate_preserves_bomb_guard() {
     }
     zip.finish().expect("finish bomb zip");
 
-    let error = install(&instance, "Default", &archive, "Bomb").expect_err("bomb refusal");
+    let error = install(&instance, "Bomb.zip", "Bomb").expect_err("bomb refusal");
 
     assert!(matches!(
         error,
         LifecycleError::Install(InstallError::TooLarge { .. })
     ));
     assert!(!instance.mods_dir().join("Bomb").exists());
-    assert!(!pending_path(&instance).exists());
-}
-
-#[test]
-fn install_preflight_collision_does_not_import_archive() {
-    let (temp, instance) = instance();
-    write_modlist(&instance, "Default", "*COLLIDE\r\n");
-    let source = camino::Utf8Path::from_path(temp.path())
-        .expect("UTF-8 temp")
-        .join("Collide.zip");
-    make_zip(&source, &[("Textures/a.dds", b"x")]);
-
-    let error = install(&instance, "Default", &source, "Collide").expect_err("profile collision");
-
-    assert!(matches!(
-        error,
-        LifecycleError::Instance(InstanceError::ModAlreadyInList(name)) if name == "Collide"
-    ));
-    assert!(!instance.downloads_dir().join("Collide.zip").exists());
     assert!(!pending_path(&instance).exists());
 }

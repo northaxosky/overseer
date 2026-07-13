@@ -128,6 +128,15 @@ impl OperationContext {
 }
 
 #[derive(Debug)]
+pub(crate) enum InstallState {
+    Refreshed {
+        session: Box<Session>,
+        downloads: Vec<DownloadEntry>,
+    },
+    CommittedWithResidue(Utf8PathBuf),
+}
+
+#[derive(Debug)]
 pub(crate) enum OperationOutput {
     RefreshDownloads(Vec<DownloadEntry>),
     RefreshSaves(Vec<SaveInfo>),
@@ -139,9 +148,8 @@ pub(crate) enum OperationOutput {
         files: usize,
     },
     Install {
-        session: Box<Session>,
         name: String,
-        downloads: Vec<DownloadEntry>,
+        state: InstallState,
     },
 }
 

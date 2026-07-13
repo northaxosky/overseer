@@ -276,9 +276,11 @@ fn install_success_accepts_session_and_downloads_without_resetting_other_panes()
     let result = completion(
         &app,
         Ok(OperationOutput::Install {
-            session: Box::new(session_with_mod("Installed")),
             name: "Installed".to_owned(),
-            downloads: vec![download_entry("Installed.zip", 2, 2, true)],
+            state: InstallState::Refreshed {
+                session: Box::new(session_with_mod("Installed")),
+                downloads: vec![download_entry("Installed.zip", 2, 2, true)],
+            },
         }),
     );
 
@@ -302,6 +304,39 @@ fn install_success_accepts_session_and_downloads_without_resetting_other_panes()
             succeeded: true,
             ref message,
         }) if message == "Installed Installed"
+    ));
+}
+
+#[test]
+fn committed_install_residue_preserves_cached_state_and_reports_success() {
+    let mut app = App::sample();
+    app.downloads.entries = vec![download_entry("Cached.zip", 1, 1, false)];
+    app.conflicts.status = ConflictsStatus::Ready(vec![conflict("cached.dds", "Winner")]);
+    let profile_before = app.session.profile.mods.clone();
+    let downloads_before = app.downloads.entries.clone();
+    let pending = Utf8PathBuf::from(r"state\pending-mod-operation");
+    let result = completion(
+        &app,
+        Ok(OperationOutput::Install {
+            name: "Installed".to_owned(),
+            state: InstallState::CommittedWithResidue(pending.clone()),
+        }),
+    );
+
+    app.apply_completion(OperationKind::Install, result);
+
+    assert_eq!(app.session.profile.mods, profile_before);
+    assert_eq!(app.downloads.entries, downloads_before);
+    assert!(matches!(app.conflicts.status, ConflictsStatus::Ready(_)));
+    assert!(matches!(
+        app.operation,
+        OperationState::Completed(CompletedOperation {
+            kind: OperationKind::Install,
+            succeeded: true,
+            ref message,
+        }) if message == &format!(
+            "Installed Installed; resolve pending residue at {pending}"
+        )
     ));
 }
 

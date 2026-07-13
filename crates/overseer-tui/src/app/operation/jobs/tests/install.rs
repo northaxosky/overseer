@@ -6,8 +6,7 @@ use overseer_core::deploy::NullSink;
 use overseer_core::instance::Instance;
 use overseer_core::test_support::{install_mod, save_profile, temp_instance, write, write_zip};
 
-use crate::app::{App, ConflictsStatus, OperationKind, OperationState, Session};
-use crate::test_support::download_entry;
+use crate::app::{App, OperationKind, OperationState, Session};
 
 fn initialized_app() -> (tempfile::TempDir, App) {
     let (temp, scaffold) = temp_instance();
@@ -35,7 +34,10 @@ fn install_job_reloads_the_session_and_marks_the_download_installed() {
     let archive = app.session.instance.downloads_dir().join("CoolMod.zip");
     write_zip(&archive, &[("Textures/a.dds", b"texture")]);
 
-    app.start_operation(InstallJob::new(archive, "CoolMod".to_owned()));
+    app.start_operation(InstallJob::new(
+        "CoolMod.zip".to_owned(),
+        "CoolMod".to_owned(),
+    ));
 
     assert_eq!(app.running_operation_kind(), Some(OperationKind::Install));
     assert!(
@@ -50,7 +52,24 @@ fn install_job_reloads_the_session_and_marks_the_download_installed() {
     );
     app.finish_operation_after_terminal();
 
-    assert!(app.session.profile.position("CoolMod").is_some());
+    let installed = app
+        .session
+        .profile
+        .mods
+        .iter()
+        .find(|entry| entry.name == "CoolMod")
+        .expect("installed profile row");
+    assert!(!installed.enabled);
+    assert_eq!(
+        std::fs::read_to_string(
+            app.session
+                .instance
+                .profile_dir("Default")
+                .join("modlist.txt")
+        )
+        .expect("read modlist"),
+        ""
+    );
     let entry = app
         .downloads
         .entries
@@ -76,13 +95,16 @@ fn live_deployment_guard_refuses_before_archive_extraction() {
     let archive = app.session.instance.downloads_dir().join("Blocked.zip");
     write_zip(&archive, &[("Textures/a.dds", b"texture")]);
 
-    app.start_operation(InstallJob::new(archive, "Blocked".to_owned()));
+    app.start_operation(InstallJob::new(
+        "Blocked.zip".to_owned(),
+        "Blocked".to_owned(),
+    ));
     app.finish_operation_after_terminal();
 
     assert!(!app.session.instance.mods_dir().join("Blocked").exists());
     let (message, succeeded) = completed_message(&app);
     assert!(!succeeded);
-    assert!(message.contains("deployment is live"));
+    assert!(message.contains("deployment state exists"));
     assert!(message.contains("purge it first"));
 }
 
@@ -98,7 +120,10 @@ fn fomod_refusal_keeps_the_explicit_user_message() {
         ],
     );
 
-    app.start_operation(InstallJob::new(archive, "Scripted".to_owned()));
+    app.start_operation(InstallJob::new(
+        "Scripted.zip".to_owned(),
+        "Scripted".to_owned(),
+    ));
     app.finish_operation_after_terminal();
 
     assert_eq!(
@@ -119,7 +144,10 @@ fn failed_install_recovers_the_authoritative_session() {
     let archive = app.session.instance.downloads_dir().join("Broken.zip");
     write(&archive, "not a zip archive");
 
-    app.start_operation(InstallJob::new(archive, "Broken".to_owned()));
+    app.start_operation(InstallJob::new(
+        "Broken.zip".to_owned(),
+        "Broken".to_owned(),
+    ));
     app.finish_operation_after_terminal();
 
     assert!(app.session.profile.position("ExternallyAdded").is_some());
@@ -135,7 +163,10 @@ fn newly_installed_invalid_plugin_stays_safe_while_disabled() {
     let archive = app.session.instance.downloads_dir().join("BadPlugin.zip");
     write_zip(&archive, &[("BadPlugin.esp", b"not a TES4 plugin")]);
 
-    app.start_operation(InstallJob::new(archive, "BadPlugin".to_owned()));
+    app.start_operation(InstallJob::new(
+        "BadPlugin.zip".to_owned(),
+        "BadPlugin".to_owned(),
+    ));
     app.finish_operation_after_terminal();
 
     assert!(app.session.instance.mods_dir().join("BadPlugin").exists());
@@ -151,31 +182,18 @@ fn newly_installed_invalid_plugin_stays_safe_while_disabled() {
 }
 
 #[test]
-fn downloads_refresh_failure_applies_the_exact_loaded_session() {
-    let (_temp, mut app) = initialized_app();
-    let root = app
-        .session
-        .instance
-        .root
-        .parent()
-        .expect("instance parent")
-        .to_owned();
-    let archive = root.join("RefreshFailure.zip");
-    write_zip(&archive, &[("Textures/a.dds", b"texture")]);
-    let downloads_dir = app.session.instance.downloads_dir();
-    std::fs::remove_dir(&downloads_dir).expect("remove downloads directory");
-    write(&downloads_dir, "blocks directory listing");
-    app.downloads.entries = vec![download_entry("Cached.zip", 1, 1, false)];
-    app.conflicts.status = ConflictsStatus::Ready(Vec::new());
+fn committed_residue_builds_success_without_guarded_refresh_data() {
+    let path = camino::Utf8PathBuf::from(r"state\pending-mod-operation");
 
-    app.start_operation(InstallJob::new(archive, "RefreshFailure".to_owned()));
-    app.finish_operation_after_terminal();
+    let output = InstallJob::new("CoolMod.zip".to_owned(), "CoolMod".to_owned())
+        .committed_with_residue(path.clone())
+        .expect("committed success");
 
-    assert!(app.session.profile.position("RefreshFailure").is_some());
-    assert_eq!(app.downloads.entries[0].name, "Cached.zip");
-    assert!(matches!(app.conflicts.status, ConflictsStatus::Stale));
-    let (message, succeeded) = completed_message(&app);
-    assert!(!succeeded);
-    assert!(message.starts_with("Installed RefreshFailure, but downloads refresh failed: "));
-    assert!(!message.contains("session recovery failed"));
+    assert!(matches!(
+        output,
+        OperationOutput::Install {
+            name,
+            state: InstallState::CommittedWithResidue(residue),
+        } if name == "CoolMod" && residue == path
+    ));
 }

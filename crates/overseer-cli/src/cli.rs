@@ -34,10 +34,10 @@ pub enum Command {
         instance: InstanceArgs,
     },
 
-    /// Install a mod from an archive (.7z or .zip) into an instance's mods/ directory
+    /// Install a mod from a Downloads archive (.7z or .zip)
     Install {
-        /// Path to the mod archive
-        archive: Utf8PathBuf,
+        /// Archive basename under the instance's downloads/ directory
+        archive: String,
         #[command(flatten)]
         instance: InstanceArgs,
         /// Name for the installed mod (defaults to the archive's file name)
@@ -213,26 +213,19 @@ pub enum ModCommand {
         #[command(flatten)]
         instance: InstanceArgs,
     },
-    /// Remove an installed mod from the instance and every profile
+    /// Remove an installed mod from the instance
     Remove {
         /// Installed mod name
         name: String,
         #[command(flatten)]
         instance: InstanceArgs,
     },
-    /// Replace an installed mod from a new archive
+    /// Replace an installed mod from a Downloads archive
     Replace {
         /// Installed mod name
         name: String,
-        /// Path to the replacement archive
-        archive: Utf8PathBuf,
-        #[command(flatten)]
-        instance: InstanceArgs,
-    },
-    /// Reinstall an installed mod from its recorded archive
-    Reinstall {
-        /// Installed mod name
-        name: String,
+        /// Archive basename under the instance's downloads/ directory
+        archive: String,
         #[command(flatten)]
         instance: InstanceArgs,
     },

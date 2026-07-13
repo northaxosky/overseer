@@ -1,67 +1,18 @@
-//! Fixed pending-work bundle and its remove manifest
+//! Fixed pending-work directory and collision-safe tree moves
 
 use std::io::ErrorKind;
 
-use camino::{Utf8Path, Utf8PathBuf};
-use serde::Serialize;
+use camino::Utf8Path;
 
-use super::LifecycleError;
 use crate::error::io_err;
 use crate::fs;
-use crate::instance::Instance;
-
-const BUNDLE_DIR: &str = "pending-mod-operation";
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub(super) enum Operation {
-    Install,
-    Remove,
-    Replace,
-    Reinstall,
-}
-
-#[derive(Debug, Serialize)]
-pub(super) struct ManifestProfile {
-    pub(super) profile: String,
-    pub(super) original_modlist: Option<String>,
-}
-
-#[derive(Debug, Serialize)]
-pub(super) struct Manifest {
-    pub(super) operation: Operation,
-    pub(super) mod_name: String,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) archive: Option<String>,
-
-    pub(super) profiles: Vec<ManifestProfile>,
-}
-
-/// Return the one reserved pending-work path for an instance
-pub(super) fn path(instance: &Instance) -> Utf8PathBuf {
-    instance.state_dir().join(BUNDLE_DIR)
-}
-
-/// Serialize a manifest before creating its bundle
-pub(super) fn serialize(path: &Utf8Path, manifest: &Manifest) -> Result<Vec<u8>, LifecycleError> {
-    serde_json::to_vec_pretty(manifest).map_err(|source| LifecycleError::Manifest {
-        path: path.join("manifest.json"),
-        source,
-    })
-}
 
 /// Create the previously probed empty bundle path
 pub(super) fn create(path: &Utf8Path) -> Result<(), crate::IoError> {
     std::fs::create_dir(path).map_err(|source| crate::error::io_err(path, source))
 }
 
-/// Atomically publish a serialized manifest inside the bundle
-pub(super) fn write_manifest(path: &Utf8Path, bytes: &[u8]) -> Result<(), crate::IoError> {
-    fs::write_atomic(&path.join("manifest.json"), bytes)
-}
-
-/// Recursively remove a completed or fully rolled-back bundle
+/// Recursively remove completed pending work
 pub(super) fn cleanup(path: &Utf8Path) -> Result<(), crate::IoError> {
     #[cfg(test)]
     super::failpoint::check(super::failpoint::Point::Cleanup, path)?;

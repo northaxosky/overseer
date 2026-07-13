@@ -53,9 +53,18 @@ fn typed_outputs_map_to_their_operation_kinds() {
         ),
         (
             OperationOutput::Install {
-                session: install_session,
                 name: "Mod".to_owned(),
-                downloads: Vec::new(),
+                state: InstallState::Refreshed {
+                    session: install_session,
+                    downloads: Vec::new(),
+                },
+            },
+            OperationKind::Install,
+        ),
+        (
+            OperationOutput::Install {
+                name: "Residue".to_owned(),
+                state: InstallState::CommittedWithResidue(Utf8PathBuf::from("pending")),
             },
             OperationKind::Install,
         ),

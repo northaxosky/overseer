@@ -8,6 +8,8 @@ use crate::game::GameKind;
 use camino::{Utf8Path, Utf8PathBuf};
 use serde::{Deserialize, Serialize};
 
+const PENDING_MOD_OPERATION_DIR: &str = "pending-mod-operation";
+
 /// Persisted configuration for an instance, stored as `overseer.toml` at the instance root
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InstanceConfig {
@@ -208,6 +210,11 @@ impl Instance {
 
     pub fn state_dir(&self) -> Utf8PathBuf {
         self.root.join("state")
+    }
+
+    /// The fixed path reserved for incomplete installed-mod work
+    pub(crate) fn pending_mod_operation_dir(&self) -> Utf8PathBuf {
+        self.state_dir().join(PENDING_MOD_OPERATION_DIR)
     }
 
     pub fn overwrite_dir(&self) -> Utf8PathBuf {

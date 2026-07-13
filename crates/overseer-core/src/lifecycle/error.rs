@@ -30,49 +30,13 @@ pub enum LifecycleError {
     #[error(transparent)]
     Apply(ApplyError),
 
-    /// The deterministic bundle manifest could not be serialized
-    #[error("failed to serialize lifecycle manifest `{path}`")]
-    Manifest {
-        path: Utf8PathBuf,
-        #[source]
-        source: serde_json::Error,
-    },
+    /// An archive name is not one safe path basename
+    #[error("archive must be one safe Downloads basename: `{name}`")]
+    InvalidArchiveName { name: String },
 
-    /// An archive path has no safe supported basename
-    #[error("archive path has no safe supported basename: `{path}`")]
-    InvalidArchive { path: Utf8PathBuf },
-
-    /// A Downloads import would overwrite an existing entry
-    #[error("download destination already exists: `{path}`")]
-    DownloadCollision { path: Utf8PathBuf },
-
-    /// A failed import left a partial Downloads entry
-    #[error(
-        "archive import failed ({copy}) and partial cleanup failed ({cleanup}); retained `{path}`"
-    )]
-    PartialCopy {
-        path: Utf8PathBuf,
-        copy: String,
-        cleanup: String,
-    },
-
-    /// An installed mod has no Overseer provenance
-    #[error("missing Overseer provenance for `{name}` at `{path}`; replace the mod explicitly")]
-    MissingProvenance { name: String, path: Utf8PathBuf },
-
-    /// An installed mod has invalid Overseer provenance
-    #[error(
-        "invalid Overseer provenance for `{name}` at `{path}`: {reason}; replace the mod explicitly"
-    )]
-    InvalidProvenance {
-        name: String,
-        path: Utf8PathBuf,
-        reason: String,
-    },
-
-    /// A provenance archive is unavailable from Downloads
-    #[error("archive for `{name}` is unavailable at `{path}`; replace the mod explicitly")]
-    MissingArchive { name: String, path: Utf8PathBuf },
+    /// A Downloads archive is missing, a symlink, or not a regular file
+    #[error("archive must be a direct regular file in Downloads: `{path}`")]
+    ArchiveUnavailable { path: Utf8PathBuf },
 
     #[error(transparent)]
     Install(#[from] InstallError),

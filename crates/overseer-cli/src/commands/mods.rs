@@ -1,14 +1,12 @@
 //! `overseer mod ...` profile-order and installed-mod subcommands.
 
 use anyhow::{Context, Result};
-use camino::Utf8Path;
 use overseer_core::{
     apply,
     lifecycle::{self, LifecycleReport},
 };
 
 use crate::cli::{InstanceArgs, ModCommand, ProfileArgs};
-use crate::context::absolutize;
 use crate::ui::{heading, list_item, success};
 
 pub fn run(command: ModCommand) -> Result<()> {
@@ -28,7 +26,6 @@ pub fn run(command: ModCommand) -> Result<()> {
             archive,
             instance,
         } => replace(&instance, &name, &archive),
-        ModCommand::Reinstall { name, instance } => reinstall(&instance, &name),
     }
 }
 
@@ -106,27 +103,16 @@ fn remove(instance: &InstanceArgs, name: &str) -> Result<()> {
     Ok(())
 }
 
-fn replace(instance: &InstanceArgs, name: &str, archive: &Utf8Path) -> Result<()> {
-    let archive = absolutize(archive)?;
+fn replace(instance: &InstanceArgs, name: &str, archive: &str) -> Result<()> {
     let instance = instance.load_instance()?;
-    let report = lifecycle::replace(&instance, name, &archive)
+    let report = lifecycle::replace(&instance, name, archive)
         .with_context(|| format!("replacing `{name}` from `{archive}`"))?;
-    finish_lifecycle("Replaced", report);
-    Ok(())
-}
-
-fn reinstall(instance: &InstanceArgs, name: &str) -> Result<()> {
-    let instance = instance.load_instance()?;
-    let report =
-        lifecycle::reinstall(&instance, name).with_context(|| format!("reinstalling `{name}`"))?;
-    finish_lifecycle("Reinstalled", report);
+    success(format!("Replaced `{}` from `{archive}`", report.name));
+    super::warn_lifecycle_residue(report.residue_warning);
     Ok(())
 }
 
 fn finish_lifecycle(verb: &str, report: LifecycleReport) {
-    match report.archive.as_deref() {
-        Some(archive) => success(format!("{verb} `{}` from `{archive}`", report.name)),
-        None => success(format!("{verb} `{}`", report.name)),
-    }
+    success(format!("{verb} `{}`", report.name));
     super::warn_lifecycle_residue(report.residue_warning);
 }

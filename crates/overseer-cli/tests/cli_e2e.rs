@@ -521,9 +521,16 @@ fn zip(path: &Path, entries: &[(&str, &[u8])]) {
 }
 
 fn install_archive(inst: &Path, archive: &Path, name: &str) -> assert_cmd::assert::Assert {
+    let archive_name = archive.file_name().expect("archive basename");
+    let destination = inst.join("downloads").join(archive_name);
+    if archive != destination {
+        std::fs::create_dir_all(destination.parent().expect("downloads parent"))
+            .expect("create downloads");
+        std::fs::copy(archive, &destination).expect("place archive in Downloads");
+    }
     overseer(&[
         "install",
-        archive.to_str().unwrap(),
+        archive_name.to_str().unwrap(),
         "--name",
         name,
         "--instance",
@@ -587,15 +594,16 @@ fn downloads_lists_installable_archives() {
 }
 
 #[test]
-fn install_uses_default_profile_and_imports_relative_archive() {
+fn install_uses_a_downloads_basename_and_reconciles_lazily() {
     let tmp = TempDir::new().unwrap();
     let root = tmp.path();
     let inst = init_instance_with_profile(&tmp, "Survival");
     let inst_s = inst.to_str().unwrap();
     let modlist = inst.join("profiles").join("Survival").join("modlist.txt");
     std::fs::write(&modlist, b"+Existing\r\n").unwrap();
+    std::fs::create_dir_all(inst.join("mods/Existing")).unwrap();
 
-    let archive = root.join("TexturePack.zip");
+    let archive = inst.join("downloads/TexturePack.zip");
     zip(
         &archive,
         &[("Data/Textures/installed.dds", b"installed-bytes")],
@@ -613,20 +621,22 @@ fn install_uses_default_profile_and_imports_relative_archive() {
         text(inst.join("mods/TexturePack/Textures/installed.dds")),
         "installed-bytes"
     );
-    assert_eq!(text(modlist), "-TexturePack\n+Existing\n");
-    assert_eq!(bytes(inst.join("downloads/TexturePack.zip")), archive_bytes);
-    assert_eq!(
-        text(inst.join("mods/TexturePack/.overseer-mod.toml")),
-        "format = 1\narchive = \"TexturePack.zip\"\n"
-    );
+    assert_eq!(text(&modlist), "+Existing\r\n");
+    assert_eq!(bytes(&archive), archive_bytes);
+    assert!(!inst.join("mods/TexturePack/.overseer-mod.toml").exists());
+
+    overseer(&["mod", "list", "--instance", inst_s, "--profile", "Survival"])
+        .success()
+        .stdout(predicate::str::contains("TexturePack"));
+    assert_eq!(text(modlist), "+Existing\n-TexturePack\n");
 }
 
 #[test]
-fn mod_remove_updates_every_profile_and_keeps_download() {
+fn mod_remove_leaves_profiles_for_lazy_reconciliation() {
     let tmp = TempDir::new().unwrap();
     let inst = init_instance(&tmp);
     let inst_s = inst.to_str().unwrap();
-    let archive = tmp.path().join("Cool.zip");
+    let archive = inst.join("downloads/Cool.zip");
     zip(&archive, &[("Textures/file.dds", b"installed")]);
     install_archive(&inst, &archive, "CoolMod").success();
     overseer(&["profile", "new", "Alternate", "--instance", inst_s]).success();
@@ -634,7 +644,10 @@ fn mod_remove_updates_every_profile_and_keeps_download() {
     let alternate = inst.join("profiles/Alternate/modlist.txt");
     std::fs::write(&default, b"+CoolMod\r\n+Keep\r\n").unwrap();
     std::fs::write(&alternate, b"-Other\n-CoolMod\n").unwrap();
-    let download = bytes(inst.join("downloads/Cool.zip"));
+    std::fs::create_dir_all(inst.join("mods/Keep")).unwrap();
+    std::fs::create_dir_all(inst.join("mods/Other")).unwrap();
+    let before = [bytes(&default), bytes(&alternate)];
+    let download = bytes(&archive);
 
     overseer(&["mod", "remove", "coolmod", "--instance", inst_s])
         .success()
@@ -642,18 +655,30 @@ fn mod_remove_updates_every_profile_and_keeps_download() {
         .stdout(predicate::str::contains("re-run with --yes").not());
 
     assert!(!inst.join("mods/CoolMod").exists());
-    assert_eq!(text(default), "+Keep\n");
-    assert_eq!(text(alternate), "-Other\n");
-    assert_eq!(bytes(inst.join("downloads/Cool.zip")), download);
+    assert_eq!([bytes(&default), bytes(&alternate)], before);
+    assert_eq!(bytes(&archive), download);
+
+    overseer(&["mod", "list", "--instance", inst_s]).success();
+    overseer(&[
+        "mod",
+        "list",
+        "--instance",
+        inst_s,
+        "--profile",
+        "Alternate",
+    ])
+    .success();
+    assert_eq!(text(default), "+Keep\n-Other\n");
+    assert_eq!(text(alternate), "-Other\n-Keep\n");
 }
 
 #[test]
-fn mod_replace_and_reinstall_preserve_profiles_and_update_provenance() {
+fn mod_replace_preserves_profiles_without_writing_reserved_metadata() {
     let tmp = TempDir::new().unwrap();
     let inst = init_instance(&tmp);
     let inst_s = inst.to_str().unwrap();
-    let original = tmp.path().join("Original.zip");
-    let replacement = tmp.path().join("Replacement.zip");
+    let original = inst.join("downloads/Original.zip");
+    let replacement = inst.join("downloads/Replacement.zip");
     zip(&original, &[("Textures/file.dds", b"original")]);
     zip(&replacement, &[("Textures/file.dds", b"replacement")]);
     install_archive(&inst, &original, "CoolMod").success();
@@ -668,7 +693,7 @@ fn mod_replace_and_reinstall_preserve_profiles_and_update_provenance() {
         "mod",
         "replace",
         "coolmod",
-        replacement.to_str().unwrap(),
+        "Replacement.zip",
         "--instance",
         inst_s,
     ])
@@ -680,39 +705,17 @@ fn mod_replace_and_reinstall_preserve_profiles_and_update_provenance() {
         text(inst.join("mods/CoolMod/Textures/file.dds")),
         "replacement"
     );
-    assert_eq!(
-        text(inst.join("mods/CoolMod/.overseer-mod.toml")),
-        "format = 1\narchive = \"Replacement.zip\"\n"
-    );
-    assert_eq!([bytes(&default), bytes(&alternate)], before);
-
-    zip(
-        &inst.join("downloads/Replacement.zip"),
-        &[("Textures/file.dds", b"reinstalled")],
-    );
-    overseer(&["mod", "reinstall", "COOLMOD", "--instance", inst_s])
-        .success()
-        .stdout(predicate::str::contains(
-            "Reinstalled `CoolMod` from `Replacement.zip`",
-        ));
-    assert_eq!(
-        text(inst.join("mods/CoolMod/Textures/file.dds")),
-        "reinstalled"
-    );
-    assert_eq!(
-        text(inst.join("mods/CoolMod/.overseer-mod.toml")),
-        "format = 1\narchive = \"Replacement.zip\"\n"
-    );
+    assert!(!inst.join("mods/CoolMod/.overseer-mod.toml").exists());
     assert_eq!([bytes(&default), bytes(&alternate)], before);
 }
 
 #[test]
-fn lifecycle_guards_and_missing_provenance_do_not_mutate() {
+fn lifecycle_guards_do_not_mutate_installed_mods_or_profiles() {
     let tmp = TempDir::new().unwrap();
     let inst = init_instance(&tmp);
     let inst_s = inst.to_str().unwrap();
-    let archive = tmp.path().join("Guarded.zip");
-    let replacement = tmp.path().join("Replacement.zip");
+    let archive = inst.join("downloads/Guarded.zip");
+    let replacement = inst.join("downloads/Replacement.zip");
     zip(&archive, &[("Textures/file.dds", b"guarded")]);
     zip(&replacement, &[("Textures/file.dds", b"replacement")]);
     install_archive(&inst, &archive, "Guarded").success();
@@ -722,14 +725,14 @@ fn lifecycle_guards_and_missing_provenance_do_not_mutate() {
 
     let pending = inst.join("state").join("pending-mod-operation");
     std::fs::create_dir_all(&pending).unwrap();
-    std::fs::write(pending.join("manifest.json"), b"manual").unwrap();
+    std::fs::write(pending.join("manual.txt"), b"manual").unwrap();
     overseer(&["mod", "remove", "Guarded", "--instance", inst_s])
         .failure()
         .stderr(predicate::str::contains(pending.to_str().unwrap()))
         .stderr(predicate::str::contains("pending mod operation"));
     assert_eq!(text(&live), "guarded");
     assert_eq!(bytes(&modlist), original_modlist);
-    assert_eq!(text(pending.join("manifest.json")), "manual");
+    assert_eq!(text(pending.join("manual.txt")), "manual");
     std::fs::remove_dir_all(pending).unwrap();
 
     overseer(&["mod", "enable", "Guarded", "--instance", inst_s]).success();
@@ -739,7 +742,7 @@ fn lifecycle_guards_and_missing_provenance_do_not_mutate() {
         "mod",
         "replace",
         "Guarded",
-        replacement.to_str().unwrap(),
+        "Replacement.zip",
         "--instance",
         inst_s,
     ])
@@ -749,18 +752,9 @@ fn lifecycle_guards_and_missing_provenance_do_not_mutate() {
     .stderr(predicate::str::contains("purge it first"));
     assert_eq!(text(&live), "guarded");
     assert_eq!(bytes(&modlist), deployed_modlist);
-    assert!(!inst.join("downloads/Replacement.zip").exists());
+    assert!(replacement.exists());
 
     overseer(&["purge", "--instance", inst_s]).success();
-    std::fs::remove_file(inst.join("mods/Guarded/.overseer-mod.toml")).unwrap();
-    let before_reinstall = bytes(&modlist);
-    overseer(&["mod", "reinstall", "Guarded", "--instance", inst_s])
-        .failure()
-        .stderr(predicate::str::contains("missing Overseer provenance"))
-        .stderr(predicate::str::contains(".overseer-mod.toml"))
-        .stderr(predicate::str::contains("replace the mod explicitly"));
-    assert_eq!(text(live), "guarded");
-    assert_eq!(bytes(modlist), before_reinstall);
 }
 
 #[test]
@@ -768,8 +762,8 @@ fn install_reports_duplicates_and_fomod_archives() {
     let tmp = TempDir::new().unwrap();
     let inst = init_instance(&tmp);
     let inst_s = inst.to_str().unwrap();
-    let plain = tmp.path().join("Plain.zip");
-    let scripted = tmp.path().join("Scripted.zip");
+    let plain = inst.join("downloads/Plain.zip");
+    let scripted = inst.join("downloads/Scripted.zip");
     zip(&plain, &[("Textures/a.dds", b"x")]);
     zip(
         &scripted,
@@ -781,7 +775,7 @@ fn install_reports_duplicates_and_fomod_archives() {
 
     overseer(&[
         "install",
-        plain.to_str().unwrap(),
+        "Plain.zip",
         "--name",
         "Plain",
         "--instance",
@@ -790,7 +784,7 @@ fn install_reports_duplicates_and_fomod_archives() {
     .success();
     overseer(&[
         "install",
-        plain.to_str().unwrap(),
+        "Plain.zip",
         "--name",
         "Plain",
         "--instance",
@@ -801,7 +795,7 @@ fn install_reports_duplicates_and_fomod_archives() {
 
     overseer(&[
         "install",
-        scripted.to_str().unwrap(),
+        "Scripted.zip",
         "--name",
         "Scripted",
         "--instance",

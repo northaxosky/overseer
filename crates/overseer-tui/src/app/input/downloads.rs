@@ -39,12 +39,16 @@ impl App {
 
     /// Start archive installation on the background worker
     pub(super) fn install_download(&mut self, path: &Utf8Path) {
-        let Some(name) = path.file_stem().map(|stem| stem.to_owned()) else {
+        let Some(archive) = path.file_name().map(str::to_owned) else {
+            self.fail("Could not identify the archive basename");
+            return;
+        };
+        let Some(name) = path.file_stem().map(str::to_owned) else {
             self.fail("Could not derive a mod name from the archive");
             return;
         };
 
-        self.start_operation(InstallJob::new(path.to_owned(), name));
+        self.start_operation(InstallJob::new(archive, name));
     }
 }
 

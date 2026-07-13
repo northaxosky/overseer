@@ -9,8 +9,6 @@ use crate::error::io_err;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Point {
     Rename,
-    Save,
-    Restore,
     Cleanup,
 }
 

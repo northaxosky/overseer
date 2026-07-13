@@ -1,39 +1,12 @@
-//! The mod installer: prepare archive content and publish legacy installs under `mods/`
+//! Low-level archive preparation for installed-mod lifecycle operations
 
 use super::archive::extract;
 use super::error::InstallError;
 use super::root::find_content_root;
 use crate::error::{io_err, non_utf8};
 use crate::fs;
-use crate::instance::{InstalledMod, Instance};
 use camino::{Utf8Path, Utf8PathBuf};
 use walkdir::WalkDir;
-
-/// Install a mod from an archive into the instance's `mods/<name>/` directory
-pub fn install(
-    instance: &Instance,
-    archive: &Utf8Path,
-    name: &str,
-) -> Result<InstalledMod, InstallError> {
-    let dest = instance.mods_dir().join(name);
-    if dest.exists() {
-        return Err(InstallError::AlreadyInstalled(name.to_owned()));
-    }
-
-    // Stage on the same volume as mods/ so the final move is a rename, not a cross-volume copy
-    let mods_dir = instance.mods_dir();
-    fs::ensure_dir(&mods_dir)?;
-    let staging = tempfile::tempdir_in(&mods_dir).map_err(|e| io_err(&mods_dir, e))?;
-    let staging_root = Utf8Path::from_path(staging.path())
-        .ok_or_else(|| InstallError::NonUtf8Path(non_utf8(staging.path())))?;
-
-    let candidate = prepare_candidate(archive, staging_root)?;
-    move_dir(&candidate, &dest)?;
-
-    Ok(InstalledMod {
-        name: name.to_owned(),
-    })
-}
 
 /// Extract and normalize an archive into `bundle/new`
 pub(crate) fn prepare_candidate(
@@ -48,7 +21,7 @@ pub(crate) fn prepare_candidate(
         return Err(InstallError::Fomod);
     }
     if child_named(&content_root, ".overseer-mod.toml", false)?.is_some() {
-        return Err(InstallError::ReservedProvenance);
+        return Err(InstallError::ReservedMetadata);
     }
     if read_dir_is_empty(&content_root)? {
         return Err(InstallError::EmptyArchive);

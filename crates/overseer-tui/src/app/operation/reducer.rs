@@ -3,7 +3,8 @@
 use super::super::sort::{sort_downloads, sort_saves};
 use super::super::{App, ConflictsStatus, DoctorReport, ListCursor, Modal, Session};
 use super::protocol::{
-    OperationContext, OperationOutput, OperationRecovery, WorkerCompletion, WorkerEvent,
+    InstallState, OperationContext, OperationOutput, OperationRecovery, WorkerCompletion,
+    WorkerEvent,
 };
 use super::runner::{CompletedOperation, OperationProgress, OperationState, RunningOperation};
 use overseer_core::deploy::FileConflict;
@@ -55,17 +56,19 @@ impl App {
                         self.open_completed_doctor(report);
                         self.operation = OperationState::Idle;
                     }
-                    OperationOutput::Install {
-                        session,
-                        name,
-                        downloads,
-                    } => {
-                        self.accept_install_session(*session);
-                        self.accept_downloads(downloads);
-                        self.operation = OperationState::Completed(CompletedOperation::succeeded(
-                            kind,
-                            format!("Installed {name}"),
-                        ));
+                    OperationOutput::Install { name, state } => {
+                        let message = match state {
+                            InstallState::Refreshed { session, downloads } => {
+                                self.accept_install_session(*session);
+                                self.accept_downloads(downloads);
+                                format!("Installed {name}")
+                            }
+                            InstallState::CommittedWithResidue(path) => {
+                                format!("Installed {name}; resolve pending residue at {path}")
+                            }
+                        };
+                        self.operation =
+                            OperationState::Completed(CompletedOperation::succeeded(kind, message));
                     }
                     OperationOutput::Deploy { status, files } => {
                         self.session.status = status;

@@ -69,7 +69,8 @@ flowchart LR
     patch --> detect
 ```
 
-`lifecycle` owns changes to installed mods, while `install` supplies low-level archive preparation.
+`lifecycle` is the only installed-mod publisher, while `install` supplies crate-private archive
+preparation.
 `apply` owns the live deployment transaction, while `deploy` owns file planning and backend
 mechanics. `merge` and `patch` are separate transformation systems: merging rebuilds mod archives,
 while patching verifies and replaces existing game files.
@@ -143,11 +144,8 @@ diagnostics share this implementation.
 
 `install` is the low-level archive layer. It recognizes ZIP and 7z downloads, checks declared
 expansion size, extracts into staging, finds the actual content root, and rejects unsupported FOMOD
-layouts or reserved Overseer metadata.
-
-Its direct installer does not provide the complete installed-mod transaction. Normal install,
-replace, reinstall, and remove workflows go through `lifecycle`, which adds locking, provenance,
-profile updates, and rollback.
+layouts or reserved Overseer metadata. Candidate preparation is crate-private; `lifecycle::install`
+is the sole public path that publishes a prepared tree under `mods/`.
 
 ### [`instance`](src/instance/mod.rs)
 
@@ -157,7 +155,8 @@ Profiles own MO2-compatible `modlist.txt` files, local-save settings, and the or
 by deployment.
 
 The module also validates names, resolves instance paths, stores configured executables, manages
-profile priority, and reconciles profile entries with installed staging directories.
+profile priority, and reconciles profile entries with installed staging directories. Reconciliation
+drops missing managed mods and appends newly discovered mods disabled at lowest priority.
 
 ### [`launch`](src/launch.rs)
 
@@ -168,13 +167,18 @@ launching.
 
 ### [`lifecycle`](src/lifecycle/mod.rs)
 
-`lifecycle` owns installed-mod transactions. It installs, removes, replaces, and reinstalls mods
-while holding the shared instance lock, refusing to run during a live deployment, preserving
-archive provenance, and updating affected profiles.
+`lifecycle` owns install, remove, and explicit replace operations. Install and replace accept only a
+validated archive basename that already names a direct regular file under `downloads/`; they never
+copy or import archives. Every operation holds the shared instance lock and refuses to run while
+deployment state or prior lifecycle residue exists.
 
-Operations use a fixed pending bundle and deterministic in-process rollback. The bundle records
-enough state to explain an interrupted operation, but lifecycle does not yet provide automatic
-crash recovery. A retained pending bundle blocks later lifecycle mutations until it is resolved.
+Operations use a fixed pending directory and collision-safe same-volume renames. Install and remove
+commit when the live tree is renamed; replace retains exact in-process rollback for its two-tree
+swap. Cleanup failures return committed residue explicitly, and interrupted operations require
+manual, commit-forward resolution rather than claiming exact crash rollback.
+
+Lifecycle operations do not mutate profiles. Profiles discover installs disabled and discard
+removed entries when they next reconcile.
 
 ### [`merge`](src/merge/mod.rs)
 

@@ -30,9 +30,6 @@ pub enum InstallError {
         source: zip::result::ZipError,
     },
 
-    #[error("a mod named `{0}` is already installed")]
-    AlreadyInstalled(String),
-
     #[error("archive contains no installable files")]
     EmptyArchive,
 
@@ -51,6 +48,6 @@ pub enum InstallError {
     #[error("FOMOD installers aren't supported yet")]
     Fomod,
 
-    #[error("archive content root contains reserved `.overseer-mod.toml` provenance")]
-    ReservedProvenance,
+    #[error("archive content root contains reserved `.overseer-mod.toml` metadata")]
+    ReservedMetadata,
 }

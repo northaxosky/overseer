@@ -3,54 +3,34 @@
 use super::support::*;
 use super::*;
 use crate::install::InstallError;
-use crate::lifecycle::replace::replace_with;
 
 #[test]
 fn replace_preserves_profiles_and_uses_actual_installed_casing() {
     let (_temp, instance) = instance();
     install_tree(&instance, "CoolMod");
-    let modlist = write_modlist(&instance, "Default", "# exact\r\n+COOLMOD");
-    let settings = instance.profile_dir("Default").join("settings.ini");
-    let plugins = instance.profile_dir("Default").join("plugins.txt");
-    std::fs::write(&settings, [0xff, 0x00]).expect("write settings");
-    std::fs::write(&plugins, b"*Cool.esp\r\n").expect("write plugins");
-    let before = [
-        std::fs::read(&modlist).expect("read modlist"),
-        std::fs::read(&settings).expect("read settings"),
-        std::fs::read(&plugins).expect("read plugins"),
-    ];
-    let archive = download_zip(
+    let original = "# exact\r\n+COOLMOD";
+    write_modlist(&instance, "Default", original);
+    download_zip(
         &instance,
         "Replacement.zip",
         &[("nested/file.txt", b"replacement")],
     );
 
-    let report = replace(&instance, "coolmod", &archive).expect("replace");
+    let report = replace(&instance, "coolmod", "Replacement.zip").expect("replace");
 
     assert_eq!(report.name, "CoolMod");
-    assert_eq!(report.archive.as_deref(), Some("Replacement.zip"));
+    assert_eq!(report.residue_warning, None);
     assert_eq!(
         std::fs::read_to_string(instance.mods_dir().join("CoolMod/file.txt"))
             .expect("read replacement"),
         "replacement"
     );
-    assert_eq!(
-        [
-            std::fs::read(&modlist).expect("read modlist"),
-            std::fs::read(&settings).expect("read settings"),
-            std::fs::read(&plugins).expect("read plugins"),
-        ],
-        before
-    );
-    assert_eq!(
-        std::fs::read_to_string(
-            instance
-                .mods_dir()
-                .join("CoolMod")
-                .join(crate::lifecycle::archive::PROVENANCE)
-        )
-        .expect("read provenance"),
-        "format = 1\narchive = \"Replacement.zip\"\n"
+    assert_eq!(read_modlist(&instance, "Default"), original);
+    assert!(
+        !instance
+            .mods_dir()
+            .join("CoolMod/.overseer-mod.toml")
+            .exists()
     );
     assert!(!pending_path(&instance).exists());
 }
@@ -59,9 +39,7 @@ fn replace_preserves_profiles_and_uses_actual_installed_casing() {
 fn replace_candidate_failure_preserves_old_tree() {
     let (_temp, instance) = instance();
     install_tree(&instance, "CoolMod");
-    let original = "+CoolMod\r\n";
-    write_modlist(&instance, "Default", original);
-    let archive = download_zip(
+    download_zip(
         &instance,
         "Scripted.zip",
         &[
@@ -69,30 +47,30 @@ fn replace_candidate_failure_preserves_old_tree() {
             ("Textures/a.dds", b"x"),
         ],
     );
-    let error = replace(&instance, "CoolMod", &archive).expect_err("candidate failure");
+
+    let error = replace(&instance, "CoolMod", "Scripted.zip").expect_err("candidate failure");
 
     assert!(matches!(
         error,
         LifecycleError::Install(InstallError::Fomod)
     ));
     assert_live_tree(&instance, "CoolMod");
-    assert_eq!(read_modlist(&instance, "Default"), original);
     assert!(!pending_path(&instance).exists());
 }
 
 #[test]
-fn replace_post_publish_failure_rolls_back_both_trees() {
+fn replace_publication_failure_rolls_back_both_tree_moves() {
     let (_temp, instance) = instance();
     install_tree(&instance, "CoolMod");
-    let archive = download_zip(
+    download_zip(
         &instance,
         "Replacement.zip",
         &[("nested/file.txt", b"replacement")],
     );
-    let error = replace_with(&instance, "CoolMod", &archive, |path| {
-        Err(operation_failure(path).into())
-    })
-    .expect_err("post-publish failure");
+    let candidate = pending_path(&instance).join("new");
+    let _fail = failpoint::scoped([(failpoint::Point::Rename, candidate)]);
+
+    let error = replace(&instance, "CoolMod", "Replacement.zip").expect_err("publication failure");
 
     assert!(matches!(error, LifecycleError::Io(_)));
     assert_live_tree(&instance, "CoolMod");
@@ -100,10 +78,10 @@ fn replace_post_publish_failure_rolls_back_both_trees() {
 }
 
 #[test]
-fn replace_incomplete_old_restore_retains_bundle() {
+fn replace_incomplete_old_restore_reports_both_trees_as_residue() {
     let (_temp, instance) = instance();
     install_tree(&instance, "CoolMod");
-    let archive = download_zip(
+    download_zip(
         &instance,
         "Replacement.zip",
         &[("nested/file.txt", b"replacement")],
@@ -111,29 +89,53 @@ fn replace_incomplete_old_restore_retains_bundle() {
     let pending = pending_path(&instance);
     let candidate = pending.join("new");
     let old = pending.join("old");
-    let live = instance.mods_dir().join("CoolMod");
+    let _fail = failpoint::scoped([
+        (failpoint::Point::Rename, candidate.clone()),
+        (failpoint::Point::Rename, old.clone()),
+    ]);
 
-    let error = replace_with(&instance, "CoolMod", &archive, |path| {
-        std::fs::create_dir(&candidate).expect("occupy candidate path");
-        Err(operation_failure(path).into())
-    })
-    .expect_err("incomplete rollback");
+    let error = replace(&instance, "CoolMod", "Replacement.zip").expect_err("incomplete rollback");
     let LifecycleError::RollbackIncomplete { bundle, issues } = error else {
-        panic!("expected incomplete rollback");
+        panic!("expected incomplete rollback")
     };
 
     assert_eq!(bundle, pending);
-    assert_eq!(issues.len(), 3);
-    assert!(issues[1].contains(candidate.as_str()));
-    assert!(issues[2].contains(old.as_str()));
-    assert!(live.is_dir());
-    assert_live_tree_in(&old);
+    assert_eq!(issues.len(), 2);
+    assert!(issues[0].contains(candidate.as_str()));
+    assert!(issues[1].contains(old.as_str()));
+    assert!(!instance.mods_dir().join("CoolMod").exists());
+    assert_eq!(
+        std::fs::read_to_string(old.join("nested/file.txt")).expect("read old"),
+        "mod bytes"
+    );
+    assert_eq!(
+        std::fs::read_to_string(candidate.join("file.txt")).expect("read candidate"),
+        "replacement"
+    );
 }
 
-/// Assert fixed old fixture bytes under an arbitrary tree root
-fn assert_live_tree_in(root: &camino::Utf8Path) {
+#[test]
+fn replace_cleanup_failure_reports_committed_old_tree_residue() {
+    let (_temp, instance) = instance();
+    install_tree(&instance, "CoolMod");
+    download_zip(
+        &instance,
+        "Replacement.zip",
+        &[("nested/file.txt", b"replacement")],
+    );
+    let pending = pending_path(&instance);
+    let _fail = failpoint::scoped([(failpoint::Point::Cleanup, pending.clone())]);
+
+    let report = replace(&instance, "CoolMod", "Replacement.zip").expect("committed replacement");
+
+    assert_eq!(report.residue_warning, Some(pending.clone()));
     assert_eq!(
-        std::fs::read_to_string(root.join("nested/file.txt")).expect("read old"),
+        std::fs::read_to_string(instance.mods_dir().join("CoolMod/file.txt"))
+            .expect("read replacement"),
+        "replacement"
+    );
+    assert_eq!(
+        std::fs::read_to_string(pending.join("old/nested/file.txt")).expect("read old residue"),
         "mod bytes"
     );
 }

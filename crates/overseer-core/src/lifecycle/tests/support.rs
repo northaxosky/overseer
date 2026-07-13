@@ -5,7 +5,6 @@ use std::io::Write;
 use camino::{Utf8Path, Utf8PathBuf};
 use tempfile::TempDir;
 
-use super::*;
 use crate::instance::Instance;
 use crate::test_support::temp_instance;
 
@@ -72,15 +71,7 @@ pub(super) fn read_modlist(instance: &Instance, profile: &str) -> String {
 
 /// Return the fixed pending bundle path
 pub(super) fn pending_path(instance: &Instance) -> Utf8PathBuf {
-    bundle::path(instance)
-}
-
-/// Build one path-aware synthetic operation failure
-pub(super) fn operation_failure(path: &Utf8Path) -> crate::IoError {
-    crate::error::io_err(
-        path,
-        std::io::Error::other("injected lifecycle operation failure"),
-    )
+    instance.pending_mod_operation_dir()
 }
 
 /// Assert that the installed test tree still has its original bytes

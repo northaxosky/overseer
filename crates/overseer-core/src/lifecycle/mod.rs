@@ -1,4 +1,4 @@
-//! Installed-mod lifecycle operations with deterministic in-process rollback
+//! Installed-mod publication and removal behind shared instance guards
 
 mod archive;
 mod bundle;
@@ -15,23 +15,21 @@ use crate::instance::{Instance, validate_mod_name};
 pub use error::LifecycleError;
 pub use install::install;
 pub use remove::remove;
-pub use replace::{reinstall, replace};
+pub use replace::replace;
 
 /// Outcome of a completed installed-mod lifecycle operation
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LifecycleReport {
     /// Actual installed mod name
     pub name: String,
-    /// Relevant archive basename when the operation uses one
-    pub archive: Option<String>,
-    /// Pending bundle left behind when success cleanup fails
+    /// Pending directory left behind when committed cleanup fails
     pub residue_warning: Option<Utf8PathBuf>,
 }
 
 /// Acquire the shared lock and enforce fixed-path lifecycle guards
 fn enter(instance: &Instance) -> Result<InstanceLock, LifecycleError> {
     let lock = InstanceLock::acquire(instance)?;
-    let pending = bundle::path(instance);
+    let pending = instance.pending_mod_operation_dir();
     if bundle::occupied(&pending)? {
         return Err(LifecycleError::PendingOperation { path: pending });
     }
@@ -52,7 +50,7 @@ fn find_installed(instance: &Instance, requested: &str) -> Result<Option<String>
         .map(|installed| installed.name))
 }
 
-/// Clean a successful rollback or report every retained inverse failure
+/// Clean uncommitted work or report every retained inverse failure
 fn finish_rollback(
     bundle: Utf8PathBuf,
     initiating: LifecycleError,
@@ -61,7 +59,9 @@ fn finish_rollback(
     if failures.is_empty()
         && let Err(error) = bundle::cleanup(&bundle)
     {
-        failures.push(format!("remove rollback bundle `{bundle}`: {error}"));
+        failures.push(format!(
+            "clean pending lifecycle directory `{bundle}`: {error}"
+        ));
     }
     if failures.is_empty() {
         return initiating;
