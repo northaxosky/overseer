@@ -217,6 +217,16 @@ impl Instance {
         self.state_dir().join(PENDING_MOD_OPERATION_DIR)
     }
 
+    /// Refuse installed-mod reads and profile writes while lifecycle residue exists
+    pub(crate) fn ensure_mod_state_available(&self) -> Result<(), InstanceError> {
+        let path = self.pending_mod_operation_dir();
+        match std::fs::symlink_metadata(&path) {
+            Ok(_) => Err(InstanceError::PendingModOperation { path }),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(io_err(&path, error).into()),
+        }
+    }
+
     pub fn overwrite_dir(&self) -> Utf8PathBuf {
         self.root.join("overwrite")
     }
@@ -227,6 +237,7 @@ impl Instance {
 
     /// Installed mods: the immediate subdirectories of `mods/`, sorted by name
     pub fn installed_mods(&self) -> Result<Vec<InstalledMod>, InstanceError> {
+        self.ensure_mod_state_available()?;
         let names = read_subdirs(&self.mods_dir())?;
         Ok(names
             .into_iter()
@@ -241,6 +252,7 @@ impl Instance {
 
     /// Create a new & empty profile
     pub fn create_profile(&self, name: &str) -> Result<Profile, InstanceError> {
+        self.ensure_mod_state_available()?;
         validate_profile_name(name)?;
         let dir = self.profile_dir(name);
         crate::fs::ensure_dir(&self.profiles_dir())?;
@@ -319,6 +331,7 @@ impl Instance {
 
     /// rename a profile directory and its redirected saves
     pub(crate) fn rename_profile(&self, old: &str, new: &str) -> Result<(), InstanceError> {
+        self.ensure_mod_state_available()?;
         validate_profile_name(new)?;
         if new.eq_ignore_ascii_case(old) {
             return Err(InstanceError::InvalidProfileName(

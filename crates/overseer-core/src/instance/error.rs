@@ -27,6 +27,11 @@ pub enum InstanceError {
     #[error("an installed mod named `{0}` already exists")]
     ModAlreadyInstalled(String),
 
+    #[error(
+        "`{path}` contains a pending mod operation; resolve it by hand before reading or writing installed-mod state"
+    )]
+    PendingModOperation { path: Utf8PathBuf },
+
     #[error("no Overseer instance at `{path}` (run `overseer instance init` first)")]
     NotAnInstance { path: Utf8PathBuf },
 

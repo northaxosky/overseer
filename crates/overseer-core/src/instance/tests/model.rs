@@ -45,6 +45,27 @@ fn installed_mods_lists_subdirs_sorted() {
 }
 
 #[test]
+fn installed_mods_refuses_pending_residue_and_resumes_after_cleanup() {
+    let (_tmp, instance) = temp_instance();
+    std::fs::create_dir_all(instance.mods_dir().join("CoolMod")).expect("create mod");
+    let pending = instance.pending_mod_operation_dir();
+    std::fs::create_dir_all(instance.state_dir()).expect("create state");
+    std::fs::write(&pending, "pending").expect("write residue");
+
+    let error = instance.installed_mods().expect_err("pending state");
+
+    assert!(matches!(
+        error,
+        InstanceError::PendingModOperation { path } if path == pending
+    ));
+
+    std::fs::remove_file(&pending).expect("remove residue");
+    let installed = instance.installed_mods().expect("available after cleanup");
+    assert_eq!(installed.len(), 1);
+    assert_eq!(installed[0].name, "CoolMod");
+}
+
+#[test]
 fn profiles_lists_profile_dirs_sorted() {
     let (_tmp, instance) = temp_instance();
     for name in ["Survival", "Default"] {
@@ -239,6 +260,41 @@ fn rename_profile_moves_the_directory_and_its_contents() {
         "*A.esp\n"
     );
     assert_eq!(instance.profiles().expect("profiles"), ["New"]);
+}
+
+#[test]
+fn pending_residue_blocks_profile_create_and_rename_until_cleanup() {
+    let (_tmp, instance) = temp_instance();
+    save_profile(&instance, "Old", &[]);
+    let pending = instance.pending_mod_operation_dir();
+    std::fs::create_dir_all(instance.state_dir()).expect("create state");
+    std::fs::write(&pending, "pending").expect("write residue");
+
+    let create = instance.create_profile("New").expect_err("blocked create");
+    assert!(matches!(
+        create,
+        InstanceError::PendingModOperation { path } if path == pending
+    ));
+    let rename = instance
+        .rename_profile("Old", "Renamed")
+        .expect_err("blocked rename");
+    assert!(matches!(
+        rename,
+        InstanceError::PendingModOperation { path } if path == pending
+    ));
+    assert!(instance.profile_dir("Old").is_dir());
+    assert!(!instance.profile_dir("New").exists());
+    assert!(!instance.profile_dir("Renamed").exists());
+
+    std::fs::remove_file(&pending).expect("remove residue");
+    instance
+        .rename_profile("Old", "Renamed")
+        .expect("rename after cleanup");
+    instance
+        .create_profile("New")
+        .expect("create after cleanup");
+    assert!(instance.profile_dir("Renamed").is_dir());
+    assert!(instance.profile_dir("New").is_dir());
 }
 
 #[test]

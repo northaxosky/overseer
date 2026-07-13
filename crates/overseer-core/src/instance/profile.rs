@@ -64,6 +64,7 @@ impl Profile {
 
     /// Write only `modlist.txt` (a single atomic write), leaving `settings.ini` untouched
     pub fn save_modlist(&self, instance: &Instance) -> Result<(), InstanceError> {
+        instance.ensure_mod_state_available()?;
         let dir = instance.profile_dir(&self.name);
         fs::write_atomic(
             &dir.join("modlist.txt"),

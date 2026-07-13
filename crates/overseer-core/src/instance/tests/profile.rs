@@ -666,6 +666,43 @@ fn reconcile_drops_uninstalled_mods() {
 }
 
 #[test]
+fn pending_old_tree_blocks_reconcile_and_stale_profile_save() {
+    let (_tmp, instance) = temp_instance();
+    install_dirs(&instance, &["CoolMod"]);
+    let profile_dir = instance.profile_dir("Default");
+    std::fs::create_dir_all(&profile_dir).expect("create profile");
+    let modlist = profile_dir.join("modlist.txt");
+    let original = b"+CoolMod\r\n";
+    std::fs::write(&modlist, original).expect("write modlist");
+    let mut profile = Profile::load_existing(&instance, "Default").expect("load profile");
+    let original_model = profile.mods.clone();
+    let pending = instance.pending_mod_operation_dir();
+    std::fs::create_dir_all(instance.state_dir()).expect("create state");
+    std::fs::create_dir(&pending).expect("create pending");
+    std::fs::rename(instance.mods_dir().join("CoolMod"), pending.join("old"))
+        .expect("retain old tree");
+
+    let reconcile = profile.reconcile(&instance).expect_err("blocked reconcile");
+
+    assert!(matches!(
+        reconcile,
+        InstanceError::PendingModOperation { path } if path == pending
+    ));
+    assert_eq!(profile.mods, original_model);
+    assert_eq!(std::fs::read(&modlist).expect("read modlist"), original);
+
+    profile.mods.clear();
+    let save = profile
+        .save_modlist(&instance)
+        .expect_err("blocked stale save");
+    assert!(matches!(
+        save,
+        InstanceError::PendingModOperation { path } if path == pending
+    ));
+    assert_eq!(std::fs::read(modlist).expect("read modlist"), original);
+}
+
+#[test]
 fn reconcile_preserves_existing_order_and_enabled_state() {
     let (_tmp, instance) = temp_instance();
     install_dirs(&instance, &["A", "B", "C"]);

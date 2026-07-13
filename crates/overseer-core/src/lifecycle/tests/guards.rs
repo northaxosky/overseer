@@ -6,7 +6,8 @@ use camino::Utf8Path;
 
 use super::support::*;
 use super::*;
-use crate::apply::InstanceLock;
+use crate::apply::{ApplyError, InstanceLock};
+use crate::deploy::NullSink;
 use crate::instance::InstanceError;
 
 #[test]
@@ -141,6 +142,32 @@ fn representative_crash_residue_blocks_without_inference() {
         std::fs::read_to_string(old_file).expect("read old tree"),
         "old bytes"
     );
+}
+
+#[test]
+fn pending_old_tree_blocks_deployment_without_rewriting_profile() {
+    let (_temp, instance) = instance();
+    install_tree(&instance, "CoolMod");
+    let original = "+CoolMod\r\n";
+    let modlist = write_modlist(&instance, "Default", original);
+    let pending = pending_path(&instance);
+    std::fs::create_dir_all(instance.state_dir()).expect("create state");
+    std::fs::create_dir(&pending).expect("create pending");
+    std::fs::rename(instance.mods_dir().join("CoolMod"), pending.join("old"))
+        .expect("retain old tree");
+
+    let error =
+        crate::apply::deploy_profile(&instance, "Default", &NullSink).expect_err("blocked deploy");
+
+    assert!(matches!(
+        error,
+        ApplyError::Instance(InstanceError::PendingModOperation { path }) if path == pending
+    ));
+    assert_eq!(
+        std::fs::read_to_string(modlist).expect("read modlist"),
+        original
+    );
+    assert!(!crate::apply::Deployment::path(&instance).exists());
 }
 
 #[test]

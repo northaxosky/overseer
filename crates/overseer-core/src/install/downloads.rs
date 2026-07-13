@@ -24,6 +24,7 @@ pub struct DownloadEntry {
 
 /// List the installable archives in `instance.downloads_dir()`, sorted by name
 pub fn list_downloads(instance: &Instance) -> Result<Vec<DownloadEntry>, InstallError> {
+    instance.ensure_mod_state_available()?;
     let dir = instance.downloads_dir();
     let Some(entries) = crate::fs::read_dir_opt(&dir)? else {
         return Ok(Vec::new());

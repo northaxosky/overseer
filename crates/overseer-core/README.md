@@ -175,7 +175,9 @@ deployment state or prior lifecycle residue exists.
 Operations use a fixed pending directory and collision-safe same-volume renames. Install and remove
 commit when the live tree is renamed; replace retains exact in-process rollback for its two-tree
 swap. Cleanup failures return committed residue explicitly, and interrupted operations require
-manual, commit-forward resolution rather than claiming exact crash rollback.
+manual, commit-forward resolution rather than claiming exact crash rollback. While residue exists,
+installed-mod reads and profile persistence remain blocked so incomplete trees cannot be reconciled
+away.
 
 Lifecycle operations do not mutate profiles. Profiles discover installs disabled and discard
 removed entries when they next reconcile.

@@ -10,7 +10,7 @@ mod replace;
 use camino::Utf8PathBuf;
 
 use crate::apply::{Deployment, InstanceLock};
-use crate::instance::{Instance, validate_mod_name};
+use crate::instance::{Instance, InstanceError, validate_mod_name};
 
 pub use error::LifecycleError;
 pub use install::install;
@@ -29,9 +29,13 @@ pub struct LifecycleReport {
 /// Acquire the shared lock and enforce fixed-path lifecycle guards
 fn enter(instance: &Instance) -> Result<InstanceLock, LifecycleError> {
     let lock = InstanceLock::acquire(instance)?;
-    let pending = instance.pending_mod_operation_dir();
-    if bundle::occupied(&pending)? {
-        return Err(LifecycleError::PendingOperation { path: pending });
+    if let Err(error) = instance.ensure_mod_state_available() {
+        return match error {
+            InstanceError::PendingModOperation { path } => {
+                Err(LifecycleError::PendingOperation { path })
+            }
+            error => Err(error.into()),
+        };
     }
     let deployment = Deployment::path(instance);
     if bundle::occupied(&deployment)? {

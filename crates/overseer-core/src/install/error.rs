@@ -1,6 +1,7 @@
 //! Errors surfaced by the mod installer
 
 use super::archive::ArchiveFormat;
+use crate::instance::InstanceError;
 use camino::Utf8PathBuf;
 use thiserror::Error;
 
@@ -9,6 +10,9 @@ use thiserror::Error;
 pub enum InstallError {
     #[error(transparent)]
     Io(#[from] crate::error::IoError),
+
+    #[error(transparent)]
+    Instance(#[from] InstanceError),
 
     #[error(
         "unsupported archive format: `{extension}` (supported: {})",
