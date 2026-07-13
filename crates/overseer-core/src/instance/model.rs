@@ -1,7 +1,7 @@
 //! The instance model: on-disk `overseer.toml` config, installed mods, and executables
 
 use super::error::{InstanceError, io_err};
-use super::profile::Profile;
+use super::profile::{ModKind, Profile};
 use crate::deploy::DeployerKind;
 use crate::fs;
 use crate::game::GameKind;
@@ -253,6 +253,63 @@ impl Instance {
         Ok(profile)
     }
 
+    /// Rename an installed mod folder and every profile entry that references it
+    pub(crate) fn rename_mod(&self, old: &str, new: &str) -> Result<(), InstanceError> {
+        validate_mod_name(new)?;
+        if new == old {
+            return Err(InstanceError::InvalidModName(
+                "new name matches the old name".to_owned(),
+            ));
+        }
+        if new.eq_ignore_ascii_case(old) {
+            return Err(InstanceError::InvalidModName(
+                "case-only rename isn't supported yet".to_owned(),
+            ));
+        }
+
+        let installed = self.installed_mods()?;
+        let old_name = installed
+            .iter()
+            .find(|m| m.name.eq_ignore_ascii_case(old))
+            .map(|m| m.name.clone())
+            .ok_or_else(|| InstanceError::ModNotInstalled(old.to_owned()))?;
+
+        if installed
+            .iter()
+            .any(|m| !m.name.eq_ignore_ascii_case(&old_name) && m.name.eq_ignore_ascii_case(new))
+        {
+            return Err(InstanceError::ModAlreadyInstalled(new.to_owned()));
+        }
+
+        let mut profiles = Vec::new();
+        for profile_name in self.profiles()? {
+            let profile = Profile::load(self, &profile_name)?;
+            if profile.contains(&old_name) && profile.contains(new) {
+                return Err(InstanceError::ModAlreadyInList(new.to_owned()));
+            }
+            if profile_has_managed(&profile, &old_name) {
+                profiles.push(profile);
+            }
+        }
+
+        let old_dir = self.mods_dir().join(&old_name);
+        let new_dir = self.mods_dir().join(new);
+        std::fs::rename(&old_dir, &new_dir)
+            .map_err(|e| InstanceError::from(io_err(&old_dir, e)))?;
+
+        for mut profile in profiles {
+            for entry in &mut profile.mods {
+                if entry.kind == ModKind::Managed && entry.name.eq_ignore_ascii_case(&old_name) {
+                    entry.name = new.to_owned();
+                }
+            }
+            // A rename only changes the mod name, which lives in modlist.txt
+            profile.save_modlist(self)?;
+        }
+
+        Ok(())
+    }
+
     /// rename a profile directory and its redirected saves
     pub(crate) fn rename_profile(&self, old: &str, new: &str) -> Result<(), InstanceError> {
         validate_profile_name(new)?;
@@ -348,6 +405,13 @@ pub(crate) fn validate_mod_name(name: &str) -> Result<(), InstanceError> {
 /// Validate a profile directory name
 pub(crate) fn validate_profile_name(name: &str) -> Result<(), InstanceError> {
     check_fs_name(name).map_err(|m| InstanceError::InvalidProfileName(m.to_owned()))
+}
+
+fn profile_has_managed(profile: &Profile, name: &str) -> bool {
+    profile
+        .mods
+        .iter()
+        .any(|entry| entry.kind == ModKind::Managed && entry.name.eq_ignore_ascii_case(name))
 }
 
 /// Names of the immediate subdirectories of `dir`, sorted; a missing dir is an empty list

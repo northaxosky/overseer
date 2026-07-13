@@ -1,6 +1,7 @@
 //! Deploy, purge, and status orchestration over an instance's profile.
 
 use super::error::{self, ApplyError};
+use super::lock::InstanceLock;
 use super::state::{Deployment, SaveRedirect, Status};
 
 use crate::deploy::{
@@ -9,7 +10,6 @@ use crate::deploy::{
 };
 use crate::fs;
 use crate::instance::{Instance, Profile};
-use crate::lock::InstanceLock;
 use crate::plugins::{self, PluginLoadOrder};
 use crate::restore::Restore;
 use crate::saves;
@@ -25,8 +25,7 @@ pub fn deploy_profile(
 ) -> Result<Deployment, ApplyError> {
     tracing::info!(profile = profile_name, "deploying profile");
     let _lock = InstanceLock::acquire(instance)?;
-    recover_lifecycle_locked(instance)?;
-    recover_if_needed_locked(instance, progress)?;
+    recover_if_needed(instance, progress)?;
 
     if Deployment::exists(instance) {
         // recover_if_needed only ever leaves a *Committed* journal
@@ -127,8 +126,7 @@ pub fn deploy_profile(
 /// Reverses the instance's live deployment
 pub fn purge(instance: &Instance, progress: &dyn ProgressSink) -> Result<(), ApplyError> {
     let _lock = InstanceLock::acquire(instance)?;
-    recover_lifecycle_locked(instance)?;
-    recover_if_needed_locked(instance, progress)?;
+    recover_if_needed(instance, progress)?;
 
     let deployment = Deployment::load(instance)?;
     tracing::info!(profile = %deployment.profile, "purging live deployment");
@@ -223,8 +221,7 @@ pub struct DeploymentStatus {
 /// Report the instance's live deployment, or `None` if nothing is deployed
 pub fn status(instance: &Instance) -> Result<Option<DeploymentStatus>, ApplyError> {
     let _lock = InstanceLock::acquire(instance)?;
-    recover_lifecycle_locked(instance)?;
-    recover_if_needed_locked(instance, &NullSink)?;
+    recover_if_needed(instance, &NullSink)?;
 
     if !Deployment::exists(instance) {
         return Ok(None);
@@ -239,16 +236,22 @@ pub fn status(instance: &Instance) -> Result<Option<DeploymentStatus>, ApplyErro
 
 /// Rename an installed mod, refusing while any deployment is live
 pub fn rename_mod(instance: &Instance, old: &str, new: &str) -> Result<(), ApplyError> {
-    crate::lifecycle::rename_mod(instance, old, new)
-        .map(drop)
-        .map_err(Into::into)
+    let _lock = InstanceLock::acquire(instance)?;
+    recover_if_needed(instance, &NullSink)?;
+
+    if Deployment::exists(instance) {
+        return Err(ApplyError::DeployedCannotRename {
+            path: Deployment::path(instance),
+        });
+    }
+
+    instance.rename_mod(old, new).map_err(Into::into)
 }
 
 /// Rename a profile, refusing only while that profile's own deployment is live
 pub fn rename_profile(instance: &mut Instance, old: &str, new: &str) -> Result<(), ApplyError> {
     let _lock = InstanceLock::acquire(instance)?;
-    recover_lifecycle_locked(instance)?;
-    recover_if_needed_locked(instance, &NullSink)?;
+    recover_if_needed(instance, &NullSink)?;
 
     if Deployment::exists(instance)
         && Deployment::load(instance)?
@@ -272,11 +275,8 @@ pub fn rename_profile(instance: &mut Instance, old: &str, new: &str) -> Result<(
     Ok(())
 }
 
-/// Lock held deployment recovery used by every mutating entry point
-pub(crate) fn recover_if_needed_locked(
-    instance: &Instance,
-    progress: &dyn ProgressSink,
-) -> Result<(), ApplyError> {
+/// Lock held recovery used by every mutating entry point
+fn recover_if_needed(instance: &Instance, progress: &dyn ProgressSink) -> Result<(), ApplyError> {
     if !Deployment::exists(instance) {
         return Ok(());
     }
@@ -292,11 +292,6 @@ pub(crate) fn recover_if_needed_locked(
             reverse_and_finalize(instance, deployment, progress)
         }
     }
-}
-
-/// Finish lifecycle recovery before deployment state is inspected
-fn recover_lifecycle_locked(instance: &Instance) -> Result<(), ApplyError> {
-    crate::lifecycle::recover_locked(instance).map_err(ApplyError::from)
 }
 
 /// Shared reversal for purge and recovery: run record driven reversal, restore Plugins.txt, resolve

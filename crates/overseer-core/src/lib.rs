@@ -16,8 +16,6 @@ pub mod ini;
 pub mod install;
 pub mod instance;
 pub mod launch;
-pub mod lifecycle;
-mod lock;
 pub mod merge;
 pub mod patch;
 pub mod plugins;
