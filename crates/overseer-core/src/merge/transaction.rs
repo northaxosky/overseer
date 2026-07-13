@@ -327,6 +327,7 @@ fn commit(
 pub fn restore(instance: &Instance, name: &str) -> Result<(), MergeTxnError> {
     validate_name_syntax(name)?;
     let _lock = InstanceLock::acquire(instance)?;
+    instance.ensure_mod_state_available()?;
     if Deployment::exists(instance) {
         return Err(MergeTxnError::Deployed);
     }

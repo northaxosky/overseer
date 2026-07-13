@@ -451,6 +451,29 @@ fn sync_plugins_persists_changed_order_and_returns_discovered_state() {
 }
 
 #[test]
+fn pending_mod_state_blocks_plugin_sync_before_order_mutation() {
+    let (_tmp, instance) = temp_instance();
+    write_plugin(&instance.mods_dir().join("ModA"), "Patch.esp", 0, &[]);
+    let profile = profile_of(&["ModA"]);
+    let profile_dir = instance.profile_dir(&profile.name);
+    std::fs::create_dir_all(&profile_dir).expect("create profile");
+    let plugins = profile_dir.join("plugins.txt");
+    let original = b"*Existing.esp\r\n";
+    std::fs::write(&plugins, original).expect("write plugins");
+    let pending = instance.pending_mod_operation_dir();
+    std::fs::create_dir_all(instance.state_dir()).expect("create state");
+    std::fs::write(&pending, "pending").expect("write residue");
+
+    let error = profile.sync_plugins(&instance).expect_err("blocked sync");
+
+    assert!(matches!(
+        error,
+        PluginError::Instance(InstanceError::PendingModOperation { path }) if path == pending
+    ));
+    assert_eq!(std::fs::read(plugins).expect("read plugins"), original);
+}
+
+#[test]
 fn enabling_local_saves_preserves_other_settings_keys() {
     let (_tmp, instance) = temp_instance();
     let dir = instance.profile_dir("P");

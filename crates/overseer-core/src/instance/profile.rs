@@ -311,6 +311,7 @@ impl Profile {
         &self,
         instance: &Instance,
     ) -> Result<(Vec<PluginMeta>, PluginLoadOrder), PluginError> {
+        instance.ensure_mod_state_available()?;
         let discovered = discover_plugins(instance, self)?;
         let mut order = PluginLoadOrder::load(instance, &self.name)?;
         if order.reconcile(&discovered) {

@@ -193,6 +193,40 @@ fn restore_reverses_a_committed_merge() {
 }
 
 #[test]
+fn pending_mod_state_blocks_restore_before_source_mutation() {
+    let (_dir, instance, profile) = setup();
+    run(
+        &instance,
+        &profile,
+        &request("Merged", &["ModA.esp", "ModB.esp"]),
+    )
+    .expect("run merge");
+    let profile_path = instance.profile_dir("Default").join("modlist.txt");
+    let profile_before = std::fs::read(&profile_path).expect("read profile");
+    let data = data_dir(&instance);
+    let backup = instance.root.join("merges/Merged/ModA - Main.ba2");
+    let manifest = instance.root.join("merges/Merged.json");
+    let pending = instance.pending_mod_operation_dir();
+    std::fs::create_dir_all(instance.state_dir()).expect("create state");
+    std::fs::write(&pending, "pending").expect("write residue");
+
+    let error = restore(&instance, "Merged").expect_err("blocked restore");
+
+    assert!(matches!(
+        error,
+        MergeTxnError::Instance(InstanceError::PendingModOperation { path }) if path == pending
+    ));
+    assert!(!data.join("ModA - Main.ba2").exists());
+    assert!(backup.exists());
+    assert!(manifest.exists());
+    assert!(instance.mods_dir().join("Merged").exists());
+    assert_eq!(
+        std::fs::read(profile_path).expect("read profile"),
+        profile_before
+    );
+}
+
+#[test]
 fn run_refuses_when_deployed() {
     let (_dir, instance, profile) = setup();
     std::fs::create_dir_all(instance.state_dir()).expect("state dir");

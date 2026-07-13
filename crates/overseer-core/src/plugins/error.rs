@@ -3,6 +3,8 @@
 use camino::Utf8PathBuf;
 use thiserror::Error;
 
+use crate::instance::InstanceError;
+
 /// Errors from reading or managing plugins
 #[derive(Debug, Error)]
 pub enum PluginError {
@@ -15,6 +17,9 @@ pub enum PluginError {
 
     #[error(transparent)]
     Io(#[from] crate::error::IoError),
+
+    #[error(transparent)]
+    Instance(#[from] InstanceError),
 
     #[error("path is not valid UTF-8: `{0}`")]
     NonUtf8Path(String),
