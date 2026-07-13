@@ -18,6 +18,16 @@ fn overseer(args: &[&str]) -> assert_cmd::assert::Assert {
         .assert()
 }
 
+fn overseer_at(current_dir: &Path, args: &[&str]) -> assert_cmd::assert::Assert {
+    Command::cargo_bin("overseer")
+        .unwrap()
+        .current_dir(current_dir)
+        .arg("--color")
+        .arg("never")
+        .args(args)
+        .assert()
+}
+
 #[test]
 fn full_workflow_init_enable_deploy_status_purge() {
     let tmp = TempDir::new().unwrap();
@@ -481,6 +491,10 @@ fn mod_rename_renames_the_installed_mod() {
 
 /// Create a temp instance with every path under `tmp` (saves resolve to `<tmp>/ini/Saves/<profile>`)
 fn init_instance(tmp: &TempDir) -> std::path::PathBuf {
+    init_instance_with_profile(tmp, "Default")
+}
+
+fn init_instance_with_profile(tmp: &TempDir, profile: &str) -> std::path::PathBuf {
     let root = tmp.path();
     let inst = root.join("inst");
     overseer(&[
@@ -494,6 +508,8 @@ fn init_instance(tmp: &TempDir) -> std::path::PathBuf {
         root.join("local").to_str().unwrap(),
         "--ini-dir",
         root.join("ini").to_str().unwrap(),
+        "--profile",
+        profile,
     ])
     .success();
     inst
@@ -502,6 +518,25 @@ fn init_instance(tmp: &TempDir) -> std::path::PathBuf {
 fn zip(path: &Path, entries: &[(&str, &[u8])]) {
     let path = Utf8Path::from_path(path).expect("utf8 archive path");
     write_zip(path, entries);
+}
+
+fn install_archive(inst: &Path, archive: &Path, name: &str) -> assert_cmd::assert::Assert {
+    overseer(&[
+        "install",
+        archive.to_str().unwrap(),
+        "--name",
+        name,
+        "--instance",
+        inst.to_str().unwrap(),
+    ])
+}
+
+fn bytes(path: impl AsRef<Path>) -> Vec<u8> {
+    std::fs::read(path).unwrap()
+}
+
+fn text(path: impl AsRef<Path>) -> String {
+    std::fs::read_to_string(path).unwrap()
 }
 
 #[test]
@@ -552,48 +587,180 @@ fn downloads_lists_installable_archives() {
 }
 
 #[test]
-fn install_zip_stages_enables_and_deploys_a_mod() {
+fn install_uses_default_profile_and_imports_relative_archive() {
     let tmp = TempDir::new().unwrap();
-    let inst = init_instance(&tmp);
+    let root = tmp.path();
+    let inst = init_instance_with_profile(&tmp, "Survival");
     let inst_s = inst.to_str().unwrap();
-    let archive = tmp.path().join("TexturePack.zip");
+    let modlist = inst.join("profiles").join("Survival").join("modlist.txt");
+    std::fs::write(&modlist, b"+Existing\r\n").unwrap();
+
+    let archive = root.join("TexturePack.zip");
     zip(
         &archive,
         &[("Data/Textures/installed.dds", b"installed-bytes")],
     );
+    let archive_bytes = bytes(&archive);
+
+    overseer_at(root, &["install", "TexturePack.zip", "--instance", inst_s])
+        .success()
+        .stdout(predicate::str::contains(
+            "Installed `TexturePack` from `TexturePack.zip`",
+        ))
+        .stdout(predicate::str::contains("re-run with --yes").not());
+
+    assert_eq!(
+        text(inst.join("mods/TexturePack/Textures/installed.dds")),
+        "installed-bytes"
+    );
+    assert_eq!(text(modlist), "-TexturePack\n+Existing\n");
+    assert_eq!(bytes(inst.join("downloads/TexturePack.zip")), archive_bytes);
+    assert_eq!(
+        text(inst.join("mods/TexturePack/.overseer-mod.toml")),
+        "format = 1\narchive = \"TexturePack.zip\"\n"
+    );
+}
+
+#[test]
+fn mod_remove_updates_every_profile_and_keeps_download() {
+    let tmp = TempDir::new().unwrap();
+    let inst = init_instance(&tmp);
+    let inst_s = inst.to_str().unwrap();
+    let archive = tmp.path().join("Cool.zip");
+    zip(&archive, &[("Textures/file.dds", b"installed")]);
+    install_archive(&inst, &archive, "CoolMod").success();
+    overseer(&["profile", "new", "Alternate", "--instance", inst_s]).success();
+    let default = inst.join("profiles/Default/modlist.txt");
+    let alternate = inst.join("profiles/Alternate/modlist.txt");
+    std::fs::write(&default, b"+CoolMod\r\n+Keep\r\n").unwrap();
+    std::fs::write(&alternate, b"-Other\n-CoolMod\n").unwrap();
+    let download = bytes(inst.join("downloads/Cool.zip"));
+
+    overseer(&["mod", "remove", "coolmod", "--instance", inst_s])
+        .success()
+        .stdout(predicate::str::contains("Removed `CoolMod`"))
+        .stdout(predicate::str::contains("re-run with --yes").not());
+
+    assert!(!inst.join("mods/CoolMod").exists());
+    assert_eq!(text(default), "+Keep\n");
+    assert_eq!(text(alternate), "-Other\n");
+    assert_eq!(bytes(inst.join("downloads/Cool.zip")), download);
+}
+
+#[test]
+fn mod_replace_and_reinstall_preserve_profiles_and_update_provenance() {
+    let tmp = TempDir::new().unwrap();
+    let inst = init_instance(&tmp);
+    let inst_s = inst.to_str().unwrap();
+    let original = tmp.path().join("Original.zip");
+    let replacement = tmp.path().join("Replacement.zip");
+    zip(&original, &[("Textures/file.dds", b"original")]);
+    zip(&replacement, &[("Textures/file.dds", b"replacement")]);
+    install_archive(&inst, &original, "CoolMod").success();
+    overseer(&["profile", "new", "Alternate", "--instance", inst_s]).success();
+    let default = inst.join("profiles/Default/modlist.txt");
+    let alternate = inst.join("profiles/Alternate/modlist.txt");
+    std::fs::write(&default, b"# exact\r\n+CoolMod").unwrap();
+    std::fs::write(&alternate, b"-CoolMod\r\n").unwrap();
+    let before = [bytes(&default), bytes(&alternate)];
 
     overseer(&[
-        "install",
-        archive.to_str().unwrap(),
-        "--name",
-        "TexturePack",
+        "mod",
+        "replace",
+        "coolmod",
+        replacement.to_str().unwrap(),
         "--instance",
         inst_s,
     ])
     .success()
-    .stdout(predicate::str::contains("Installed `TexturePack`"));
-
-    assert!(
-        inst.join("mods")
-            .join("TexturePack")
-            .join("Textures")
-            .join("installed.dds")
-            .exists()
-    );
-
-    overseer(&["mod", "enable", "TexturePack", "--instance", inst_s]).success();
-    overseer(&["deploy", "--instance", inst_s]).success();
-
-    let deployed = tmp
-        .path()
-        .join("game")
-        .join("Data")
-        .join("Textures")
-        .join("installed.dds");
+    .stdout(predicate::str::contains(
+        "Replaced `CoolMod` from `Replacement.zip`",
+    ));
     assert_eq!(
-        std::fs::read_to_string(deployed).unwrap(),
-        "installed-bytes"
+        text(inst.join("mods/CoolMod/Textures/file.dds")),
+        "replacement"
     );
+    assert_eq!(
+        text(inst.join("mods/CoolMod/.overseer-mod.toml")),
+        "format = 1\narchive = \"Replacement.zip\"\n"
+    );
+    assert_eq!([bytes(&default), bytes(&alternate)], before);
+
+    zip(
+        &inst.join("downloads/Replacement.zip"),
+        &[("Textures/file.dds", b"reinstalled")],
+    );
+    overseer(&["mod", "reinstall", "COOLMOD", "--instance", inst_s])
+        .success()
+        .stdout(predicate::str::contains(
+            "Reinstalled `CoolMod` from `Replacement.zip`",
+        ));
+    assert_eq!(
+        text(inst.join("mods/CoolMod/Textures/file.dds")),
+        "reinstalled"
+    );
+    assert_eq!(
+        text(inst.join("mods/CoolMod/.overseer-mod.toml")),
+        "format = 1\narchive = \"Replacement.zip\"\n"
+    );
+    assert_eq!([bytes(&default), bytes(&alternate)], before);
+}
+
+#[test]
+fn lifecycle_guards_and_missing_provenance_do_not_mutate() {
+    let tmp = TempDir::new().unwrap();
+    let inst = init_instance(&tmp);
+    let inst_s = inst.to_str().unwrap();
+    let archive = tmp.path().join("Guarded.zip");
+    let replacement = tmp.path().join("Replacement.zip");
+    zip(&archive, &[("Textures/file.dds", b"guarded")]);
+    zip(&replacement, &[("Textures/file.dds", b"replacement")]);
+    install_archive(&inst, &archive, "Guarded").success();
+    let live = inst.join("mods/Guarded/Textures/file.dds");
+    let modlist = inst.join("profiles/Default/modlist.txt");
+    let original_modlist = bytes(&modlist);
+
+    let pending = inst.join("state").join("pending-mod-operation");
+    std::fs::create_dir_all(&pending).unwrap();
+    std::fs::write(pending.join("manifest.json"), b"manual").unwrap();
+    overseer(&["mod", "remove", "Guarded", "--instance", inst_s])
+        .failure()
+        .stderr(predicate::str::contains(pending.to_str().unwrap()))
+        .stderr(predicate::str::contains("pending mod operation"));
+    assert_eq!(text(&live), "guarded");
+    assert_eq!(bytes(&modlist), original_modlist);
+    assert_eq!(text(pending.join("manifest.json")), "manual");
+    std::fs::remove_dir_all(pending).unwrap();
+
+    overseer(&["mod", "enable", "Guarded", "--instance", inst_s]).success();
+    overseer(&["deploy", "--instance", inst_s]).success();
+    let deployed_modlist = bytes(&modlist);
+    overseer(&[
+        "mod",
+        "replace",
+        "Guarded",
+        replacement.to_str().unwrap(),
+        "--instance",
+        inst_s,
+    ])
+    .failure()
+    .stderr(predicate::str::contains("deployment state exists"))
+    .stderr(predicate::str::contains("deployment.json"))
+    .stderr(predicate::str::contains("purge it first"));
+    assert_eq!(text(&live), "guarded");
+    assert_eq!(bytes(&modlist), deployed_modlist);
+    assert!(!inst.join("downloads/Replacement.zip").exists());
+
+    overseer(&["purge", "--instance", inst_s]).success();
+    std::fs::remove_file(inst.join("mods/Guarded/.overseer-mod.toml")).unwrap();
+    let before_reinstall = bytes(&modlist);
+    overseer(&["mod", "reinstall", "Guarded", "--instance", inst_s])
+        .failure()
+        .stderr(predicate::str::contains("missing Overseer provenance"))
+        .stderr(predicate::str::contains(".overseer-mod.toml"))
+        .stderr(predicate::str::contains("replace the mod explicitly"));
+    assert_eq!(text(live), "guarded");
+    assert_eq!(bytes(modlist), before_reinstall);
 }
 
 #[test]
@@ -630,7 +797,7 @@ fn install_reports_duplicates_and_fomod_archives() {
         inst_s,
     ])
     .failure()
-    .stderr(predicate::str::contains("already installed"));
+    .stderr(predicate::str::contains("already exists"));
 
     overseer(&[
         "install",

@@ -2,6 +2,7 @@
 
 use anyhow::{Context, Result, anyhow};
 use camino::Utf8PathBuf;
+use overseer_core::lifecycle;
 
 use crate::cli::InstanceArgs;
 use crate::context::absolutize;
@@ -20,13 +21,15 @@ pub fn run(archive: Utf8PathBuf, instance: &InstanceArgs, name: Option<String>) 
             .to_owned(),
     };
 
-    heading(format!("Installing {archive} as `{name}`"));
-    let installed = overseer_core::install::install(&instance, &archive, &name)
-        .with_context(|| format!("installing {archive}"))?;
+    heading(format!("Installing `{archive}` as `{name}`"));
+    let report = lifecycle::install(&instance, &instance.config.default_profile, &archive, &name)
+        .with_context(|| format!("installing `{archive}` as `{name}`"))?;
+    let archive_name = report.archive.as_deref().unwrap_or(archive.as_str());
     success(format!(
-        "Installed `{}` to {}",
-        installed.name,
-        instance.mods_dir().join(&installed.name)
+        "Installed `{}` from `{archive_name}` to {}",
+        report.name,
+        instance.mods_dir().join(&report.name)
     ));
+    super::warn_lifecycle_residue(report.residue_warning);
     Ok(())
 }

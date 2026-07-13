@@ -1,10 +1,15 @@
-//! `overseer mod ...` subcommands: list, enable, disable, move.
+//! `overseer mod ...` profile-order and installed-mod subcommands.
 
 use anyhow::{Context, Result};
+use camino::Utf8Path;
+use overseer_core::{
+    apply,
+    lifecycle::{self, LifecycleReport},
+};
 
 use crate::cli::{InstanceArgs, ModCommand, ProfileArgs};
+use crate::context::absolutize;
 use crate::ui::{heading, list_item, success};
-use overseer_core::apply;
 
 pub fn run(command: ModCommand) -> Result<()> {
     match command {
@@ -17,6 +22,13 @@ pub fn run(command: ModCommand) -> Result<()> {
             new_name,
             instance,
         } => rename(&instance, &name, &new_name),
+        ModCommand::Remove { name, instance } => remove(&instance, &name),
+        ModCommand::Replace {
+            name,
+            archive,
+            instance,
+        } => replace(&instance, &name, &archive),
+        ModCommand::Reinstall { name, instance } => reinstall(&instance, &name),
     }
 }
 
@@ -84,4 +96,37 @@ fn rename(instance: &InstanceArgs, old: &str, new: &str) -> Result<()> {
         .with_context(|| format!("renaming `{old}` to `{new}`"))?;
     success(format!("Renamed mod `{old}` to `{new}`"));
     Ok(())
+}
+
+fn remove(instance: &InstanceArgs, name: &str) -> Result<()> {
+    let instance = instance.load_instance()?;
+    let report =
+        lifecycle::remove(&instance, name).with_context(|| format!("removing `{name}`"))?;
+    finish_lifecycle("Removed", report);
+    Ok(())
+}
+
+fn replace(instance: &InstanceArgs, name: &str, archive: &Utf8Path) -> Result<()> {
+    let archive = absolutize(archive)?;
+    let instance = instance.load_instance()?;
+    let report = lifecycle::replace(&instance, name, &archive)
+        .with_context(|| format!("replacing `{name}` from `{archive}`"))?;
+    finish_lifecycle("Replaced", report);
+    Ok(())
+}
+
+fn reinstall(instance: &InstanceArgs, name: &str) -> Result<()> {
+    let instance = instance.load_instance()?;
+    let report =
+        lifecycle::reinstall(&instance, name).with_context(|| format!("reinstalling `{name}`"))?;
+    finish_lifecycle("Reinstalled", report);
+    Ok(())
+}
+
+fn finish_lifecycle(verb: &str, report: LifecycleReport) {
+    match report.archive.as_deref() {
+        Some(archive) => success(format!("{verb} `{}` from `{archive}`", report.name)),
+        None => success(format!("{verb} `{}`", report.name)),
+    }
+    super::warn_lifecycle_residue(report.residue_warning);
 }

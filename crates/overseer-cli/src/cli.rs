@@ -51,7 +51,7 @@ pub enum Command {
         instance: InstanceArgs,
     },
 
-    /// Manage the mods in a profile
+    /// Manage installed mods and a profile's mod order
     Mod {
         #[command(subcommand)]
         command: ModCommand,
@@ -210,6 +210,29 @@ pub enum ModCommand {
         name: String,
         /// New name for the mod
         new_name: String,
+        #[command(flatten)]
+        instance: InstanceArgs,
+    },
+    /// Remove an installed mod from the instance and every profile
+    Remove {
+        /// Installed mod name
+        name: String,
+        #[command(flatten)]
+        instance: InstanceArgs,
+    },
+    /// Replace an installed mod from a new archive
+    Replace {
+        /// Installed mod name
+        name: String,
+        /// Path to the replacement archive
+        archive: Utf8PathBuf,
+        #[command(flatten)]
+        instance: InstanceArgs,
+    },
+    /// Reinstall an installed mod from its recorded archive
+    Reinstall {
+        /// Installed mod name
+        name: String,
         #[command(flatten)]
         instance: InstanceArgs,
     },
