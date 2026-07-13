@@ -1,8 +1,7 @@
 //! Tests for the instance model and mod operations
 
 use super::*;
-use crate::instance::{ModKind, ModListEntry};
-use crate::test_support::{install_mod, save_profile, temp, temp_instance};
+use crate::test_support::{save_profile, temp, temp_instance};
 
 #[test]
 fn path_helpers_compose_under_root() {
@@ -304,102 +303,6 @@ fn rename_profile_rejects_invalid_and_case_only_names() {
     assert!(instance.profile_dir("Old").is_dir(), "nothing moved");
 }
 
-#[test]
-fn rename_mod_renames_folder_and_rewrites_referencing_profiles() {
-    let (_tmp, instance) = temp_instance();
-    install_mod(
-        &instance,
-        "CoolMod",
-        &[("Cool.esp", "plugin bytes"), ("plugins.txt", "*Cool.esp\n")],
-    );
-    install_mod(&instance, "Other", &[("Data.txt", "other")]);
-    save_profile(&instance, "Default", &[("CoolMod", true), ("Other", false)]);
-
-    let mut survival = Profile {
-        name: "Survival".to_owned(),
-        mods: vec![
-            ModListEntry {
-                name: "Other".to_owned(),
-                enabled: true,
-                kind: ModKind::Managed,
-            },
-            ModListEntry {
-                name: "CoolMod".to_owned(),
-                enabled: false,
-                kind: ModKind::Managed,
-            },
-        ],
-        local_saves: false,
-    };
-    survival.save(&instance).expect("save survival");
-    save_profile(&instance, "Clean", &[("Other", true)]);
-    let clean_before = std::fs::read_to_string(instance.profile_dir("Clean").join("modlist.txt"))
-        .expect("read clean before");
-
-    instance
-        .rename_mod("CoolMod", "BetterMod")
-        .expect("rename mod");
-
-    assert!(!instance.mods_dir().join("CoolMod").exists());
-    assert!(instance.mods_dir().join("BetterMod").is_dir());
-    assert_eq!(
-        std::fs::read_to_string(instance.mods_dir().join("BetterMod").join("Cool.esp"))
-            .expect("read plugin"),
-        "plugin bytes"
-    );
-    assert_eq!(
-        std::fs::read_to_string(instance.mods_dir().join("BetterMod").join("plugins.txt"))
-            .expect("read plugins.txt"),
-        "*Cool.esp\n"
-    );
-
-    let default = Profile::load(&instance, "Default").expect("load default");
-    assert_eq!(default.mods[0].name, "BetterMod");
-    assert!(default.mods[0].enabled);
-    assert_eq!(default.mods[1].name, "Other");
-    assert!(!default.mods[1].enabled);
-
-    survival = Profile::load(&instance, "Survival").expect("load survival");
-    assert_eq!(survival.mods[0].name, "Other");
-    assert!(survival.mods[0].enabled);
-    assert_eq!(survival.mods[1].name, "BetterMod");
-    assert!(!survival.mods[1].enabled);
-
-    let clean_after = std::fs::read_to_string(instance.profile_dir("Clean").join("modlist.txt"))
-        .expect("read clean after");
-    assert_eq!(clean_after, clean_before, "unreferencing profile untouched");
-}
-
-#[test]
-fn rename_mod_rejects_a_colliding_target_folder() {
-    let (_tmp, instance) = temp_instance();
-    install_mod(&instance, "CoolMod", &[("a.txt", "a")]);
-    install_mod(&instance, "Existing", &[("b.txt", "b")]);
-
-    let err = instance
-        .rename_mod("CoolMod", "existing")
-        .expect_err("collision must be rejected");
-    assert!(matches!(err, InstanceError::ModAlreadyInstalled(name) if name == "existing"));
-    assert!(instance.mods_dir().join("CoolMod").is_dir());
-    assert!(instance.mods_dir().join("Existing").is_dir());
-}
-
-#[test]
-fn rename_mod_rejects_reserved_and_separator_names() {
-    let (_tmp, instance) = temp_instance();
-    install_mod(&instance, "CoolMod", &[("a.txt", "a")]);
-
-    for name in ["Foo_separator", "overwrite"] {
-        let err = instance
-            .rename_mod("CoolMod", name)
-            .expect_err("invalid target must be rejected");
-        assert!(
-            matches!(err, InstanceError::InvalidModName(_)),
-            "{name} should be invalid, got {err:?}"
-        );
-    }
-}
-
 /// Windows device names and trailing dot/space make broken, undeletable dirs, so profile creation refuses them
 #[test]
 fn create_profile_rejects_windows_reserved_and_trailing_dot_names() {
@@ -415,48 +318,4 @@ fn create_profile_rejects_windows_reserved_and_trailing_dot_names() {
     }
     // Validation runs before any directory is created
     assert!(instance.profiles().expect("profiles").is_empty());
-}
-
-#[test]
-fn rename_mod_rejects_case_only_and_noop_renames() {
-    let (_tmp, instance) = temp_instance();
-    install_mod(&instance, "CoolMod", &[("a.txt", "a")]);
-
-    let err = instance
-        .rename_mod("CoolMod", "coolmod")
-        .expect_err("case-only rename must be rejected");
-    assert!(matches!(err, InstanceError::InvalidModName(_)));
-
-    let err = instance
-        .rename_mod("CoolMod", "CoolMod")
-        .expect_err("same-name rename must be rejected");
-    assert!(matches!(err, InstanceError::InvalidModName(_)));
-}
-
-#[test]
-fn rename_mod_rejects_profiles_that_already_list_both_names() {
-    let (_tmp, instance) = temp_instance();
-    install_mod(&instance, "CoolMod", &[("a.txt", "a")]);
-    save_profile(
-        &instance,
-        "Default",
-        &[("CoolMod", true), ("BetterMod", true)],
-    );
-
-    let err = instance
-        .rename_mod("CoolMod", "BetterMod")
-        .expect_err("both names in a profile must be rejected");
-    assert!(matches!(err, InstanceError::ModAlreadyInList(name) if name == "BetterMod"));
-    assert!(instance.mods_dir().join("CoolMod").is_dir());
-    assert!(!instance.mods_dir().join("BetterMod").exists());
-}
-
-#[test]
-fn rename_mod_reports_missing_source_mod() {
-    let (_tmp, instance) = temp_instance();
-
-    let err = instance
-        .rename_mod("Missing", "BetterMod")
-        .expect_err("missing mod must be rejected");
-    assert!(matches!(err, InstanceError::ModNotInstalled(name) if name == "Missing"));
 }

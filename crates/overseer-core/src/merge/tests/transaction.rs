@@ -3,7 +3,7 @@
 use super::*;
 use crate::instance::{Instance, Profile};
 use crate::plugins::{PluginEntry, PluginLoadOrder};
-use crate::test_support::{save_profile, temp_instance, write_plugin};
+use crate::test_support::{install_mod, save_profile, temp_instance, write_plugin};
 use camino::Utf8Path;
 use tempfile::TempDir;
 
@@ -199,6 +199,24 @@ fn run_refuses_when_deployed() {
     std::fs::write(instance.state_dir().join("deployment.json"), "{}").expect("fake deployment");
     let err = run(&instance, &profile, &request("Merged", &["ModA.esp"])).unwrap_err();
     assert!(matches!(err, MergeTxnError::Deployed));
+}
+
+#[test]
+fn run_recovers_an_active_lifecycle_journal() {
+    let (_dir, instance, profile) = setup();
+    install_mod(&instance, "PendingOld", &[("owned.txt", "owned")]);
+    std::fs::create_dir_all(instance.state_dir()).expect("state dir");
+    std::fs::write(
+        instance.state_dir().join("lifecycle.json"),
+        br#"{"version":1,"transaction":"test-transaction","phase":"Active","operation":{"Rename":{"old":"PendingOld","new":"PendingNew"}},"profiles":[]}"#,
+    )
+    .expect("active lifecycle journal");
+
+    run(&instance, &profile, &request("Merged", &["ModA.esp"])).expect("merge after recovery");
+
+    assert!(instance.mods_dir().join("PendingOld").is_dir());
+    assert!(!instance.mods_dir().join("PendingNew").exists());
+    assert!(!instance.state_dir().join("lifecycle.json").exists());
 }
 
 #[test]

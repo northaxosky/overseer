@@ -2,6 +2,8 @@
 
 use crate::deploy::DeployError;
 use crate::instance::InstanceError;
+use crate::lifecycle::LifecycleError;
+use crate::lock::LockError;
 use crate::plugins::PluginError;
 use camino::Utf8PathBuf;
 use thiserror::Error;
@@ -37,6 +39,10 @@ pub enum ApplyError {
     #[error("instance is in use by another Overseer process; try again once it finishes")]
     Busy,
 
+    /// Installed-mod lifecycle recovery blocked this operation
+    #[error(transparent)]
+    Lifecycle(Box<LifecycleError>),
+
     /// A reversal could not be fully resolved; the journal is kept
     #[error("`{path}` has an unresolved deployment reversal; purge again to retry")]
     RecoveryFailed { path: Utf8PathBuf },
@@ -58,6 +64,28 @@ pub enum ApplyError {
 
     #[error(transparent)]
     Plugin(#[from] PluginError),
+}
+
+impl From<LockError> for ApplyError {
+    fn from(value: LockError) -> Self {
+        match value {
+            LockError::Busy => Self::Busy,
+            LockError::Io(error) => Self::Io(error),
+        }
+    }
+}
+
+impl From<LifecycleError> for ApplyError {
+    fn from(value: LifecycleError) -> Self {
+        match value {
+            LifecycleError::Busy => Self::Busy,
+            LifecycleError::LiveDeployment { path } => Self::DeployedCannotRename { path },
+            LifecycleError::Instance(error) => Self::Instance(error),
+            LifecycleError::Io(error) => Self::Io(error),
+            LifecycleError::Deployment(error) => *error,
+            other => Self::Lifecycle(Box::new(other)),
+        }
+    }
 }
 
 /// Attach the offending path to an [`std::io::Error`]

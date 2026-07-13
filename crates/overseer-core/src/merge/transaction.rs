@@ -1,10 +1,12 @@
 //! The list-driven merge transaction: resolve a plugin list, merge archives into mod, back up source
 
 use super::{MergeConflict, MergeCounts, MergeOptions, MergeSource, merge};
-use crate::apply::{ApplyError, Deployment, InstanceLock};
+use crate::apply::{ApplyError, Deployment};
 use crate::error::IoError;
 use crate::fs;
 use crate::instance::{Instance, InstanceError, Profile};
+use crate::lifecycle::LifecycleError;
+use crate::lock::InstanceLock;
 use crate::plugins::{PluginError, PluginLoadOrder};
 use camino::{Utf8Path, Utf8PathBuf};
 use serde::{Deserialize, Serialize};
@@ -117,6 +119,10 @@ pub enum MergeTxnError {
     #[error(transparent)]
     Apply(#[from] ApplyError),
 
+    /// Installed-mod recovery failed before merge could mutate the instance
+    #[error(transparent)]
+    Lifecycle(#[from] LifecycleError),
+
     /// The instance is deployed; merging needs an undeployed instance
     #[error("instance is deployed; purge before merging")]
     Deployed,
@@ -213,7 +219,8 @@ pub fn run(
     profile: &Profile,
     req: &MergeRequest,
 ) -> Result<MergeReport, MergeTxnError> {
-    let _lock = InstanceLock::acquire(instance)?;
+    let _lock = InstanceLock::acquire(instance).map_err(ApplyError::from)?;
+    crate::lifecycle::recover_locked(instance)?;
     if Deployment::exists(instance) {
         return Err(MergeTxnError::Deployed);
     }
@@ -326,7 +333,8 @@ fn commit(
 /// Undo a committed merge: restore the sources, drop the mod, and delete the manifest
 pub fn restore(instance: &Instance, name: &str) -> Result<(), MergeTxnError> {
     validate_name_syntax(name)?;
-    let _lock = InstanceLock::acquire(instance)?;
+    let _lock = InstanceLock::acquire(instance).map_err(ApplyError::from)?;
+    crate::lifecycle::recover_locked(instance)?;
     if Deployment::exists(instance) {
         return Err(MergeTxnError::Deployed);
     }
