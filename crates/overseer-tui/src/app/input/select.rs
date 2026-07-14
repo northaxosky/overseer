@@ -163,7 +163,7 @@ impl App {
             return;
         };
         let dir = self.session.instance.root.clone();
-        match Session::load(&dir, &name) {
+        match Session::load(&dir, Some(&name)) {
             Ok(session) => {
                 self.session = session;
                 self.after_session_changed();
@@ -182,7 +182,7 @@ impl App {
         };
         let dir = Utf8PathBuf::from(path);
         let profile_name = self.session.profile.name.clone();
-        match Session::load(&dir, &profile_name) {
+        match Session::load(&dir, Some(&profile_name)) {
             Ok(session) => {
                 self.session = session;
                 self.after_session_changed();

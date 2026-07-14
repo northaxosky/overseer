@@ -103,7 +103,7 @@ fn worker_refuses_when_deployment_goes_live_after_confirmation() {
         &[("Textures/a.dds", b"texture")],
     );
     let mut app = App::sample();
-    app.session = Session::load(&instance.root, "Default").expect("session");
+    app.session = Session::load(&instance.root, Some("Default")).expect("session");
 
     app.handle_key(key(KeyCode::Char('3')));
     app.finish_operation_after_terminal();
@@ -135,7 +135,7 @@ fn confirming_starts_the_install_worker_and_preserves_location() {
     );
 
     let mut app = App::sample();
-    app.session = Session::load(&instance.root, "Default").expect("session");
+    app.session = Session::load(&instance.root, Some("Default")).expect("session");
     // A prior ready scan we expect the install to invalidate
     app.conflicts.status = ConflictsStatus::Ready(Vec::new());
 
@@ -219,7 +219,7 @@ fn install_download_surfaces_the_fomod_refusal() {
         ],
     );
     let mut app = App::sample();
-    app.session = Session::load(&instance.root, "Default").expect("session");
+    app.session = Session::load(&instance.root, Some("Default")).expect("session");
 
     app.install_download(&archive);
     assert_eq!(

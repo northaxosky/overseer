@@ -230,7 +230,7 @@ impl OperationFailure {
     ) -> Self {
         let message = message.into();
 
-        match Session::load(&context.instance_root, &context.profile) {
+        match Session::load(&context.instance_root, Some(&context.profile)) {
             Ok(session) => Self {
                 message,
                 recovery: Some(OperationRecovery::Session(Box::new(session))),

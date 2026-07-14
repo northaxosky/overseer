@@ -31,7 +31,7 @@ fn main() -> Result<()> {
         .context("no instance to open, pass `overseer-tui <instance-dir>` once to get started")?;
     let instance_dir = overseer_frontend::absolutize(&resolved)?;
 
-    let mut app = App::load(&instance_dir, &profile, settings)
+    let mut app = App::load(&instance_dir, profile.as_deref(), settings)
         .with_context(|| format!("loading instance at {instance_dir}"))?;
 
     let mut terminal = ratatui::init();

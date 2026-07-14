@@ -151,17 +151,20 @@ pub(crate) struct Session {
 
 impl Session {
     /// Load an instance's domain data. Reconciles in memory but never saves
-    pub(crate) fn load(instance_dir: &Utf8Path, profile_name: &str) -> Result<Self> {
+    pub(crate) fn load(instance_dir: &Utf8Path, requested: Option<&str>) -> Result<Self> {
         let instance = Instance::load(instance_dir.to_owned())?;
+        let profile_name = requested
+            .map(str::to_owned)
+            .unwrap_or_else(|| instance.config.default_profile.clone());
 
-        let mut profile = Profile::load(&instance, profile_name)?;
+        let mut profile = Profile::load(&instance, &profile_name)?;
         profile.reconcile(&instance)?;
 
         let discovered = discover_plugins(&instance, &profile)?;
-        let mut order = PluginLoadOrder::load(&instance, profile_name)?;
+        let mut order = PluginLoadOrder::load(&instance, &profile_name)?;
         order.reconcile(&discovered);
 
-        let plugin_separators = PluginSeparators::load(&instance.profile_dir(profile_name))?;
+        let plugin_separators = PluginSeparators::load(&instance.profile_dir(&profile_name))?;
         let status = apply::status(&instance)?;
 
         Ok(Self {
@@ -197,10 +200,10 @@ impl App {
     /// Load an instance and remember it in settings
     pub(crate) fn load(
         instance_dir: &Utf8Path,
-        profile_name: &str,
+        requested: Option<&str>,
         mut settings: Settings,
     ) -> Result<Self> {
-        let session = Session::load(instance_dir, profile_name)?;
+        let session = Session::load(instance_dir, requested)?;
 
         // Only a successful load is worth remembering
         settings.record_opened(instance_dir);

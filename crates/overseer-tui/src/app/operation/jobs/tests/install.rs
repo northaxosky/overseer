@@ -14,7 +14,7 @@ fn initialized_app() -> (tempfile::TempDir, App) {
         .expect("initialize instance");
     instance.create_profile("Default").expect("create profile");
     let mut app = App::sample();
-    app.session = Session::load(&instance.root, "Default").expect("load session");
+    app.session = Session::load(&instance.root, Some("Default")).expect("load session");
     app.mods.reset(&app.session.profile.mods);
     app.plugins
         .reset(&app.session.order.plugins, &app.session.plugin_separators);
@@ -89,7 +89,8 @@ fn live_deployment_guard_refuses_before_archive_extraction() {
         &[("Textures/seed.dds", "texture")],
     );
     save_profile(&app.session.instance, "Default", &[("Seed", true)]);
-    app.session = Session::load(&app.session.instance.root, "Default").expect("reload session");
+    app.session =
+        Session::load(&app.session.instance.root, Some("Default")).expect("reload session");
     overseer_core::apply::deploy_profile(&app.session.instance, "Default", &NullSink)
         .expect("deploy fixture");
     let archive = app.session.instance.downloads_dir().join("Blocked.zip");

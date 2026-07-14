@@ -469,7 +469,7 @@ impl App {
         // The rename is committed on disk
         if self.session.profile.name.eq_ignore_ascii_case(&old) {
             let root = self.session.instance.root.clone();
-            match Session::load(&root, &new) {
+            match Session::load(&root, Some(&new)) {
                 Ok(session) => {
                     self.session = session;
                     self.after_session_changed();

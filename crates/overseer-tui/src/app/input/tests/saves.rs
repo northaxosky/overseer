@@ -221,7 +221,7 @@ fn switching_profile_while_on_saves_relists_for_the_new_profile() {
     );
 
     let mut app = App::sample();
-    app.session = Session::load(&instance.root, "Default").expect("session");
+    app.session = Session::load(&instance.root, Some("Default")).expect("session");
     app.settings.saves_sort = SavesSort {
         key: SavesSortKey::Level,
         dir: SortDir::Desc,

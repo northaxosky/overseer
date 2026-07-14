@@ -67,12 +67,13 @@ impl BackgroundJob for InstallJob {
         let committed = format!("Installed {}", self.name);
 
         reporter.phase(OperationPhase::ReloadingSession);
-        let session = Session::load(&context.instance_root, &context.profile).map_err(|error| {
-            OperationFailure::with_session_recovery(
-                format!("{committed}, but reloading failed: {error}"),
-                context,
-            )
-        })?;
+        let session =
+            Session::load(&context.instance_root, Some(&context.profile)).map_err(|error| {
+                OperationFailure::with_session_recovery(
+                    format!("{committed}, but reloading failed: {error}"),
+                    context,
+                )
+            })?;
 
         reporter.phase(OperationPhase::ListingDownloads);
         let downloads = match install::list_downloads(&session.instance) {
