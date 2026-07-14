@@ -40,8 +40,8 @@ pub(crate) fn write_save_redirect(
     let text = fs::read_to_string_opt(custom_ini)?.unwrap_or_default();
     let updated = ini::set_key(&text, SECTION, KEY, &save_redirect_value(profile));
 
-    fs::write_atomic(custom_ini, updated.as_bytes())?;
     fs::ensure_dir(saves_dir)?;
+    fs::write_atomic(custom_ini, updated.as_bytes())?;
     Ok(())
 }
 
