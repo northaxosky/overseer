@@ -867,6 +867,32 @@ fn saves_list_and_delete_manage_fos_files() {
     assert!(!save.exists(), "the .fos should be gone after delete");
 }
 
+#[test]
+fn saves_delete_refuses_a_path_that_escapes_the_profile() {
+    let tmp = TempDir::new().unwrap();
+    let inst = init_instance(&tmp);
+    let inst_s = inst.to_str().unwrap();
+
+    // A save that lives outside the Default profile's saves dir
+    let outside = tmp.path().join("ini").join("Saves").join("Other");
+    std::fs::create_dir_all(&outside).unwrap();
+    let victim = outside.join("Keep.fos");
+    std::fs::write(&victim, b"not-a-real-save").unwrap();
+
+    // `..\Other\Keep.fos` would resolve outside Default/ without the guard
+    overseer(&[
+        "saves",
+        "delete",
+        "..\\Other\\Keep.fos",
+        "--instance",
+        inst_s,
+    ])
+    .failure()
+    .stderr(predicate::str::contains("plain file name"));
+
+    assert!(victim.exists(), "a traversal path must not delete the file");
+}
+
 /// Write a one-file GNRL archive at `path`, mirroring how the core merge tests build sources
 fn write_main_ba2(path: &Path, entry: &str) {
     let files = [overseer_core::ba2::Ba2File {

@@ -214,8 +214,10 @@ fn a_failed_save_on_removal_rolls_the_target_back_in_memory() {
         args: Vec::new(),
     }];
     app.session.instance.save().unwrap();
-    // Delete the instance dir so the next save() fails mid-removal
-    std::fs::remove_dir_all(&app.session.instance.root).unwrap();
+    // Replace overseer.toml with a directory so the next atomic save fails
+    let config = app.session.instance.root.join("overseer.toml");
+    std::fs::remove_file(&config).unwrap();
+    std::fs::create_dir(&config).unwrap();
 
     app.handle_key(key(KeyCode::Char('l'))); // picker opens on "game"
     app.handle_key(key(KeyCode::Char('x'))); // confirm remove "game"

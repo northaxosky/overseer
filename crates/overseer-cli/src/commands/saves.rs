@@ -2,7 +2,7 @@
 
 use crate::cli::{ProfileArgs, SaveCommand};
 use crate::ui::{heading, list_item, success};
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use overseer_core::saves;
 
 pub fn run(command: SaveCommand) -> Result<()> {
@@ -45,6 +45,9 @@ fn list(target: &ProfileArgs) -> Result<()> {
 }
 
 fn delete(target: &ProfileArgs, file: &str) -> Result<()> {
+    if file.is_empty() || file.contains(['/', '\\']) || file == "." || file == ".." {
+        bail!("save name must be a plain file name, not a path");
+    }
     let (instance, _profile) = target.load_profile()?;
     let dir = instance
         .saves_dir(&target.profile)
