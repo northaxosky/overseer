@@ -161,7 +161,7 @@ impl Instance {
                 path: path.clone(),
                 source: Box::new(source),
             })?;
-        std::fs::write(&path, text).map_err(|e| io_err(&path, e).into())
+        fs::write_atomic(&path, text.as_bytes()).map_err(Into::into)
     }
 
     /// The directory holding the game's real `Plugins.txt`: configured `local_dir` or `%LOCALAPPDATA%\<game>`
