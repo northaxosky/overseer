@@ -3,13 +3,6 @@
 use super::*;
 
 #[test]
-fn ng_target_table_is_incomplete_until_all_core_binaries_are_known() {
-    assert!(!target_table_complete(Generation::NextGen));
-    assert!(target_table_complete(Generation::OldGen));
-    assert!(target_table_complete(Generation::Anniversary));
-}
-
-#[test]
 fn every_known_binary_is_sha256_gated() {
     assert!(
         FINGERPRINTS

@@ -3,7 +3,7 @@
 //! This is a thin policy over the shared [`crate::patch::engine`]: it maps each core binary to its target
 //! fingerprint for a requested [`Generation`] and exposes the pieces the CLI wires into a `Policy`.
 
-use super::fingerprint::{self, CORE_BINARIES, target_fingerprint, target_table_complete};
+use super::fingerprint::{self, CORE_BINARIES, target_fingerprint};
 use crate::detect::Generation;
 use crate::patch::engine::{ConvertItem, GroupSpec, Ownership, TargetSpec};
 use crate::patch::fingerprint::FileFingerprint;
@@ -44,11 +44,6 @@ pub fn explicit_item(target: Generation, rel: &str) -> Option<ConvertItem> {
         target: spec,
         group: CORE_GROUP.name,
     })
-}
-
-/// Whether every core binary has a known target fingerprint for `target`
-pub fn target_is_complete(target: Generation) -> bool {
-    target_table_complete(target)
 }
 
 /// The three core binaries an edition swap converts together

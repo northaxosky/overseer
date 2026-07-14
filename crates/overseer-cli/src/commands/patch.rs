@@ -123,12 +123,6 @@ fn convert_install(args: ConvertArgs<'_>) -> Result<()> {
         args.allow_incomplete_repair,
         gate,
     )?;
-    if !convert::target_is_complete(args.target) {
-        bail!(
-            "target {} is incomplete; refusing conversion",
-            args.target.label()
-        );
-    }
     let install = detect::detect(GameKind::Fallout4, &game_dir);
     let edition = detect::edition(&install, &game_dir);
     let delta_map = resolve_core_deltas(args.deltas, args)?;
@@ -558,8 +552,7 @@ fn ba2(path: &Utf8Path, to: GenerationArg, dry_run: bool, yes: bool) -> Result<(
     }
 
     let generation = to.into_core();
-    let target = Ba2Edition::from_generation(generation)
-        .with_context(|| format!("BA2 archives have no {} edition", generation.label()))?;
+    let target = Ba2Edition::from_generation(generation);
     let label = generation.tag();
     let mut tally = Tally::default();
 

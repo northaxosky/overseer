@@ -25,12 +25,11 @@ impl Ba2Edition {
         }
     }
 
-    /// The BA2 edition for a [`Generation`]; `Anniversary` uses Next-Gen archives, so it maps to `None`
-    pub fn from_generation(generation: Generation) -> Option<Self> {
+    /// The BA2 edition for a [`Generation`]; `Anniversary` uses Next-Gen archives
+    pub fn from_generation(generation: Generation) -> Self {
         match generation {
-            Generation::OldGen => Some(Self::OldGen),
-            Generation::NextGen => Some(Self::NextGen),
-            Generation::Anniversary => None,
+            Generation::OldGen => Self::OldGen,
+            Generation::NextGen | Generation::Anniversary => Self::NextGen,
         }
     }
 

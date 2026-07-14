@@ -19,10 +19,3 @@ fn core_group_holds_exactly_the_three_binaries() {
     assert_eq!(CORE_GROUP.files, CORE_BINARIES);
     assert_eq!(CORE_BINARIES.len(), 3);
 }
-
-#[test]
-fn target_completeness_tracks_known_editions() {
-    assert!(target_is_complete(Generation::OldGen));
-    assert!(target_is_complete(Generation::Anniversary));
-    assert!(!target_is_complete(Generation::NextGen));
-}

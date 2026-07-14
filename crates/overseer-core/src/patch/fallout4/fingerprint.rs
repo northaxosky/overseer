@@ -61,13 +61,6 @@ pub fn any_known_size(rel_path: &str, size: u64) -> bool {
         .any(|fp| fp.rel_path.eq_ignore_ascii_case(rel_path) && fp.expected.size == size)
 }
 
-/// Whether every core binary has a known target fingerprint for `generation`
-pub fn target_table_complete(generation: Generation) -> bool {
-    CORE_BINARIES
-        .iter()
-        .all(|name| target_fingerprint(generation, name).is_some())
-}
-
 /// The verified identity table for every known Fallout 4 core binary
 pub static FINGERPRINTS: &[BinaryFingerprint] = &[
     BinaryFingerprint {

@@ -368,6 +368,26 @@ fn patch_ba2_downgrades_a_single_file_and_preserves_the_body() {
 }
 
 #[test]
+fn patch_ba2_upgrades_a_single_file_to_ae() {
+    let tmp = TempDir::new().unwrap();
+    let file = tmp.path().join("Test.ba2");
+    let original = ba2_bytes(1, b"GNRL", b"body-must-survive");
+    std::fs::write(&file, &original).unwrap();
+    let file_s = file.to_str().unwrap();
+
+    overseer(&["patch", "ba2", file_s, "--to", "ae"])
+        .success()
+        .stdout(predicate::str::contains("patched v1").and(predicate::str::contains("v8")));
+    let patched = std::fs::read(&file).unwrap();
+    assert_eq!(&patched[4..8], 8u32.to_le_bytes().as_slice());
+    assert_eq!(
+        &patched[8..],
+        &original[8..],
+        "everything after the version is untouched"
+    );
+}
+
+#[test]
 fn patch_ba2_directory_requires_yes_then_patches_all() {
     let tmp = TempDir::new().unwrap();
     let dir = tmp.path().join("Data");

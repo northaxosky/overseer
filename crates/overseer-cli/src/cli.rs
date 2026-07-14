@@ -363,7 +363,7 @@ pub enum PatchCommand {
         /// A `.ba2` file, or a directory of them
         path: Utf8PathBuf,
         /// Target edition: `og` (v1) or `ng` (v8)
-        #[arg(long, value_name = "og|ng", hide_possible_values = true)]
+        #[arg(long, value_name = "og|ae", hide_possible_values = true)]
         to: GenerationArg,
         /// Show what would change without writing
         #[arg(long)]
@@ -375,7 +375,7 @@ pub enum PatchCommand {
     /// Convert a Fallout 4 install between verified binary generations
     Convert {
         /// Target edition
-        #[arg(long, value_name = "og|ng|ae", hide_possible_values = true)]
+        #[arg(long, value_name = "og|ae", hide_possible_values = true)]
         to: GenerationArg,
         #[command(flatten)]
         source: DeltaSourceArgs,
@@ -438,11 +438,10 @@ pub struct MergeSource {
     pub restore: Option<String>,
 }
 
-/// A Fallout 4 generation as a CLI argument (`og` / `ng` / `ae`), mapping to core's [`Generation`]
+/// A Fallout 4 generation as a CLI argument (`og` / `ae`), mapping to core's [`Generation`]
 #[derive(Clone, Copy, clap::ValueEnum)]
 pub enum GenerationArg {
     Og,
-    Ng,
     Ae,
 }
 
@@ -451,7 +450,6 @@ impl GenerationArg {
     pub fn into_core(self) -> Generation {
         match self {
             GenerationArg::Og => Generation::OldGen,
-            GenerationArg::Ng => Generation::NextGen,
             GenerationArg::Ae => Generation::Anniversary,
         }
     }
