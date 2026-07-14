@@ -70,6 +70,7 @@ pub fn deploy_profile(
         plugins_txt_backup,
         plugins_txt_intended: None,
         save_redirect: None,
+        committed: Some(false),
     };
     deployment.save(instance)?;
 
@@ -114,6 +115,7 @@ pub fn deploy_profile(
 
     // Second Write: InProgress -> Committed flip
     deployment.status = Status::Committed;
+    deployment.committed = Some(true);
     deployment.save(instance)?;
     tracing::info!(
         profile = %deployment.profile,

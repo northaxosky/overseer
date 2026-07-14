@@ -38,6 +38,10 @@ pub struct Deployment {
     /// The user's prior `SLocalSavePath`, captured when local saves are deployed so reversal can restore it
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub save_redirect: Option<SaveRedirect>,
+
+    /// Whether this deployment ever committed, so reversal keeps the right restore mode after a failed retry
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub committed: Option<bool>,
 }
 
 /// Journalled record that a deployment redirected the game's save path
