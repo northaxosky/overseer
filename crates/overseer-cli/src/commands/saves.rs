@@ -13,21 +13,21 @@ pub fn run(command: SaveCommand) -> Result<()> {
 }
 
 fn list(target: &ProfileArgs) -> Result<()> {
-    let (instance, _profile) = target.load_profile()?;
+    let (instance, profile) = target.load_profile()?;
     let dir = instance
-        .saves_dir(&target.profile)
+        .saves_dir(&profile.name)
         .context("resolving the saves directory")?;
     let saves = saves::list_saves(&dir, instance.config.game).context("listing saves")?;
 
     if saves.is_empty() {
-        println!("No saves for profile `{}`.", target.profile);
+        println!("No saves for profile `{}`.", profile.name);
         return Ok(());
     }
 
     heading(format!(
         "{} save(s) for profile `{}` (newest first)",
         saves.len(),
-        target.profile
+        profile.name
     ));
     for (i, save) in saves.iter().enumerate() {
         let detail = match &save.meta {
@@ -48,9 +48,9 @@ fn delete(target: &ProfileArgs, file: &str) -> Result<()> {
     if file.is_empty() || file.contains(['/', '\\']) || file == "." || file == ".." {
         bail!("save name must be a plain file name, not a path");
     }
-    let (instance, _profile) = target.load_profile()?;
+    let (instance, profile) = target.load_profile()?;
     let dir = instance
-        .saves_dir(&target.profile)
+        .saves_dir(&profile.name)
         .context("resolving the saves directory")?;
     saves::delete_save(&dir.join(file), instance.config.game)
         .with_context(|| format!("deleting save `{file}`"))?;

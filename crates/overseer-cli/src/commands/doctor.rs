@@ -8,11 +8,11 @@ use crate::cli::ProfileArgs;
 use crate::ui::{Role, heading, styled};
 
 pub fn run(target: &ProfileArgs) -> Result<()> {
-    let (instance, _profile) = target.load_profile()?;
-    let report = diagnose(&instance, &target.profile)
-        .with_context(|| format!("running diagnostics for profile `{}`", target.profile))?;
+    let (instance, profile) = target.load_profile()?;
+    let report = diagnose(&instance, &profile.name)
+        .with_context(|| format!("running diagnostics for profile `{}`", profile.name))?;
 
-    heading(format!("Diagnostics: {}", target.profile));
+    heading(format!("Diagnostics: {}", profile.name));
     for finding in &report.findings {
         print_finding(finding);
     }

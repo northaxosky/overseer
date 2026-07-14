@@ -136,9 +136,9 @@ pub struct InstanceArgs {
 pub struct ProfileArgs {
     #[command(flatten)]
     pub instance: InstanceArgs,
-    /// Profile name
-    #[arg(long, default_value = "Default")]
-    pub profile: String,
+    /// Profile name (defaults to the instance's configured default profile)
+    #[arg(long)]
+    pub profile: Option<String>,
 }
 
 /// The apply/preview gate flags shared by every mutating command

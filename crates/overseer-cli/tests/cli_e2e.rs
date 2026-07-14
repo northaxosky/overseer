@@ -633,6 +633,22 @@ fn install_uses_a_downloads_basename_and_reconciles_lazily() {
 }
 
 #[test]
+fn commands_without_a_profile_flag_use_the_configured_default() {
+    let tmp = TempDir::new().unwrap();
+    // Init makes "Survival" the default profile (and the only one that exists)
+    let inst = init_instance_with_profile(&tmp, "Survival");
+    let inst_s = inst.to_str().unwrap();
+
+    // No --profile: resolves to config.default_profile ("Survival"), not a hardcoded "Default"
+    overseer(&["profile", "saves", "--instance", inst_s])
+        .success()
+        .stdout(predicate::str::contains("profile `Survival`"));
+
+    // An explicit --profile still takes precedence
+    overseer(&["mod", "list", "--instance", inst_s, "--profile", "Survival"]).success();
+}
+
+#[test]
 fn mod_list_does_not_persist_a_transiently_missing_mod() {
     let tmp = TempDir::new().unwrap();
     let inst = init_instance(&tmp);

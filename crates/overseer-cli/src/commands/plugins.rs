@@ -16,16 +16,16 @@ pub fn run(command: PluginCommand) -> Result<()> {
 }
 
 /// Reconcile the mod list and resolve the plugin load order in memory, without persisting
-fn synced(target: &ProfileArgs) -> Result<(Instance, Vec<PluginMeta>, PluginLoadOrder)> {
+fn synced(target: &ProfileArgs) -> Result<(Instance, String, Vec<PluginMeta>, PluginLoadOrder)> {
     let (instance, profile) = target.load_context()?;
     let (discovered, order) = profile
         .resolve_plugins(&instance)
         .with_context(|| format!("resolving plugins for `{}`", profile.name))?;
-    Ok((instance, discovered, order))
+    Ok((instance, profile.name, discovered, order))
 }
 
 fn list(target: &ProfileArgs) -> Result<()> {
-    let (_instance, discovered, order) = synced(target)?;
+    let (_instance, profile, discovered, order) = synced(target)?;
 
     if order.plugins.is_empty() {
         println!("No plugins. (Install mods with plugins and enable them.)");
@@ -34,7 +34,7 @@ fn list(target: &ProfileArgs) -> Result<()> {
 
     heading(format!(
         "{} - {} plugins (load order; masters first)",
-        target.profile,
+        profile,
         order.plugins.len()
     ));
     for (i, entry) in order.plugins.iter().enumerate() {
@@ -49,7 +49,7 @@ fn list(target: &ProfileArgs) -> Result<()> {
 }
 
 fn set_active(target: &ProfileArgs, plugin: &str, active: bool) -> Result<()> {
-    let (instance, _discovered, mut order) = synced(target)?;
+    let (instance, profile, _discovered, mut order) = synced(target)?;
 
     if active {
         order.activate(plugin)
@@ -67,7 +67,7 @@ fn set_active(target: &ProfileArgs, plugin: &str, active: bool) -> Result<()> {
     success(format!(
         "{} `{plugin}` in profile `{}`",
         if active { "Activated" } else { "Deactivated" },
-        target.profile
+        profile
     ));
     Ok(())
 }

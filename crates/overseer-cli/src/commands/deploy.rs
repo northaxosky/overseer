@@ -8,10 +8,11 @@ use overseer_core::restore::Restore;
 
 pub fn deploy(target: &ProfileArgs) -> Result<()> {
     let instance = target.load_instance()?;
-    heading(format!("Deploying profile `{}`", target.profile));
+    let profile = target.profile_name(&instance);
+    heading(format!("Deploying profile `{profile}`"));
 
-    let deployment = apply::deploy_profile(&instance, &target.profile, &CliProgress)
-        .with_context(|| format!("deploying profile `{}`", target.profile))?;
+    let deployment = apply::deploy_profile(&instance, &profile, &CliProgress)
+        .with_context(|| format!("deploying profile `{profile}`"))?;
 
     success(format!(
         "Deployed {} files to {}",
