@@ -1,7 +1,7 @@
 //! Tests for the plan-derived deployment record
 
 use super::*;
-use crate::deploy::{ModSource, deployer_for};
+use crate::deploy::{ModSource, TargetOwnership, deployer_for};
 
 use crate::test_support::{temp, write};
 
@@ -42,7 +42,8 @@ fn verify_report_is_ok_only_when_nothing_missing() {
 fn reversal_report_is_resolved_only_when_empty() {
     assert!(ReversalReport::default().is_fully_resolved());
     let bad = ReversalReport {
-        unresolved: vec![DeployError::NonUtf8Path("x".into())],
+        unresolved: vec![ReversalIssue::new("x", "test")],
+        ..ReversalReport::default()
     };
     assert!(!bad.is_fully_resolved());
 }
@@ -83,6 +84,23 @@ fn factory_builds_a_backend_for_each_kind() {
         deployer_for(DeployerKind::Usvfs).kind(),
         DeployerKind::Usvfs
     );
+}
+
+#[test]
+fn stub_classifier_returns_unknown_unsupported() {
+    let (_tmp, base) = temp();
+    let m = base.join("mods/A");
+    write(&m.join("a.txt"), "a");
+    let plan = DeployPlan::from_mods(base.join("Data"), &[ModSource::new("A", &m)]).expect("plan");
+    let record =
+        DeployRecord::from_plan(&plan, base.join(".backup"), DeployerKind::Usvfs).expect("record");
+
+    assert!(matches!(
+        deployer_for(DeployerKind::Usvfs).classify(&record, &record.entries[0]),
+        TargetOwnership::Unknown(DeployError::Unsupported {
+            deployer: DeployerKind::Usvfs
+        })
+    ));
 }
 
 #[test]

@@ -34,6 +34,9 @@ pub enum DeployError {
     #[error("a backed-up file remains unresolved at `{path}`")]
     ResidualBackup { path: Utf8PathBuf },
 
+    #[error("refusing to open or move non-regular path `{path}`")]
+    UnsafeFileType { path: Utf8PathBuf },
+
     #[error("the `{deployer}` backend is not implemented")]
     Unsupported { deployer: DeployerKind },
 
@@ -51,7 +54,7 @@ pub enum DeployError {
 }
 
 /// Attach the offending path to an [`std::io::Error`]
-pub(crate) use crate::error::{io_err, non_utf8, walk_io_err};
+pub(crate) use crate::error::{io_err, non_utf8};
 
 #[cfg(test)]
 #[path = "tests/error.rs"]

@@ -231,6 +231,50 @@ fn undeploy_restores_a_clobbered_preexisting_file() {
 }
 
 #[test]
+fn undeploy_restores_a_backup_when_the_destination_is_absent() {
+    let (_tmp, base) = temp();
+    let (record, data) = record_one(&base, "sub/x.txt", "ours");
+    let dest = data.join("sub/x.txt");
+    write(&dest, "preexisting");
+    let deployer = HardlinkDeployer::new();
+    deployer.deploy(&record, &NullSink).expect("deploy");
+    fs::remove_file(&dest).expect("remove destination");
+
+    let report = deployer.undeploy(&record, &NullSink);
+
+    assert!(report.is_fully_resolved());
+    assert_eq!(fs::read_to_string(&dest).unwrap(), "preexisting");
+    assert_eq!(report.restored, [Utf8PathBuf::from("sub/x.txt")]);
+}
+
+#[test]
+fn undeploy_preserves_a_foreign_destination_and_its_backup() {
+    let (_tmp, base) = temp();
+    let (record, data) = record_one(&base, "sub/x.txt", "ours");
+    let dest = data.join("sub/x.txt");
+    write(&dest, "preexisting");
+    let deployer = HardlinkDeployer::new();
+    deployer.deploy(&record, &NullSink).expect("deploy");
+    fs::remove_file(&dest).expect("remove link");
+    write(&dest, "foreign");
+
+    let report = deployer.undeploy(&record, &NullSink);
+
+    assert!(!report.is_fully_resolved());
+    assert_eq!(fs::read_to_string(&dest).unwrap(), "foreign");
+    assert_eq!(
+        fs::read_to_string(record.backup_root.join("sub/x.txt")).unwrap(),
+        "preexisting"
+    );
+    assert!(
+        report
+            .preserved_conflicts
+            .iter()
+            .any(|conflict| conflict.blocking)
+    );
+}
+
+#[test]
 fn undeploy_is_re_runnable_without_deleting_restored_originals() {
     let (_tmp, base) = temp();
     // Two entries: one with a pre-existing original, one we create ourselves
@@ -263,24 +307,161 @@ fn undeploy_is_re_runnable_without_deleting_restored_originals() {
 }
 
 #[test]
-fn is_our_link_holds_only_for_a_live_link() {
+fn classifier_distinguishes_owned_foreign_and_unknown_paths() {
     let (_tmp, base) = temp();
-    let source = base.join("mods/M/x.txt");
-    write(&source, "content");
-    let dest = base.join("Data/x.txt");
-    fs::create_dir_all(dest.parent().expect("parent")).expect("mk Data");
-    fs::hard_link(&source, &dest).expect("hard link");
+    let (record, data) = record_one(&base, "x.txt", "content");
+    let source = record.entries[0].source.clone();
+    let dest = data.join("x.txt");
+    let deployer = HardlinkDeployer::new();
+    deployer.deploy(&record, &NullSink).expect("deploy");
 
-    // An intact hard link resolves to the same underlying file as its source
-    assert!(is_our_link(&dest, &source));
+    assert!(matches!(
+        deployer.classify(&record, &record.entries[0]),
+        TargetOwnership::OwnedLink
+    ));
 
-    // Replacing dest in place (remove + recreate) breaks the link: new file, new identity
     fs::remove_file(&dest).expect("remove");
-    write(&dest, "replaced");
-    assert!(!is_our_link(&dest, &source));
+    write(&dest, "content");
+    assert!(matches!(
+        deployer.classify(&record, &record.entries[0]),
+        TargetOwnership::Foreign
+    ));
 
-    // A source that no longer exists can't be proven ours
-    assert!(!is_our_link(&dest, &base.join("mods/M/gone.txt")));
+    fs::remove_file(&source).expect("remove source");
+    assert!(matches!(
+        deployer.classify(&record, &record.entries[0]),
+        TargetOwnership::Unknown(_)
+    ));
+}
+
+#[test]
+fn classifier_reports_an_absent_destination() {
+    let (_tmp, base) = temp();
+    let (record, _data) = record_one(&base, "x.txt", "content");
+
+    assert!(matches!(
+        HardlinkDeployer::new().classify(&record, &record.entries[0]),
+        TargetOwnership::Absent
+    ));
+}
+
+#[cfg(windows)]
+#[test]
+fn classifier_matches_case_only_relative_differences() {
+    let (_tmp, base) = temp();
+    let (mut record, _data) = record_one(&base, "Sub/X.txt", "content");
+    let deployer = HardlinkDeployer::new();
+    deployer.deploy(&record, &NullSink).expect("deploy");
+    record.entries[0].relative =
+        Utf8PathBuf::from(record.entries[0].relative.as_str().to_uppercase());
+
+    assert!(matches!(
+        deployer.classify(&record, &record.entries[0]),
+        TargetOwnership::OwnedLink
+    ));
+}
+
+#[cfg(unix)]
+#[test]
+fn classifier_never_follows_a_destination_symlink() {
+    use std::os::unix::fs::symlink;
+
+    let (_tmp, base) = temp();
+    let (record, data) = record_one(&base, "x.txt", "content");
+    fs::create_dir_all(&data).expect("target root");
+    let dest = data.join("x.txt");
+    symlink(&record.entries[0].source, &dest).expect("symlink");
+
+    let deployer = HardlinkDeployer::new();
+    assert!(matches!(
+        deployer.classify(&record, &record.entries[0]),
+        TargetOwnership::Foreign
+    ));
+    deployer.undeploy(&record, &NullSink);
+    assert!(dest.symlink_metadata().is_ok(), "symlink is preserved");
+}
+
+#[cfg(windows)]
+#[test]
+fn classifier_never_enters_or_removes_a_junction() {
+    let (_tmp, base) = temp();
+    let (record, data) = record_one(&base, "x.txt", "content");
+    let target = base.join("junction-target");
+    fs::create_dir_all(&target).expect("junction target");
+    fs::create_dir_all(&data).expect("target root");
+    let dest = data.join("x.txt");
+    let status = std::process::Command::new("cmd")
+        .args(["/c", "mklink", "/J", dest.as_str(), target.as_str()])
+        .status()
+        .expect("run mklink");
+    assert!(status.success(), "create junction");
+    assert!(
+        crate::fs::is_reparse_point(&dest.symlink_metadata().expect("metadata")),
+        "junction exposes the raw reparse attribute"
+    );
+
+    let deployer = HardlinkDeployer::new();
+    assert!(matches!(
+        deployer.classify(&record, &record.entries[0]),
+        TargetOwnership::Foreign
+    ));
+    deployer.undeploy(&record, &NullSink);
+    assert!(
+        dest.symlink_metadata().is_ok(),
+        "junction remains after undeploy"
+    );
+}
+
+#[cfg(windows)]
+#[test]
+fn classifier_maps_a_locked_source_handle_to_unknown() {
+    use std::os::windows::fs::OpenOptionsExt;
+
+    let (_tmp, base) = temp();
+    let (record, _data) = record_one(&base, "x.txt", "content");
+    let deployer = HardlinkDeployer::new();
+    deployer.deploy(&record, &NullSink).expect("deploy");
+    let _lock = fs::OpenOptions::new()
+        .read(true)
+        .share_mode(0)
+        .open(&record.entries[0].source)
+        .expect("lock source");
+
+    assert!(matches!(
+        deployer.classify(&record, &record.entries[0]),
+        TargetOwnership::Unknown(_)
+    ));
+}
+
+#[cfg(windows)]
+#[test]
+fn classifier_treats_a_source_junction_as_unknown_without_entering_it() {
+    let (_tmp, base) = temp();
+    let (record, data) = record_one(&base, "x.txt", "content");
+    let deployer = HardlinkDeployer::new();
+    deployer.deploy(&record, &NullSink).expect("deploy");
+    fs::remove_file(&record.entries[0].source).expect("remove source name");
+    let target = base.join("source-junction-target");
+    fs::create_dir_all(&target).expect("junction target");
+    let source_arg = record.entries[0].source.as_str().replace('/', "\\");
+    let target_arg = target.as_str().replace('/', "\\");
+    let status = std::process::Command::new("cmd")
+        .args(["/c", "mklink", "/J", &source_arg, &target_arg])
+        .status()
+        .expect("run mklink");
+    assert!(status.success(), "create source junction");
+
+    assert!(matches!(
+        deployer.classify(&record, &record.entries[0]),
+        TargetOwnership::Unknown(DeployError::UnsafeFileType { .. })
+    ));
+    let report = deployer.undeploy(&record, &NullSink);
+    assert!(!report.is_fully_resolved());
+    assert!(data.join("x.txt").exists(), "destination is preserved");
+    assert!(
+        record.entries[0].source.symlink_metadata().is_ok(),
+        "source junction is preserved"
+    );
 }
 
 #[test]
@@ -315,6 +496,6 @@ fn undeploy_reports_a_residual_backup_file() {
         report
             .unresolved
             .iter()
-            .any(|e| matches!(e, DeployError::ResidualBackup { .. }))
+            .any(|issue| issue.path.ends_with("stray.txt"))
     );
 }

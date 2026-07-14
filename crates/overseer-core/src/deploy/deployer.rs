@@ -1,8 +1,8 @@
 //! Deployment backend trait and types.
 
 use super::{
-    DeployError, DeployPlan, DeployRecord, HardlinkDeployer, ProgressSink, ReversalReport,
-    VerifyReport,
+    DeployEntry, DeployError, DeployPlan, DeployRecord, HardlinkDeployer, ProgressSink,
+    ReversalIssue, ReversalReport, VerifyReport,
 };
 use camino::Utf8PathBuf;
 use serde::{Deserialize, Serialize};
@@ -27,6 +27,13 @@ pub trait Deployer {
     fn deploy(&self, record: &DeployRecord, progress: &dyn ProgressSink)
     -> Result<(), DeployError>;
 
+    /// Classify whether one recorded destination is still owned by this deployment
+    fn classify(&self, _record: &DeployRecord, _entry: &DeployEntry) -> TargetOwnership {
+        TargetOwnership::Unknown(DeployError::Unsupported {
+            deployer: self.kind(),
+        })
+    }
+
     /// Reverse the deployment described by `record`, restoring target to its pre-deploy state
     fn undeploy(&self, record: &DeployRecord, progress: &dyn ProgressSink) -> ReversalReport;
 
@@ -35,6 +42,19 @@ pub trait Deployer {
 
     /// Run `target` with the instance's mods visible to it
     fn launch(&self, target: &LaunchTarget) -> Result<(), DeployError>;
+}
+
+/// Ownership of a recorded destination at reversal time
+#[derive(Debug)]
+pub enum TargetOwnership {
+    /// Destination and recorded source have equal filesystem identity
+    OwnedLink,
+    /// Destination exists and is provably not the recorded regular hardlink
+    Foreign,
+    /// Destination is missing
+    Absent,
+    /// Metadata or handle acquisition could not prove ownership
+    Unknown(DeployError),
 }
 
 /// Identifies which deployment backend owns a record
@@ -105,7 +125,8 @@ impl Deployer for StubDeployer {
 
     fn undeploy(&self, _record: &DeployRecord, _progress: &dyn ProgressSink) -> ReversalReport {
         ReversalReport {
-            unresolved: vec![self.unsupported()],
+            unresolved: vec![ReversalIssue::new("", self.unsupported().to_string())],
+            ..ReversalReport::default()
         }
     }
 

@@ -7,6 +7,75 @@ use atomicwrites::{AtomicFile, OverwriteBehavior};
 use camino::Utf8Path;
 use std::io::{ErrorKind, Read, Write};
 
+/// Whether metadata identifies a symlink or another platform reparse point
+pub(crate) fn is_reparse_point(metadata: &std::fs::Metadata) -> bool {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        has_reparse_attribute(metadata.file_attributes())
+    }
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        const S_IFMT: u32 = 0o170000;
+        const S_IFLNK: u32 = 0o120000;
+        metadata.mode() & S_IFMT == S_IFLNK
+    }
+    #[cfg(not(any(windows, unix)))]
+    {
+        metadata.file_type().is_symlink()
+    }
+}
+
+#[cfg(windows)]
+fn has_reparse_attribute(attributes: u32) -> bool {
+    const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+    attributes & FILE_ATTRIBUTE_REPARSE_POINT != 0
+}
+
+/// Whether metadata identifies a regular file without following links
+pub(crate) fn is_regular_file(metadata: &std::fs::Metadata) -> bool {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        const FILE_ATTRIBUTE_DIRECTORY: u32 = 0x10;
+        !is_reparse_point(metadata) && metadata.file_attributes() & FILE_ATTRIBUTE_DIRECTORY == 0
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        const S_IFMT: u32 = 0o170000;
+        const S_IFREG: u32 = 0o100000;
+        metadata.mode() & S_IFMT == S_IFREG
+    }
+    #[cfg(not(any(windows, unix)))]
+    {
+        !is_reparse_point(metadata) && metadata.file_type().is_file()
+    }
+}
+
+/// Whether metadata identifies a normal directory without following links
+pub(crate) fn is_directory(metadata: &std::fs::Metadata) -> bool {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        const FILE_ATTRIBUTE_DIRECTORY: u32 = 0x10;
+        !is_reparse_point(metadata) && metadata.file_attributes() & FILE_ATTRIBUTE_DIRECTORY != 0
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        const S_IFMT: u32 = 0o170000;
+        const S_IFDIR: u32 = 0o040000;
+        metadata.mode() & S_IFMT == S_IFDIR
+    }
+    #[cfg(not(any(windows, unix)))]
+    {
+        !is_reparse_point(metadata) && metadata.file_type().is_dir()
+    }
+}
+
 /// Read a file to a `String`, returning `Ok(None)` when it doesn't exist so callers choose their default
 pub(crate) fn read_to_string_opt(path: &Utf8Path) -> Result<Option<String>, IoError> {
     match std::fs::read_to_string(path) {

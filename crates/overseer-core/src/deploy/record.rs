@@ -103,13 +103,54 @@ impl VerifyReport {
 /// Outcome of reversing a transaction
 #[derive(Debug, Default)]
 pub struct ReversalReport {
-    /// Paths the reversal could not bring back
-    pub unresolved: Vec<DeployError>,
+    /// Owned links removed from the target
+    pub removed: Vec<Utf8PathBuf>,
+    /// Original files restored from backup
+    pub restored: Vec<Utf8PathBuf>,
+    /// Foreign paths preserved instead of being removed
+    pub preserved_conflicts: Vec<PreservedConflict>,
+    /// Paths whose state could not be resolved
+    pub unresolved: Vec<ReversalIssue>,
 }
 
 impl ReversalReport {
     pub fn is_fully_resolved(&self) -> bool {
         self.unresolved.is_empty()
+            && !self
+                .preserved_conflicts
+                .iter()
+                .any(|conflict| conflict.blocking)
+    }
+}
+
+/// A foreign path preserved during capture or reversal
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreservedConflict {
+    /// Logical target path involved in the conflict
+    pub path: Utf8PathBuf,
+    /// Physical location left untouched
+    pub preserved_at: Utf8PathBuf,
+    /// User-facing explanation of why the path was preserved
+    pub reason: String,
+    /// Whether this conflict prevents journal removal
+    pub blocking: bool,
+}
+
+/// A path-aware issue that prevented reversal from finishing
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReversalIssue {
+    /// Physical path that could not be resolved
+    pub path: Utf8PathBuf,
+    /// User-facing failure detail
+    pub reason: String,
+}
+
+impl ReversalIssue {
+    pub(crate) fn new(path: impl Into<Utf8PathBuf>, reason: impl Into<String>) -> Self {
+        Self {
+            path: path.into(),
+            reason: reason.into(),
+        }
     }
 }
 

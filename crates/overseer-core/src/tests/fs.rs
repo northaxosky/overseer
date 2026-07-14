@@ -3,6 +3,14 @@
 use super::*;
 use crate::test_support::temp;
 
+#[cfg(windows)]
+#[test]
+fn raw_reparse_attribute_is_detected_independently_of_file_kind() {
+    assert!(has_reparse_attribute(0x400));
+    assert!(has_reparse_attribute(0x410));
+    assert!(!has_reparse_attribute(0x10));
+}
+
 #[test]
 fn read_opt_is_none_when_missing_and_some_when_present() {
     let (_t, root) = temp();
