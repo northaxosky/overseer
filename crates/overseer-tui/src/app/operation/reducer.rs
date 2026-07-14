@@ -77,11 +77,11 @@ impl App {
                             format!("Deployed {files} files"),
                         ));
                     }
-                    OperationOutput::Purge(status) => {
+                    OperationOutput::Purge { status, outcome } => {
                         self.session.status = status;
                         self.operation = OperationState::Completed(CompletedOperation::succeeded(
                             kind,
-                            "Purged the live deployment",
+                            purge_summary(&outcome),
                         ));
                     }
                 }
@@ -184,6 +184,23 @@ impl App {
         self.saves.list.select(selection);
         self.saves.list.clamp(self.saves.entries.len());
     }
+}
+
+fn purge_summary(outcome: &overseer_core::apply::ReversalOutcome) -> String {
+    let mut summary = format!(
+        "Purged: {} removed · {} restored · {} captured · {} preserved",
+        outcome.removed.len(),
+        outcome.restored.len(),
+        outcome.captured.len(),
+        outcome.preserved_conflicts.len()
+    );
+    if outcome.plugins_txt == overseer_core::restore::Restore::Conflict {
+        summary.push_str(" · Plugins.txt preserved");
+    }
+    if outcome.save_redirect == overseer_core::restore::Restore::Conflict {
+        summary.push_str(" · save redirect preserved");
+    }
+    summary
 }
 
 /// Reduce one worker event into running operation state

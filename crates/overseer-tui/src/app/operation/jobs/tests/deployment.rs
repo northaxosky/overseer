@@ -62,7 +62,8 @@ fn purge_job_removes_the_live_deployment_and_returns_status_only() {
     assert!(matches!(
         app.operation,
         OperationState::Completed(ref completed)
-            if completed.succeeded && completed.message == "Purged the live deployment"
+            if completed.succeeded
+                && completed.message == "Purged: 2 removed · 0 restored · 0 captured · 0 preserved"
     ));
 }
 

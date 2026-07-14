@@ -7,7 +7,7 @@ mod doctor;
 mod modal;
 mod operation;
 
-use overseer_core::apply::DeploymentStatus;
+use overseer_core::apply::{DeploymentStatus, Status};
 use overseer_core::deploy::FileConflict;
 use overseer_core::instance::ModListEntry;
 use overseer_core::plugins::is_master;
@@ -507,6 +507,10 @@ fn separator_header(display: &str, width: u16, collapsed: bool, members: usize) 
 fn status_summary(status: Option<&DeploymentStatus>) -> String {
     match status {
         None => "No live deployment".to_owned(),
+        Some(s) if s.deployment.status != Status::Committed => format!(
+            "Interrupted: {} · run purge before continuing",
+            s.deployment.profile
+        ),
         Some(s) => {
             let files = s.deployment.record.entries.len();
             let health = if s.verified.is_ok() {

@@ -192,7 +192,22 @@ fn purge_success_clears_only_status_and_preserves_view_state() {
     seed_ephemeral_view_state(&mut app);
     let mods_before = app.session.profile.mods.clone();
     let plugins_before = app.session.order.plugins.clone();
-    let result = completion(&app, Ok(OperationOutput::Purge(None)));
+    let mut outcome = apply::ReversalOutcome::default();
+    outcome.removed.push("Data/one".into());
+    outcome.restored.push("Data/two".into());
+    outcome.captured.push(apply::CapturedPath {
+        game_relative: "Data/three".into(),
+        overwrite_relative: "three".into(),
+    });
+    outcome.plugins_txt = overseer_core::restore::Restore::Conflict;
+    outcome.save_redirect = overseer_core::restore::Restore::Conflict;
+    let result = completion(
+        &app,
+        Ok(OperationOutput::Purge {
+            status: None,
+            outcome,
+        }),
+    );
 
     app.apply_completion(OperationKind::Purge, result);
 
@@ -206,7 +221,7 @@ fn purge_success_clears_only_status_and_preserves_view_state() {
             kind: OperationKind::Purge,
             succeeded: true,
             ref message,
-        }) if message == "Purged the live deployment"
+        }) if message == "Purged: 1 removed · 1 restored · 1 captured · 0 preserved · Plugins.txt preserved · save redirect preserved"
     ));
 }
 

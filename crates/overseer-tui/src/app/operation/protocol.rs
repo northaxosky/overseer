@@ -1,7 +1,7 @@
 //! Typed operation messages shared by jobs, the runner, and the reducer
 
 use camino::Utf8PathBuf;
-use overseer_core::apply::{self, DeploymentStatus};
+use overseer_core::apply::{self, DeploymentStatus, ReversalOutcome};
 use overseer_core::deploy::FileConflict;
 use overseer_core::install::DownloadEntry;
 use overseer_core::instance::Instance;
@@ -142,7 +142,10 @@ pub(crate) enum OperationOutput {
     RefreshSaves(Vec<SaveInfo>),
     Doctor(Report),
     ScanConflicts(Vec<FileConflict>),
-    Purge(Option<DeploymentStatus>),
+    Purge {
+        status: Option<DeploymentStatus>,
+        outcome: ReversalOutcome,
+    },
     Deploy {
         status: Option<DeploymentStatus>,
         files: usize,
@@ -161,7 +164,7 @@ impl OperationOutput {
             Self::RefreshSaves(_) => OperationKind::RefreshSaves,
             Self::Doctor(_) => OperationKind::Doctor,
             Self::ScanConflicts(_) => OperationKind::ScanConflicts,
-            Self::Purge(_) => OperationKind::Purge,
+            Self::Purge { .. } => OperationKind::Purge,
             Self::Deploy { .. } => OperationKind::Deploy,
             Self::Install { .. } => OperationKind::Install,
         }

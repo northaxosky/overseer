@@ -68,7 +68,13 @@ fn typed_outputs_map_to_their_operation_kinds() {
             },
             OperationKind::Install,
         ),
-        (OperationOutput::Purge(None), OperationKind::Purge),
+        (
+            OperationOutput::Purge {
+                status: None,
+                outcome: ReversalOutcome::default(),
+            },
+            OperationKind::Purge,
+        ),
         (
             OperationOutput::ScanConflicts(Vec::new()),
             OperationKind::ScanConflicts,

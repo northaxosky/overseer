@@ -66,7 +66,7 @@ impl BackgroundJob for PurgeJob {
         })?;
         let progress = reporter.progress_sink();
 
-        apply::purge(&instance, &progress).map_err(|error| {
+        let outcome = apply::purge(&instance, &progress).map_err(|error| {
             OperationFailure::with_deployment_recovery(format!("Purge failed: {error}"), &instance)
         })?;
 
@@ -77,7 +77,7 @@ impl BackgroundJob for PurgeJob {
             ))
         })?;
 
-        Ok(OperationOutput::Purge(status))
+        Ok(OperationOutput::Purge { status, outcome })
     }
 }
 
