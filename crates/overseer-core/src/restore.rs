@@ -9,34 +9,24 @@ pub enum Restore {
     Conflict,
 }
 
-pub(crate) enum MissingCurrent {
-    Restored,
-    Conflict,
-}
-
 pub(crate) fn restore_if_ours<T, C, E>(
     intended: Option<T>,
-    read_current: impl FnOnce() -> Result<Option<(T, C)>, E>,
+    original: T,
+    read_current: impl FnOnce() -> Result<(T, Option<C>), E>,
     restore_original: impl FnOnce(Option<C>) -> Result<(), E>,
-    missing_current: MissingCurrent,
 ) -> Result<Restore, E>
 where
     T: PartialEq,
 {
-    let Some(intended) = intended else {
-        restore_original(None)?;
+    let (current, context) = read_current()?;
+    if current == original {
         return Ok(Restore::Restored);
-    };
+    }
 
-    match read_current()? {
-        Some((current, context)) if current == intended => {
-            restore_original(Some(context))?;
-            Ok(Restore::Restored)
-        }
-        Some(_) => Ok(Restore::Conflict),
-        None => match missing_current {
-            MissingCurrent::Restored => Ok(Restore::Restored),
-            MissingCurrent::Conflict => Ok(Restore::Conflict),
-        },
+    if intended.is_some_and(|intended| current == intended) {
+        restore_original(context)?;
+        Ok(Restore::Restored)
+    } else {
+        Ok(Restore::Conflict)
     }
 }

@@ -6,54 +6,6 @@ use crate::instance::Instance;
 use crate::test_support::{install_mod, install_plugin, save_profile, temp_instance};
 use camino::Utf8PathBuf;
 
-/// A failed source-delete during the copy fallback rolls the `to` copy back, leaving no orphan
-#[test]
-fn copy_then_remove_rolls_back_the_copy_when_the_source_wont_delete() {
-    use std::cell::RefCell;
-    let removed = RefCell::new(Vec::new());
-    let result = copy_then_remove(
-        Utf8Path::new("from"),
-        Utf8Path::new("to"),
-        |_, _| Ok(()),
-        |p| {
-            removed.borrow_mut().push(p.as_str().to_owned());
-            if p.as_str() == "from" {
-                Err(std::io::Error::other("source is locked"))
-            } else {
-                Ok(())
-            }
-        },
-    );
-    assert!(result.is_err(), "a failed source delete surfaces the error");
-    assert_eq!(
-        removed.into_inner(),
-        ["from", "to"],
-        "the `to` copy is rolled back after the source delete fails"
-    );
-}
-
-/// A clean copy fallback removes only the source, never touching the destination
-#[test]
-fn copy_then_remove_removes_only_the_source_on_success() {
-    use std::cell::RefCell;
-    let removed = RefCell::new(Vec::new());
-    let result = copy_then_remove(
-        Utf8Path::new("from"),
-        Utf8Path::new("to"),
-        |_, _| Ok(()),
-        |p| {
-            removed.borrow_mut().push(p.as_str().to_owned());
-            Ok(())
-        },
-    );
-    assert!(result.is_ok());
-    assert_eq!(
-        removed.into_inner(),
-        ["from"],
-        "a successful move removes only the source"
-    );
-}
-
 /// Absolute path of a file as it would land under the game's Data/ directory
 fn deployed(instance: &Instance, rel: &str) -> Utf8PathBuf {
     instance.config.game_dir.join("Data").join(rel)
@@ -63,6 +15,7 @@ fn deployed(instance: &Instance, rel: &str) -> Utf8PathBuf {
 fn force_status(instance: &Instance, status: Status) {
     let mut deployment = Deployment::load(instance).expect("load journal");
     deployment.status = status;
+    deployment.committed = Some(status == Status::Committed);
     deployment.save(instance).expect("save journal");
 }
 
@@ -90,6 +43,13 @@ fn deploy_records_recoverable_state() {
     assert_eq!(deployment.profile, "Default");
     assert!(Deployment::exists(&instance));
     assert!(Deployment::path(&instance).exists());
+    assert!(Deployment::baseline_path(&instance).exists());
+    assert!(
+        !std::fs::read_to_string(Deployment::path(&instance))
+            .expect("journal")
+            .contains("preexisting_paths"),
+        "the reversal baseline stays in its sidecar"
+    );
 }
 
 #[test]
@@ -224,16 +184,17 @@ fn deploy_backs_up_and_purge_restores_a_preexisting_data_file() {
     // The mod's version wins at the destination
     assert_eq!(std::fs::read_to_string(&data_file).expect("read"), "modded");
 
-    purge(&instance, &NullSink).expect("purge");
+    let outcome = purge(&instance, &NullSink).expect("purge");
     // The vanilla original is restored byte-for-byte
     assert_eq!(
         std::fs::read_to_string(&data_file).expect("read"),
         "vanilla"
     );
+    assert_eq!(outcome.restored.len(), 1);
 }
 
 #[test]
-fn purge_leaves_a_data_file_replaced_after_deployment() {
+fn purge_captures_a_data_file_replaced_after_deployment() {
     let (_tmp, instance) = temp_instance();
     // A mod ships a non-plugin file we deploy as a hard link
     install_mod(&instance, "Texturer", &[("Textures/a.dds", "ours")]);
@@ -247,10 +208,13 @@ fn purge_leaves_a_data_file_replaced_after_deployment() {
     std::fs::remove_file(&dest).expect("remove our link");
     std::fs::write(&dest, "tool output").expect("tool writes");
 
-    purge(&instance, &NullSink).expect("purge");
-    // Purge must not delete the externally written file as if it were still ours
-    assert!(dest.exists(), "an externally replaced file survives purge");
-    assert_eq!(std::fs::read_to_string(&dest).expect("read"), "tool output");
+    let outcome = purge(&instance, &NullSink).expect("purge");
+    assert!(!dest.exists(), "captured output leaves the game folder");
+    assert_eq!(
+        std::fs::read_to_string(instance.overwrite_dir().join("Textures/a.dds")).expect("read"),
+        "tool output"
+    );
+    assert_eq!(outcome.captured.len(), 1);
 }
 
 #[test]
@@ -402,7 +366,7 @@ fn overwrite_staging_path_inverts_the_root_data_mapping() {
 }
 
 #[test]
-fn purge_leaves_generated_files_in_preexisting_dirs() {
+fn purge_captures_generated_files_in_preexisting_dirs() {
     let (_tmp, instance) = temp_instance();
     // Data/ already exists, like a real (vanilla) game install
     std::fs::create_dir_all(instance.config.game_dir.join("Data")).expect("vanilla Data");
@@ -414,14 +378,14 @@ fn purge_leaves_generated_files_in_preexisting_dirs() {
     let loose = instance.config.game_dir.join("Data/loose.log");
     std::fs::write(&loose, "log").expect("write");
 
-    purge(&instance, &NullSink).expect("purge");
+    let outcome = purge(&instance, &NullSink).expect("purge");
 
-    // We can't tell it from vanilla (Data/ pre-existed), so it's left in place
-    assert!(
-        loose.exists(),
-        "generated file in a pre-existing dir is left alone"
+    assert!(!loose.exists(), "baseline-new residue is moved out");
+    assert_eq!(
+        std::fs::read_to_string(instance.overwrite_dir().join("loose.log")).expect("captured"),
+        "log"
     );
-    assert!(!instance.overwrite_dir().join("loose.log").exists());
+    assert_eq!(outcome.captured.len(), 1);
 }
 
 #[test]
@@ -694,7 +658,7 @@ fn a_held_lock_makes_purge_busy() {
 }
 
 #[test]
-fn status_recovers_an_interrupted_deployment_and_reports_nothing_live() {
+fn status_reports_an_interrupted_deployment_without_mutating_it() {
     let (_tmp, instance) = temp_instance();
     install_plugin(&instance, "CoolMod", "Cool.esp");
     save_profile(&instance, "Default", &[("CoolMod", true)]);
@@ -703,19 +667,17 @@ fn status_recovers_an_interrupted_deployment_and_reports_nothing_live() {
     deploy_profile(&instance, "Default", &NullSink).expect("deploy");
     force_status(&instance, Status::InProgress);
 
-    // status must reverse the interrupted deployment, not report it as live
-    let live = status(&instance).expect("status");
+    let live = status(&instance)
+        .expect("status")
+        .expect("interrupted deployment");
+    assert_eq!(live.deployment.status, Status::InProgress);
     assert!(
-        live.is_none(),
-        "an interrupted deployment is reversed, not reported as live"
+        Deployment::exists(&instance),
+        "status leaves the journal intact"
     );
     assert!(
-        !Deployment::exists(&instance),
-        "the journal is cleared once recovery resolves"
-    );
-    assert!(
-        !deployed(&instance, "Cool.esp").exists(),
-        "the interrupted deployment's files are removed"
+        deployed(&instance, "Cool.esp").exists(),
+        "status does not mutate the game folder"
     );
 }
 
@@ -743,7 +705,7 @@ fn purge_keeps_a_plugins_txt_edited_after_deployment() {
     // A tool or the user rewrites Plugins.txt after deployment
     std::fs::write(local.join("Plugins.txt"), b"*Edited.esp\n").expect("edit after deploy");
 
-    purge(&instance, &NullSink).expect("purge");
+    let outcome = purge(&instance, &NullSink).expect("purge");
 
     // The post-deploy edit is preserved, not rolled back to the original
     assert_eq!(
@@ -754,6 +716,7 @@ fn purge_keeps_a_plugins_txt_edited_after_deployment() {
         !Deployment::exists(&instance),
         "purge still completes and clears the journal on a Plugins.txt conflict"
     );
+    assert_eq!(outcome.plugins_txt, Restore::Conflict);
 }
 
 #[test]
@@ -822,13 +785,7 @@ fn a_recovery_failed_journal_resolves_on_retry_once_the_obstruction_is_cleared()
     // The user clears the obstruction as the error instructs, then re-runs a command
     std::fs::remove_file(backup_root.join("stray.bin")).expect("clear the obstruction");
 
-    // The next lock-held entry retries the reversal, which now resolves and clears the journal
-    assert!(
-        status(&instance)
-            .expect("status retries recovery")
-            .is_none(),
-        "the retried reversal resolves and reports nothing live"
-    );
+    purge(&instance, &NullSink).expect("purge retries recovery");
     assert!(
         !Deployment::exists(&instance),
         "the journal is cleared on a resolved retry"
@@ -901,8 +858,9 @@ fn deploy_with_local_saves_redirects_saves_and_purge_restores() {
         None
     );
 
-    purge(&instance, &NullSink).expect("purge");
+    let outcome = purge(&instance, &NullSink).expect("purge");
     assert_eq!(save_path(&instance), None, "our redirect removed on purge");
+    assert_eq!(outcome.save_redirect, Restore::Restored);
 }
 
 #[test]
@@ -950,12 +908,13 @@ fn deploy_captures_the_users_prior_save_path_and_purge_restores_it() {
     );
     assert_eq!(save_path(&instance).as_deref(), Some("Saves\\Default\\"));
 
-    purge(&instance, &NullSink).expect("purge");
+    let outcome = purge(&instance, &NullSink).expect("purge");
     assert_eq!(
         save_path(&instance).as_deref(),
         Some("Saves\\Mine\\"),
         "the user's original save path is restored on purge"
     );
+    assert_eq!(outcome.save_redirect, Restore::Restored);
 }
 
 #[test]
@@ -972,7 +931,7 @@ fn purge_keeps_a_save_path_changed_after_deployment() {
     )
     .unwrap();
 
-    purge(&instance, &NullSink).expect("purge");
+    let outcome = purge(&instance, &NullSink).expect("purge");
     assert_eq!(
         save_path(&instance).as_deref(),
         Some("Saves\\Manual\\"),
@@ -981,5 +940,386 @@ fn purge_keeps_a_save_path_changed_after_deployment() {
     assert!(
         !Deployment::exists(&instance),
         "purge still completes and clears the journal"
+    );
+    assert_eq!(outcome.save_redirect, Restore::Conflict);
+}
+
+#[test]
+fn purge_captures_a_foreign_replacement_before_restoring_its_backup() {
+    let (_tmp, instance) = temp_instance();
+    let dest = deployed(&instance, "Textures/a.dds");
+    std::fs::create_dir_all(dest.parent().expect("parent")).expect("Data tree");
+    std::fs::write(&dest, "vanilla").expect("seed original");
+    install_mod(&instance, "Texturer", &[("Textures/a.dds", "modded")]);
+    save_profile(&instance, "Default", &[("Texturer", true)]);
+    deploy_profile(&instance, "Default", &NullSink).expect("deploy");
+
+    std::fs::remove_file(&dest).expect("remove deployed link");
+    std::fs::write(&dest, "tool output").expect("replace destination");
+    let outcome = purge(&instance, &NullSink).expect("purge");
+
+    assert_eq!(
+        std::fs::read_to_string(&dest).expect("restored original"),
+        "vanilla"
+    );
+    assert_eq!(
+        std::fs::read_to_string(instance.overwrite_dir().join("Textures/a.dds"))
+            .expect("captured replacement"),
+        "tool output"
+    );
+    assert_eq!(outcome.restored.len(), 1);
+    assert_eq!(outcome.captured.len(), 1);
+}
+
+#[test]
+fn purge_leaves_preexisting_unrecorded_files_untouched() {
+    let (_tmp, instance) = temp_instance();
+    let vanilla = deployed(&instance, "Loose/vanilla.txt");
+    std::fs::create_dir_all(vanilla.parent().expect("parent")).expect("Data tree");
+    std::fs::write(&vanilla, "vanilla").expect("seed vanilla");
+    install_mod(&instance, "Mod", &[("Textures/a.dds", "modded")]);
+    save_profile(&instance, "Default", &[("Mod", true)]);
+
+    deploy_profile(&instance, "Default", &NullSink).expect("deploy");
+    let outcome = purge(&instance, &NullSink).expect("purge");
+
+    assert_eq!(
+        std::fs::read_to_string(&vanilla).expect("vanilla remains"),
+        "vanilla"
+    );
+    assert!(outcome.captured.is_empty());
+    assert!(!instance.overwrite_dir().join("Loose/vanilla.txt").exists());
+}
+
+#[test]
+fn legacy_capture_remains_limited_to_recorded_created_directories() {
+    let (_tmp, instance) = temp_instance();
+    std::fs::create_dir_all(instance.config.game_dir.join("Data")).expect("preexisting Data");
+    install_mod(&instance, "Mod", &[("Generated/Nested/mod.bin", "modded")]);
+    save_profile(&instance, "Default", &[("Mod", true)]);
+    deploy_profile(&instance, "Default", &NullSink).expect("deploy");
+    Deployment::remove_baseline(&instance).expect("simulate legacy journal");
+
+    let covered = deployed(&instance, "Generated/Nested/output.log");
+    std::fs::write(&covered, "covered").expect("covered residue");
+    let outside = deployed(&instance, "outside.log");
+    std::fs::write(&outside, "outside").expect("outside residue");
+
+    let outcome = purge(&instance, &NullSink).expect("legacy purge");
+
+    assert_eq!(
+        std::fs::read_to_string(instance.overwrite_dir().join("Generated/Nested/output.log"))
+            .expect("captured residue"),
+        "covered"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&outside).expect("outside remains"),
+        "outside"
+    );
+    assert_eq!(outcome.captured.len(), 1);
+}
+
+#[test]
+fn legacy_foreign_target_without_backup_is_preserved_nonblocking() {
+    let (_tmp, instance) = temp_instance();
+    install_mod(&instance, "Mod", &[("Textures/a.dds", "modded")]);
+    save_profile(&instance, "Default", &[("Mod", true)]);
+    deploy_profile(&instance, "Default", &NullSink).expect("deploy");
+    Deployment::remove_baseline(&instance).expect("simulate legacy journal");
+    let dest = deployed(&instance, "Textures/a.dds");
+    std::fs::remove_file(&dest).expect("remove link");
+    std::fs::write(&dest, "foreign").expect("replace");
+
+    let outcome = purge(&instance, &NullSink).expect("legacy purge");
+
+    assert_eq!(
+        std::fs::read_to_string(&dest).expect("foreign remains"),
+        "foreign"
+    );
+    assert_eq!(outcome.preserved_conflicts.len(), 1);
+    assert!(!outcome.preserved_conflicts[0].blocking);
+    assert!(!Deployment::exists(&instance));
+}
+
+#[test]
+fn matching_pending_and_overwrite_content_resolves_capture_retry() {
+    let (_tmp, instance) = temp_instance();
+    let pending = instance
+        .config
+        .game_dir
+        .join(".overseer-backup/.capture/Logs/output.log");
+    let overwrite = instance.overwrite_dir();
+    let destination = overwrite.join("Logs/output.log");
+    std::fs::create_dir_all(pending.parent().expect("pending parent")).expect("pending tree");
+    std::fs::create_dir_all(destination.parent().expect("overwrite parent"))
+        .expect("overwrite tree");
+    std::fs::write(&pending, "same").expect("pending");
+    std::fs::write(&destination, "same").expect("delivered");
+    let mut outcome = ReversalOutcome::default();
+
+    deliver_pending(
+        &pending,
+        Utf8Path::new("Data/Logs/output.log"),
+        Utf8Path::new("Logs/output.log"),
+        &overwrite,
+        &mut outcome,
+    );
+
+    assert!(!pending.exists(), "matching pending duplicate is removed");
+    assert_eq!(outcome.captured.len(), 1);
+    assert!(outcome.preserved_conflicts.is_empty());
+}
+
+#[test]
+fn missing_staging_source_keeps_destination_backup_and_journal() {
+    let (_tmp, instance) = temp_instance();
+    let dest = deployed(&instance, "conflict.txt");
+    std::fs::create_dir_all(dest.parent().expect("parent")).expect("Data tree");
+    std::fs::write(&dest, "vanilla").expect("seed original");
+    install_mod(&instance, "Mod", &[("conflict.txt", "modded")]);
+    save_profile(&instance, "Default", &[("Mod", true)]);
+    let deployment = deploy_profile(&instance, "Default", &NullSink).expect("deploy");
+    let source = deployment.record.entries[0].source.clone();
+    std::fs::remove_file(&source).expect("remove source");
+
+    let error = purge(&instance, &NullSink).expect_err("ownership is unknown");
+    let ApplyError::RecoveryFailed { outcome, .. } = error else {
+        panic!("incomplete purge returns its structured outcome")
+    };
+
+    assert!(!outcome.unresolved.is_empty());
+    assert_eq!(
+        std::fs::read_to_string(&dest).expect("destination preserved"),
+        "modded"
+    );
+    assert_eq!(
+        std::fs::read_to_string(
+            instance
+                .config
+                .game_dir
+                .join(".overseer-backup/Data/conflict.txt")
+        )
+        .expect("backup preserved"),
+        "vanilla"
+    );
+    assert_eq!(
+        Deployment::load(&instance).expect("journal").status,
+        Status::RecoveryFailed
+    );
+}
+
+#[test]
+fn capture_collision_preserves_both_copies_and_keeps_the_journal() {
+    let (_tmp, instance) = temp_instance();
+    install_mod(&instance, "Mod", &[("Textures/a.dds", "modded")]);
+    save_profile(&instance, "Default", &[("Mod", true)]);
+    deploy_profile(&instance, "Default", &NullSink).expect("deploy");
+    let dest = deployed(&instance, "Textures/a.dds");
+    std::fs::remove_file(&dest).expect("remove deployed link");
+    std::fs::write(&dest, "new output").expect("tool output");
+    let overwrite = instance.overwrite_dir().join("Textures/a.dds");
+    std::fs::create_dir_all(overwrite.parent().expect("parent")).expect("overwrite tree");
+    std::fs::write(&overwrite, "prior output").expect("prior output");
+
+    let error = purge(&instance, &NullSink).expect_err("collision blocks completion");
+    let ApplyError::RecoveryFailed { outcome, .. } = error else {
+        panic!("collision returns a recovery outcome")
+    };
+    let pending = instance
+        .config
+        .game_dir
+        .join(".overseer-backup/.capture/Textures/a.dds");
+
+    assert_eq!(
+        std::fs::read_to_string(&overwrite).expect("prior output"),
+        "prior output"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&pending).expect("pending output"),
+        "new output"
+    );
+    assert!(
+        outcome
+            .preserved_conflicts
+            .iter()
+            .any(|conflict| conflict.blocking)
+    );
+    assert!(Deployment::exists(&instance));
+}
+
+#[test]
+fn deploy_aborts_when_interrupted_cleanup_cannot_resolve_ownership() {
+    let (_tmp, instance) = temp_instance();
+    install_mod(&instance, "Mod", &[("Textures/a.dds", "modded")]);
+    save_profile(&instance, "Default", &[("Mod", true)]);
+    let deployment = deploy_profile(&instance, "Default", &NullSink).expect("deploy");
+    force_status(&instance, Status::InProgress);
+    std::fs::remove_file(&deployment.record.entries[0].source).expect("remove source");
+
+    let error =
+        deploy_profile(&instance, "Default", &NullSink).expect_err("restart must abort safely");
+
+    assert!(matches!(error, ApplyError::RecoveryFailed { .. }));
+    let failed = Deployment::load(&instance).expect("journal");
+    assert_eq!(
+        (failed.status, failed.committed),
+        (Status::RecoveryFailed, Some(false))
+    );
+    assert!(!failed.was_committed());
+    assert!(
+        deployed(&instance, "Textures/a.dds").exists(),
+        "unverifiable destination is preserved"
+    );
+}
+
+#[test]
+fn interrupted_origin_remains_unconditional_after_recovery_failed() {
+    let (_tmp, instance) = temp_instance();
+    let local = instance.config.local_dir.clone().expect("local dir");
+    std::fs::create_dir_all(&local).expect("local dir");
+    let plugins_txt = local.join("Plugins.txt");
+    let original = b"*Original.esp\n";
+    std::fs::write(&plugins_txt, original).expect("seed original");
+    install_plugin(&instance, "CoolMod", "Cool.esp");
+    save_profile(&instance, "Default", &[("CoolMod", true)]);
+    deploy_profile(&instance, "Default", &NullSink).expect("deploy");
+    let deployed = std::fs::read(&plugins_txt).expect("deployed Plugins.txt");
+    assert_ne!(deployed, original);
+
+    let mut interrupted = Deployment::load(&instance).expect("journal");
+    interrupted.status = Status::InProgress;
+    interrupted.committed = Some(false);
+    interrupted.plugins_txt_intended = None;
+    interrupted.save(&instance).expect("simulate crash window");
+
+    let held = local.join("Plugins.deployed");
+    std::fs::rename(&plugins_txt, &held).expect("hold deployed bytes");
+    std::fs::create_dir(&plugins_txt).expect("block Plugins.txt restore");
+
+    let error = purge(&instance, &NullSink).expect_err("first restore is blocked");
+    let ApplyError::RecoveryFailed { outcome, .. } = error else {
+        panic!("blocked restore keeps structured recovery state")
+    };
+    assert!(
+        outcome
+            .unresolved
+            .iter()
+            .any(|issue| issue.path == plugins_txt)
+    );
+
+    let failed = Deployment::load(&instance).expect("RecoveryFailed journal");
+    assert_eq!(
+        (failed.status, failed.committed),
+        (Status::RecoveryFailed, Some(false))
+    );
+    assert!(!failed.was_committed());
+    assert_eq!(failed.plugins_txt_backup.as_deref(), Some(&original[..]));
+    assert_eq!(
+        std::fs::read(&held).expect("deployed bytes remain available"),
+        deployed
+    );
+
+    std::fs::remove_dir(&plugins_txt).expect("clear obstruction");
+    std::fs::rename(&held, &plugins_txt).expect("restore deployed path");
+    let outcome = purge(&instance, &NullSink).expect("retry purge");
+
+    assert_eq!(outcome.plugins_txt, Restore::Restored);
+    assert_eq!(
+        std::fs::read(&plugins_txt).expect("original restored"),
+        original
+    );
+    assert!(!Deployment::exists(&instance));
+}
+
+#[test]
+fn interrupted_cleanup_restores_plugin_and_save_originals_unconditionally() {
+    let (_tmp, instance) = temp_instance();
+    deploy_profile_with_local_saves(&instance);
+    install_plugin(&instance, "CoolMod", "Cool.esp");
+    let local = instance.config.local_dir.clone().expect("local dir");
+    std::fs::create_dir_all(&local).expect("local dir");
+    std::fs::write(local.join("Plugins.txt"), b"*Original.esp\n").expect("plugins original");
+    let ini = custom_ini(&instance);
+    std::fs::create_dir_all(ini.parent().expect("INI parent")).expect("INI parent");
+    std::fs::write(&ini, "[General]\r\nSLocalSavePath=Saves\\Mine\\\r\n").expect("save original");
+
+    deploy_profile(&instance, "Default", &NullSink).expect("deploy");
+    force_status(&instance, Status::InProgress);
+    let outcome = purge(&instance, &NullSink).expect("interrupted purge");
+
+    assert_eq!(
+        std::fs::read(local.join("Plugins.txt")).expect("plugins restored"),
+        b"*Original.esp\n"
+    );
+    assert_eq!(save_path(&instance).as_deref(), Some("Saves\\Mine\\"));
+    assert_eq!(outcome.plugins_txt, Restore::Restored);
+    assert_eq!(outcome.save_redirect, Restore::Restored);
+}
+
+#[test]
+fn case_only_baseline_difference_does_not_recapture_a_vanilla_file() {
+    let (_tmp, instance) = temp_instance();
+    let vanilla = deployed(&instance, "Loose/Case.log");
+    std::fs::create_dir_all(vanilla.parent().expect("parent")).expect("Data tree");
+    std::fs::write(&vanilla, "vanilla").expect("seed vanilla");
+    install_mod(&instance, "Mod", &[("Textures/a.dds", "modded")]);
+    save_profile(&instance, "Default", &[("Mod", true)]);
+    deploy_profile(&instance, "Default", &NullSink).expect("deploy");
+
+    let mut baseline = Deployment::load_baseline(&instance)
+        .expect("load baseline")
+        .expect("new journal has baseline");
+    let entry = baseline
+        .iter_mut()
+        .find(|path| {
+            path.file_name()
+                .is_some_and(|name| name.eq_ignore_ascii_case("Case.log"))
+        })
+        .expect("vanilla baseline entry");
+    *entry = Utf8PathBuf::from(entry.as_str().to_uppercase());
+    Deployment::save_baseline(&instance, &baseline).expect("rewrite baseline case");
+
+    let outcome = purge(&instance, &NullSink).expect("purge");
+
+    assert_eq!(
+        std::fs::read_to_string(&vanilla).expect("vanilla remains"),
+        "vanilla"
+    );
+    assert!(outcome.captured.is_empty());
+}
+
+#[cfg(windows)]
+#[test]
+fn new_junction_is_preserved_without_traversal_or_capture() {
+    let (_tmp, instance) = temp_instance();
+    install_mod(&instance, "Mod", &[("Textures/a.dds", "modded")]);
+    save_profile(&instance, "Default", &[("Mod", true)]);
+    deploy_profile(&instance, "Default", &NullSink).expect("deploy");
+
+    let target = instance.root.join("junction-target");
+    std::fs::create_dir_all(&target).expect("junction target");
+    std::fs::write(target.join("secret.txt"), "secret").expect("target content");
+    let junction = instance.config.game_dir.join("Data/generated");
+    let junction_arg = junction.as_str().replace('/', "\\");
+    let target_arg = target.as_str().replace('/', "\\");
+    let result = std::process::Command::new("cmd")
+        .args(["/c", "mklink", "/J", &junction_arg, &target_arg])
+        .status()
+        .expect("run mklink");
+    assert!(result.success(), "create junction");
+
+    let error = purge(&instance, &NullSink).expect_err("new reparse point blocks completion");
+    assert!(matches!(error, ApplyError::RecoveryFailed { .. }));
+    assert!(junction.symlink_metadata().is_ok(), "junction is preserved");
+    assert_eq!(
+        std::fs::read_to_string(target.join("secret.txt")).expect("target remains"),
+        "secret"
+    );
+    assert!(
+        !instance
+            .overwrite_dir()
+            .join("generated/secret.txt")
+            .exists(),
+        "capture never traverses the junction"
     );
 }

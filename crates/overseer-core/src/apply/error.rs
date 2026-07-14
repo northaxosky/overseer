@@ -1,5 +1,6 @@
 //! Errors for the deployment-orchestration layer
 
+use super::outcome::ReversalOutcome;
 use crate::deploy::DeployError;
 use crate::instance::InstanceError;
 use crate::plugins::PluginError;
@@ -38,8 +39,18 @@ pub enum ApplyError {
     Busy,
 
     /// A reversal could not be fully resolved; the journal is kept
-    #[error("`{path}` has an unresolved deployment reversal; purge again to retry")]
-    RecoveryFailed { path: Utf8PathBuf },
+    #[error(
+        "`{path}` has an unresolved deployment reversal ({} removed, {} restored, {} captured, {} preserved, {} unresolved); purge again to retry",
+        outcome.removed.len(),
+        outcome.restored.len(),
+        outcome.captured.len(),
+        outcome.preserved_conflicts.len(),
+        outcome.unresolved.len()
+    )]
+    RecoveryFailed {
+        path: Utf8PathBuf,
+        outcome: Box<ReversalOutcome>,
+    },
 
     /// A backup directory survives from a previous run with no journal to reverse it
     #[error(
@@ -61,4 +72,4 @@ pub enum ApplyError {
 }
 
 /// Attach the offending path to an [`std::io::Error`]
-pub(crate) use crate::error::{io_err, non_utf8, walk_io_err};
+pub(crate) use crate::error::{io_err, non_utf8};

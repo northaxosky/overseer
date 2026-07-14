@@ -2,7 +2,7 @@
 
 use super::error::PluginError;
 use super::load_order::PluginEntry;
-use crate::restore::{MissingCurrent, Restore, restore_if_ours};
+use crate::restore::{Restore, restore_if_ours};
 use camino::{Utf8Path, Utf8PathBuf};
 use loadorder::{GameId, GameSettings};
 
@@ -72,10 +72,10 @@ pub fn restore_plugins_txt_if_ours(
     intended: Option<&[u8]>,
 ) -> Result<Restore, PluginError> {
     restore_if_ours(
-        intended.map(<[u8]>::to_vec),
-        || Ok(read_plugins_txt(local_dir)?.map(|bytes| (bytes, ()))),
+        intended.map(|bytes| Some(bytes.to_vec())),
+        original.map(<[u8]>::to_vec),
+        || Ok((read_plugins_txt(local_dir)?, Some(()))),
         |_| restore_plugins_txt(local_dir, original),
-        MissingCurrent::Conflict,
     )
 }
 

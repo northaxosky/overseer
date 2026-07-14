@@ -1,12 +1,14 @@
-//! Deploy, purge, and status orchestration over an instance's profile.
+//! Deploy, purge, and status orchestration over an instance's profile
 
-use super::error::{self, ApplyError};
+use super::error::{ApplyError, non_utf8};
 use super::lock::InstanceLock;
+use super::outcome::{CapturedPath, ReversalOutcome};
 use super::state::{Deployment, SaveRedirect, Status};
 
 use crate::deploy::{
-    BACKUP_DIR, DeployError, DeployPlan, DeployRecord, ModSource, NullSink, ProgressSink, ROOT_DIR,
-    VerifyReport, deployer_for, strip_data_prefix,
+    BACKUP_DIR, DeployEntry, DeployError, DeployPlan, DeployRecord, ModSource, NullSink,
+    PreservedConflict, ProgressSink, ROOT_DIR, ReversalIssue, TargetOwnership, VerifyReport,
+    deployer_for, logical_path_key, strip_data_prefix,
 };
 use crate::fs;
 use crate::instance::{Instance, Profile};
@@ -14,8 +16,7 @@ use crate::plugins::{self, PluginLoadOrder};
 use crate::restore::Restore;
 use crate::saves;
 use camino::{Utf8Path, Utf8PathBuf};
-use std::collections::BTreeSet;
-use walkdir::WalkDir;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// Deploy a profile's enabled mods into the instance's game directory
 pub fn deploy_profile(
@@ -28,7 +29,6 @@ pub fn deploy_profile(
     recover_if_needed(instance, progress)?;
 
     if Deployment::exists(instance) {
-        // recover_if_needed only ever leaves a *Committed* journal
         return Err(ApplyError::AlreadyDeployed {
             path: Deployment::path(instance),
         });
@@ -38,193 +38,120 @@ pub fn deploy_profile(
     profile.reconcile(instance)?;
     let mut sources = profile.deploy_sources(instance);
 
-    // Overwrite folder is the highest priority "mod": It wins every conflict
     let overwrite = instance.overwrite_dir();
     fs::ensure_dir(&overwrite)?;
     sources.push(ModSource::new("Overwrite", &overwrite));
 
     let plan = DeployPlan::from_rooted_mods(&instance.config.game_dir, &sources)?;
-
     let deployer = deployer_for(instance.config.deployer);
     deployer.check_supported(&plan)?;
 
     let backup_root = instance.config.game_dir.join(BACKUP_DIR);
     guard_no_orphaned_backup(&backup_root)?;
     let record = DeployRecord::from_plan(&plan, backup_root, instance.config.deployer)?;
+    let baseline = snapshot_paths(&record.target_root, &record.backup_root)?;
 
     let local_dir = instance.local_dir()?;
     fs::ensure_dir(&local_dir)?;
-
-    // Profile bookkeeping doesn't touch anything so it's safe
     let order = prepare_load_order(instance, &profile)?;
-    let local_saves = profile.local_saves;
-
-    // Capture the user's original Plugins.txt
     let plugins_txt_backup = plugins::read_plugins_txt(&local_dir)?;
 
-    // First write: journal as InProgress
+    let prepared_save = if profile.local_saves {
+        let (custom_ini, saves_dir) = save_paths(instance, &profile.name)?;
+        let original = saves::read_save_redirect(&custom_ini)?;
+        Some((custom_ini, saves_dir, original))
+    } else {
+        None
+    };
+
     let mut deployment = Deployment {
         status: Status::InProgress,
+        committed: Some(false),
         profile: profile.name,
         record,
         plugins_txt_backup,
         plugins_txt_intended: None,
-        save_redirect: None,
-        committed: Some(false),
+        save_redirect: prepared_save.as_ref().map(|(_, _, original)| SaveRedirect {
+            original: original.clone(),
+        }),
     };
-    deployment.save(instance)?;
 
-    if let Err(e) = deployer.deploy(&deployment.record, progress) {
-        tracing::warn!(error = %e, "deploy failed; rolling back");
-        if let Err(rb) = reverse_and_finalize(instance, deployment, progress) {
-            tracing::warn!(error = %rb, "rollback after deploy failure was incomplete");
-        }
-        return Err(e.into());
+    Deployment::save_baseline(instance, &baseline)?;
+    if let Err(error) = deployment.save(instance) {
+        let _ = Deployment::remove_baseline(instance);
+        return Err(error);
     }
 
-    if let Err(e) = plugins::write_active_plugins(
+    if let Err(error) = deployer.deploy(&deployment.record, progress) {
+        rollback_failed_deploy(instance, deployment, progress);
+        return Err(error.into());
+    }
+
+    if let Err(error) = plugins::write_active_plugins(
         instance.config.game.load_order_id(),
         &instance.config.game_dir,
         &local_dir,
         &order.plugins,
     ) {
-        tracing::warn!(error = %e, "writing Plugins.txt failed; rolling back");
-        if let Err(rb) = reverse_and_finalize(instance, deployment, progress) {
-            tracing::warn!(error = %rb, "rollback after Plugins.txt failure was incomplete");
-        }
-        return Err(e.into());
+        rollback_failed_deploy(instance, deployment, progress);
+        return Err(error.into());
     }
 
-    // Capture exactly what we wrote, so a later reversal can tell Plugins.txt apart
-    deployment.plugins_txt_intended = plugins::read_plugins_txt(&local_dir)?;
-
-    // Redirect this profile's saves into its own folder, if it opts in
-    if local_saves {
-        let (custom_ini, saves_dir) = save_paths(instance, &deployment.profile)?;
-        match saves::apply_save_redirect(&custom_ini, &saves_dir, &deployment.profile) {
-            Ok(original) => deployment.save_redirect = Some(SaveRedirect { original }),
-            Err(e) => {
-                tracing::warn!(error = %e, "writing save redirect failed; rolling back");
-                if let Err(rb) = reverse_and_finalize(instance, deployment, progress) {
-                    tracing::warn!(error = %rb, "rollback after save-redirect failure was incomplete");
-                }
-                return Err(e.into());
-            }
+    deployment.plugins_txt_intended = match plugins::read_plugins_txt(&local_dir) {
+        Ok(intended) => intended,
+        Err(error) => {
+            rollback_failed_deploy(instance, deployment, progress);
+            return Err(error.into());
         }
+    };
+    if let Err(error) = deployment.save(instance) {
+        rollback_failed_deploy(instance, deployment, progress);
+        return Err(error);
     }
 
-    // Second Write: InProgress -> Committed flip
-    deployment.status = Status::Committed;
-    deployment.committed = Some(true);
-    deployment.save(instance)?;
+    if let Some((custom_ini, saves_dir, _)) = &prepared_save
+        && let Err(error) = saves::write_save_redirect(custom_ini, saves_dir, &deployment.profile)
+    {
+        rollback_failed_deploy(instance, deployment, progress);
+        return Err(error.into());
+    }
+
+    let mut committed = deployment.clone();
+    committed.status = Status::Committed;
+    committed.committed = Some(true);
+    if let Err(error) = committed.save(instance) {
+        rollback_failed_deploy(instance, deployment, progress);
+        return Err(error);
+    }
+
     tracing::info!(
-        profile = %deployment.profile,
-        files = deployment.record.entries.len(),
+        profile = %committed.profile,
+        files = committed.record.entries.len(),
         "deployment committed"
     );
-    Ok(deployment)
+    Ok(committed)
 }
 
-/// Reverses the instance's live deployment
-pub fn purge(instance: &Instance, progress: &dyn ProgressSink) -> Result<(), ApplyError> {
+/// Reverse the instance's recorded deployment
+pub fn purge(
+    instance: &Instance,
+    progress: &dyn ProgressSink,
+) -> Result<ReversalOutcome, ApplyError> {
     let _lock = InstanceLock::acquire(instance)?;
-    recover_if_needed(instance, progress)?;
-
     let deployment = Deployment::load(instance)?;
-    tracing::info!(profile = %deployment.profile, "purging live deployment");
-    capture_overwrite(instance, &deployment.record)?;
-    reverse_and_finalize(instance, deployment, progress)
+    purge_locked(instance, deployment, progress)
 }
 
-/// Before tearing down, move files that appeared in directories our deploy created
-fn capture_overwrite(instance: &Instance, record: &DeployRecord) -> Result<(), ApplyError> {
-    let overwrite = instance.overwrite_dir();
-    // Game-relative paths we deployed, lowercased, so we never capture our own files
-    let ours: BTreeSet<String> = record
-        .entries
-        .iter()
-        .map(|e| e.relative.as_str().to_lowercase())
-        .collect();
-
-    for created in &record.created_dirs {
-        let dir = record.target_root.join(created);
-        if !dir.exists() {
-            continue;
-        }
-        for entry in WalkDir::new(&dir) {
-            let entry = entry.map_err(|e| error::walk_io_err(&dir, e))?;
-            if !entry.file_type().is_file() {
-                continue;
-            }
-
-            let abs = Utf8Path::from_path(entry.path())
-                .ok_or_else(|| DeployError::NonUtf8Path(error::non_utf8(entry.path())))?;
-            let relative = abs
-                .strip_prefix(&record.target_root)
-                .expect("walked file is under the target root");
-            if ours.contains(&relative.as_str().to_lowercase()) {
-                continue; // one of our deployed files; the reversal handles it
-            }
-
-            capture_move(abs, &overwrite.join(overwrite_staging_path(relative)))?;
-        }
-    }
-    Ok(())
-}
-
-/// Inverse of the deploy mapping: turn a deployed (game-relative) path back into its overwrite *staging* layout
-fn overwrite_staging_path(game_relative: &Utf8Path) -> Utf8PathBuf {
-    match strip_data_prefix(game_relative) {
-        // Under Data/: the staging layout drops the Data/ prefix
-        Some(under_data) if !under_data.as_str().is_empty() => under_data,
-        // Outside Data/ (a game-root file): it came from the mod's Root/ folder
-        _ => Utf8Path::new(ROOT_DIR).join(game_relative),
-    }
-}
-
-/// Move a captured file into the overwrite folder, creating parents
-fn capture_move(from: &Utf8Path, to: &Utf8Path) -> Result<(), ApplyError> {
-    if let Some(parent) = to.parent() {
-        fs::ensure_dir(parent)?;
-    }
-    if std::fs::rename(from, to).is_err() {
-        copy_then_remove(
-            from,
-            to,
-            |a, b| std::fs::copy(a, b).map(drop),
-            |p| std::fs::remove_file(p),
-        )?;
-    }
-    Ok(())
-}
-
-/// Cross-volume move fallback: copy, then remove the source; on a failed remove, undo the copy
-fn copy_then_remove(
-    from: &Utf8Path,
-    to: &Utf8Path,
-    copy: impl Fn(&Utf8Path, &Utf8Path) -> std::io::Result<()>,
-    remove: impl Fn(&Utf8Path) -> std::io::Result<()>,
-) -> Result<(), ApplyError> {
-    copy(from, to).map_err(|e| error::io_err(to, e))?;
-    if let Err(e) = remove(from) {
-        let _ = remove(to);
-        return Err(error::io_err(from, e).into());
-    }
-    Ok(())
-}
-
-/// A snapshot of an instance's live deployment
+/// A snapshot of an instance's recorded deployment
 #[derive(Debug)]
 pub struct DeploymentStatus {
     pub deployment: Deployment,
     pub verified: VerifyReport,
 }
 
-/// Report the instance's live deployment, or `None` if nothing is deployed
+/// Report the recorded deployment without changing interrupted state
 pub fn status(instance: &Instance) -> Result<Option<DeploymentStatus>, ApplyError> {
     let _lock = InstanceLock::acquire(instance)?;
-    recover_if_needed(instance, &NullSink)?;
-
     if !Deployment::exists(instance) {
         return Ok(None);
     }
@@ -236,7 +163,7 @@ pub fn status(instance: &Instance) -> Result<Option<DeploymentStatus>, ApplyErro
     }))
 }
 
-/// Rename an installed mod, refusing while any deployment is live
+/// Rename an installed mod, refusing while a committed deployment is live
 pub fn rename_mod(instance: &Instance, old: &str, new: &str) -> Result<(), ApplyError> {
     let _lock = InstanceLock::acquire(instance)?;
     recover_if_needed(instance, &NullSink)?;
@@ -266,79 +193,86 @@ pub fn rename_profile(instance: &mut Instance, old: &str, new: &str) -> Result<(
     }
     instance.rename_profile(old, new)?;
 
-    // The profile renamed on disk; keep the persisted default pointer in sync
     if instance.config.default_profile.eq_ignore_ascii_case(old) {
-        let prev = std::mem::replace(&mut instance.config.default_profile, new.to_owned());
-        if let Err(e) = instance.save() {
-            instance.config.default_profile = prev;
-            return Err(ApplyError::DefaultProfileNotUpdated(e));
+        let previous = std::mem::replace(&mut instance.config.default_profile, new.to_owned());
+        if let Err(error) = instance.save() {
+            instance.config.default_profile = previous;
+            return Err(ApplyError::DefaultProfileNotUpdated(error));
         }
     }
     Ok(())
 }
 
-/// Lock held recovery used by every mutating entry point
-fn recover_if_needed(instance: &Instance, progress: &dyn ProgressSink) -> Result<(), ApplyError> {
+/// Purge any non-committed journal before a mutating operation continues
+fn recover_if_needed(
+    instance: &Instance,
+    progress: &dyn ProgressSink,
+) -> Result<Option<ReversalOutcome>, ApplyError> {
     if !Deployment::exists(instance) {
-        return Ok(());
+        return Ok(None);
     }
     let deployment = Deployment::load(instance)?;
-    match deployment.status {
-        Status::Committed => Ok(()),
-        Status::InProgress | Status::RecoveryFailed => {
-            tracing::warn!(
-                status = ?deployment.status,
-                profile = %deployment.profile,
-                "interrupted deployment found; reversing"
-            );
-            reverse_and_finalize(instance, deployment, progress)
-        }
+    if deployment.status == Status::Committed {
+        return Ok(None);
     }
+
+    tracing::warn!(
+        status = ?deployment.status,
+        profile = %deployment.profile,
+        "interrupted deployment found; purging before restart"
+    );
+    purge_locked(instance, deployment, progress).map(Some)
 }
 
-/// Shared reversal for purge and recovery: run record driven reversal, restore Plugins.txt, resolve
-fn reverse_and_finalize(
+/// Run ordinary purge while the caller holds the instance lock
+fn purge_locked(
     instance: &Instance,
     deployment: Deployment,
     progress: &dyn ProgressSink,
-) -> Result<(), ApplyError> {
+) -> Result<ReversalOutcome, ApplyError> {
+    tracing::info!(profile = %deployment.profile, "purging recorded deployment");
+    let mut outcome = ReversalOutcome::default();
+    let baseline = match Deployment::load_baseline(instance) {
+        Ok(baseline) => baseline,
+        Err(error) => {
+            outcome.unresolved.push(ReversalIssue::new(
+                Deployment::baseline_path(instance),
+                error.to_string(),
+            ));
+            None
+        }
+    };
+    let baseline_keys = baseline.as_ref().map(|paths| {
+        paths
+            .iter()
+            .map(|path| logical_path_key(path))
+            .collect::<BTreeSet<_>>()
+    });
     let deployer = deployer_for(deployment.record.deployer);
-    let report = deployer.undeploy(&deployment.record, progress);
 
-    let local_dir = instance.local_dir()?;
-    let plugins_restore = plugins::restore_plugins_txt_if_ours(
-        &local_dir,
-        deployment.plugins_txt_backup.as_deref(),
-        deployment.plugins_txt_intended.as_deref(),
+    let cleanup_dirs = capture_overwrite(
+        instance,
+        &deployment.record,
+        deployer.as_ref(),
+        baseline_keys.as_ref(),
+        &mut outcome,
     );
 
-    if let Ok(Restore::Conflict) = &plugins_restore {
-        tracing::warn!(
-            "Plugins.txt changed since deployment; kept the current file instead of restoring the pre-deployment version"
-        );
+    let report = deployer.undeploy(&deployment.record, progress);
+    outcome.removed.extend(report.removed);
+    outcome.restored.extend(report.restored);
+    for conflict in report.preserved_conflicts {
+        push_conflict(&mut outcome, conflict);
     }
+    outcome.unresolved.extend(report.unresolved);
 
-    // Undo the save redirect, but only if this deployment set one
-    let save_restore = match &deployment.save_redirect {
-        Some(redirect) => {
-            let (custom_ini, _) = save_paths(instance, &deployment.profile)?;
-            saves::restore_save_redirect(
-                &custom_ini,
-                &deployment.profile,
-                redirect.original.as_deref(),
-            )
-        }
-        None => Ok(Restore::Restored),
-    };
-    if let Ok(Restore::Conflict) = &save_restore {
-        tracing::warn!(
-            "SLocalSavePath changed since deployment; kept the current value instead of restoring"
-        );
-    }
+    cleanup_new_dirs(&deployment.record.target_root, cleanup_dirs, &mut outcome);
+    restore_side_effects(instance, &deployment, &mut outcome);
 
-    if report.is_fully_resolved() && plugins_restore.is_ok() && save_restore.is_ok() {
+    if outcome.is_complete() {
         tracing::info!("reversal complete; clearing journal");
-        Deployment::remove(instance)
+        Deployment::remove(instance)?;
+        Ok(outcome)
     } else {
         tracing::warn!("reversal incomplete; keeping RecoveryFailed journal");
         let path = Deployment::path(instance);
@@ -347,15 +281,616 @@ fn reverse_and_finalize(
             ..deployment
         };
         failed.save(instance)?;
-        let restore_err = plugins_restore
-            .err()
-            .map(ApplyError::from)
-            .or_else(|| save_restore.err().map(ApplyError::from));
-        Err(restore_err.unwrap_or(ApplyError::RecoveryFailed { path }))
+        Err(ApplyError::RecoveryFailed {
+            path,
+            outcome: Box::new(outcome),
+        })
     }
 }
 
-/// Discover the profile's plugins and reconcile and save its load order
+/// Restore Plugins.txt and save redirection according to the deployment phase
+fn restore_side_effects(
+    instance: &Instance,
+    deployment: &Deployment,
+    outcome: &mut ReversalOutcome,
+) {
+    let interrupted = !deployment.was_committed();
+    match instance.local_dir() {
+        Ok(local_dir) => {
+            let plugins_result = if interrupted {
+                plugins::restore_plugins_txt(&local_dir, deployment.plugins_txt_backup.as_deref())
+                    .map(|()| Restore::Restored)
+            } else {
+                plugins::restore_plugins_txt_if_ours(
+                    &local_dir,
+                    deployment.plugins_txt_backup.as_deref(),
+                    deployment.plugins_txt_intended.as_deref(),
+                )
+            };
+            match plugins_result {
+                Ok(result) => outcome.plugins_txt = result,
+                Err(error) => outcome.unresolved.push(ReversalIssue::new(
+                    local_dir.join("Plugins.txt"),
+                    error.to_string(),
+                )),
+            }
+        }
+        Err(error) => outcome.unresolved.push(ReversalIssue::new(
+            Deployment::path(instance),
+            error.to_string(),
+        )),
+    }
+
+    let Some(redirect) = &deployment.save_redirect else {
+        return;
+    };
+    let (custom_ini, _) = match save_paths(instance, &deployment.profile) {
+        Ok(paths) => paths,
+        Err(error) => {
+            outcome.unresolved.push(ReversalIssue::new(
+                Deployment::path(instance),
+                error.to_string(),
+            ));
+            return;
+        }
+    };
+    let save_result = if interrupted {
+        saves::restore_save_redirect_unconditionally(&custom_ini, redirect.original.as_deref())
+            .map(|()| Restore::Restored)
+    } else {
+        saves::restore_save_redirect(
+            &custom_ini,
+            &deployment.profile,
+            redirect.original.as_deref(),
+        )
+    };
+    match save_result {
+        Ok(result) => outcome.save_redirect = result,
+        Err(error) => outcome
+            .unresolved
+            .push(ReversalIssue::new(custom_ini, error.to_string())),
+    }
+}
+
+/// Roll back a failed deploy through the same ordinary purge path
+fn rollback_failed_deploy(
+    instance: &Instance,
+    deployment: Deployment,
+    progress: &dyn ProgressSink,
+) {
+    tracing::warn!("deploy failed; purging interrupted deployment");
+    if let Err(error) = purge_locked(instance, deployment, progress) {
+        tracing::warn!(%error, "rollback after deploy failure was incomplete");
+    }
+}
+
+/// Snapshot every path below the target without following reparse points
+fn snapshot_paths(
+    target_root: &Utf8Path,
+    backup_root: &Utf8Path,
+) -> Result<Vec<Utf8PathBuf>, ApplyError> {
+    let mut paths = scan_tree(target_root, Some(backup_root))?
+        .into_iter()
+        .map(|entry| entry.relative)
+        .collect::<Vec<_>>();
+    paths.sort();
+    Ok(paths)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TreeKind {
+    File,
+    Directory,
+    Other,
+}
+
+#[derive(Debug)]
+struct TreeEntry {
+    absolute: Utf8PathBuf,
+    relative: Utf8PathBuf,
+    kind: TreeKind,
+}
+
+/// Walk a tree without entering symlinks, junctions, or other reparse points
+fn scan_tree(
+    root: &Utf8Path,
+    excluded_root: Option<&Utf8Path>,
+) -> Result<Vec<TreeEntry>, ApplyError> {
+    match root.symlink_metadata() {
+        Ok(metadata) if fs::is_directory(&metadata) => {}
+        Ok(_) => {
+            return Err(DeployError::UnsafeFileType {
+                path: root.to_owned(),
+            }
+            .into());
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(crate::error::io_err(root, error).into()),
+    }
+
+    let excluded_key =
+        excluded_root.and_then(|excluded| excluded.strip_prefix(root).ok().map(logical_path_key));
+    let mut entries = Vec::new();
+    scan_dir(root, root, excluded_key.as_deref(), &mut entries)?;
+    entries.sort_by(|left, right| left.relative.cmp(&right.relative));
+    Ok(entries)
+}
+
+/// Scan one normal directory and recurse only into normal child directories
+fn scan_dir(
+    root: &Utf8Path,
+    dir: &Utf8Path,
+    excluded_key: Option<&str>,
+    output: &mut Vec<TreeEntry>,
+) -> Result<(), ApplyError> {
+    let metadata = dir
+        .symlink_metadata()
+        .map_err(|error| crate::error::io_err(dir, error))?;
+    if !fs::is_directory(&metadata) {
+        return Err(DeployError::UnsafeFileType {
+            path: dir.to_owned(),
+        }
+        .into());
+    }
+    let children = std::fs::read_dir(dir).map_err(|error| crate::error::io_err(dir, error))?;
+    for child in children {
+        let child = child.map_err(|error| crate::error::io_err(dir, error))?;
+        let path = Utf8PathBuf::from_path_buf(child.path())
+            .map_err(|path| DeployError::NonUtf8Path(non_utf8(&path)))?;
+        let relative = path
+            .strip_prefix(root)
+            .expect("scanned path remains below its root")
+            .to_owned();
+        if excluded_key.is_some_and(|key| logical_path_key(&relative) == key) {
+            continue;
+        }
+
+        let metadata = path
+            .symlink_metadata()
+            .map_err(|error| crate::error::io_err(&path, error))?;
+        let kind = if fs::is_regular_file(&metadata) {
+            TreeKind::File
+        } else if fs::is_directory(&metadata) {
+            TreeKind::Directory
+        } else {
+            TreeKind::Other
+        };
+        output.push(TreeEntry {
+            absolute: path.clone(),
+            relative,
+            kind,
+        });
+        if kind == TreeKind::Directory {
+            scan_dir(root, &path, excluded_key, output)?;
+        }
+    }
+    Ok(())
+}
+
+/// Capture foreign replacements and newly-created residue into overwrite
+fn capture_overwrite(
+    instance: &Instance,
+    record: &DeployRecord,
+    deployer: &dyn crate::deploy::Deployer,
+    baseline: Option<&BTreeSet<String>>,
+    outcome: &mut ReversalOutcome,
+) -> Vec<Utf8PathBuf> {
+    let overwrite = instance.overwrite_dir();
+    resume_pending_captures(record, &overwrite, outcome);
+
+    let scanned = match scan_tree(&record.target_root, Some(&record.backup_root)) {
+        Ok(scanned) => scanned,
+        Err(error) => {
+            outcome
+                .unresolved
+                .push(ReversalIssue::new(&record.target_root, error.to_string()));
+            return Vec::new();
+        }
+    };
+    let recorded = record
+        .entries
+        .iter()
+        .map(|entry| (logical_path_key(&entry.relative), entry))
+        .collect::<BTreeMap<_, _>>();
+    let mut cleanup_dirs = Vec::new();
+
+    for scanned in scanned {
+        let key = logical_path_key(&scanned.relative);
+        if scanned.kind == TreeKind::Directory {
+            if should_capture_unrecorded(&scanned.relative, &key, baseline, record) {
+                cleanup_dirs.push(scanned.relative);
+            }
+            continue;
+        }
+
+        if let Some(entry) = recorded.get(&key) {
+            capture_recorded_path(
+                record, entry, &scanned, deployer, baseline, &overwrite, outcome,
+            );
+        } else {
+            capture_unrecorded_path(record, &scanned, &key, baseline, &overwrite, outcome);
+        }
+    }
+    cleanup_dirs
+}
+
+/// Resume deterministic pending captures before inspecting the live game tree
+fn resume_pending_captures(
+    record: &DeployRecord,
+    overwrite: &Utf8Path,
+    outcome: &mut ReversalOutcome,
+) {
+    let capture_root = record.backup_root.join(".capture");
+    let pending = match scan_tree(&capture_root, None) {
+        Ok(pending) => pending,
+        Err(error) => {
+            outcome
+                .unresolved
+                .push(ReversalIssue::new(&capture_root, error.to_string()));
+            return;
+        }
+    };
+
+    for pending in pending {
+        if pending.kind == TreeKind::Directory {
+            continue;
+        }
+        let game_relative = game_relative_from_overwrite(&pending.relative);
+        if pending.kind == TreeKind::Other {
+            push_conflict(
+                outcome,
+                PreservedConflict {
+                    path: game_relative,
+                    preserved_at: pending.absolute,
+                    reason: "pending capture is non-regular and was preserved".to_owned(),
+                    blocking: true,
+                },
+            );
+            continue;
+        }
+        deliver_pending(
+            &pending.absolute,
+            &game_relative,
+            &pending.relative,
+            overwrite,
+            outcome,
+        );
+    }
+}
+
+/// Capture a recorded destination according to backend ownership
+fn capture_recorded_path(
+    record: &DeployRecord,
+    entry: &DeployEntry,
+    scanned: &TreeEntry,
+    deployer: &dyn crate::deploy::Deployer,
+    baseline: Option<&BTreeSet<String>>,
+    overwrite: &Utf8Path,
+    outcome: &mut ReversalOutcome,
+) {
+    match deployer.classify(record, entry) {
+        TargetOwnership::OwnedLink | TargetOwnership::Absent => {}
+        TargetOwnership::Unknown(error) => outcome
+            .unresolved
+            .push(ReversalIssue::new(&scanned.absolute, error.to_string())),
+        TargetOwnership::Foreign => {
+            let backup = record.backup_root.join(&entry.relative);
+            let backup_present = match regular_file_present(&backup) {
+                Ok(present) => present,
+                Err(issue) => {
+                    outcome.unresolved.push(issue);
+                    return;
+                }
+            };
+            let preexisting =
+                baseline.is_some_and(|paths| paths.contains(&logical_path_key(&entry.relative)));
+            let capture = backup_present || baseline.is_some_and(|_| !preexisting);
+
+            if !capture {
+                if baseline.is_none() {
+                    push_conflict(
+                        outcome,
+                        PreservedConflict {
+                            path: scanned.relative.clone(),
+                            preserved_at: scanned.absolute.clone(),
+                            reason: "legacy journal cannot prove this foreign path is new"
+                                .to_owned(),
+                            blocking: false,
+                        },
+                    );
+                }
+                return;
+            }
+
+            if scanned.kind == TreeKind::File {
+                stage_capture(
+                    record,
+                    &scanned.absolute,
+                    &scanned.relative,
+                    overwrite,
+                    outcome,
+                );
+            } else {
+                push_conflict(
+                    outcome,
+                    PreservedConflict {
+                        path: scanned.relative.clone(),
+                        preserved_at: scanned.absolute.clone(),
+                        reason: "foreign reparse or non-regular path was preserved".to_owned(),
+                        blocking: true,
+                    },
+                );
+            }
+        }
+    }
+}
+
+/// Capture one unrecorded path only when the baseline proves it is new
+fn capture_unrecorded_path(
+    record: &DeployRecord,
+    scanned: &TreeEntry,
+    key: &str,
+    baseline: Option<&BTreeSet<String>>,
+    overwrite: &Utf8Path,
+    outcome: &mut ReversalOutcome,
+) {
+    if !should_capture_unrecorded(&scanned.relative, key, baseline, record) {
+        return;
+    }
+    if scanned.kind == TreeKind::File {
+        stage_capture(
+            record,
+            &scanned.absolute,
+            &scanned.relative,
+            overwrite,
+            outcome,
+        );
+    } else {
+        push_conflict(
+            outcome,
+            PreservedConflict {
+                path: scanned.relative.clone(),
+                preserved_at: scanned.absolute.clone(),
+                reason: "new reparse or non-regular path was preserved".to_owned(),
+                blocking: true,
+            },
+        );
+    }
+}
+
+/// Decide whether an unrecorded path is new under current or legacy state
+fn should_capture_unrecorded(
+    relative: &Utf8Path,
+    key: &str,
+    baseline: Option<&BTreeSet<String>>,
+    record: &DeployRecord,
+) -> bool {
+    match baseline {
+        Some(paths) => !paths.contains(key),
+        None => record
+            .created_dirs
+            .iter()
+            .any(|created| path_is_within(relative, created)),
+    }
+}
+
+/// Compare path components case-insensitively for legacy created-directory coverage
+fn path_is_within(path: &Utf8Path, parent: &Utf8Path) -> bool {
+    let mut path = path.components();
+    parent.components().all(|component| {
+        path.next()
+            .is_some_and(|candidate| candidate.as_str().eq_ignore_ascii_case(component.as_str()))
+    })
+}
+
+/// Move a live regular file to deterministic pending storage before delivery
+fn stage_capture(
+    record: &DeployRecord,
+    source: &Utf8Path,
+    game_relative: &Utf8Path,
+    overwrite: &Utf8Path,
+    outcome: &mut ReversalOutcome,
+) {
+    let overwrite_relative = overwrite_staging_path(game_relative);
+    let pending = record
+        .backup_root
+        .join(".capture")
+        .join(&overwrite_relative);
+    match pending.symlink_metadata() {
+        Ok(_) => {
+            push_conflict(
+                outcome,
+                PreservedConflict {
+                    path: game_relative.to_owned(),
+                    preserved_at: source.to_owned(),
+                    reason: format!("pending capture already exists at `{pending}`"),
+                    blocking: true,
+                },
+            );
+            return;
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => {
+            outcome
+                .unresolved
+                .push(ReversalIssue::new(&pending, error.to_string()));
+            return;
+        }
+    }
+
+    if let Some(parent) = pending.parent()
+        && let Err(error) = fs::ensure_dir(parent)
+    {
+        outcome
+            .unresolved
+            .push(ReversalIssue::new(parent, error.to_string()));
+        return;
+    }
+    if let Err(error) = std::fs::rename(source, &pending) {
+        outcome
+            .unresolved
+            .push(ReversalIssue::new(source, error.to_string()));
+        return;
+    }
+    deliver_pending(
+        &pending,
+        game_relative,
+        &overwrite_relative,
+        overwrite,
+        outcome,
+    );
+}
+
+/// Deliver a pending capture without replacing any prior overwrite content
+fn deliver_pending(
+    pending: &Utf8Path,
+    game_relative: &Utf8Path,
+    overwrite_relative: &Utf8Path,
+    overwrite: &Utf8Path,
+    outcome: &mut ReversalOutcome,
+) {
+    let destination = overwrite.join(overwrite_relative);
+    match destination.symlink_metadata() {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            match fs::move_file(pending, &destination) {
+                Ok(()) => outcome.captured.push(CapturedPath {
+                    game_relative: game_relative.to_owned(),
+                    overwrite_relative: overwrite_relative.to_owned(),
+                }),
+                Err(error) => outcome
+                    .unresolved
+                    .push(ReversalIssue::new(pending, error.to_string())),
+            }
+        }
+        Ok(metadata) if fs::is_regular_file(&metadata) => {
+            match files_equal(pending, &destination) {
+                Ok(true) => match fs::remove_file_opt(pending) {
+                    Ok(()) => outcome.captured.push(CapturedPath {
+                        game_relative: game_relative.to_owned(),
+                        overwrite_relative: overwrite_relative.to_owned(),
+                    }),
+                    Err(error) => outcome
+                        .unresolved
+                        .push(ReversalIssue::new(pending, error.to_string())),
+                },
+                Ok(false) => push_capture_collision(pending, game_relative, &destination, outcome),
+                Err(issue) => outcome.unresolved.push(issue),
+            }
+        }
+        Ok(_) => push_capture_collision(pending, game_relative, &destination, outcome),
+        Err(error) => outcome
+            .unresolved
+            .push(ReversalIssue::new(&destination, error.to_string())),
+    }
+}
+
+/// Record an overwrite collision while preserving both copies
+fn push_capture_collision(
+    pending: &Utf8Path,
+    game_relative: &Utf8Path,
+    destination: &Utf8Path,
+    outcome: &mut ReversalOutcome,
+) {
+    push_conflict(
+        outcome,
+        PreservedConflict {
+            path: game_relative.to_owned(),
+            preserved_at: pending.to_owned(),
+            reason: format!("overwrite destination `{destination}` already has different content"),
+            blocking: true,
+        },
+    );
+}
+
+/// Compare two regular files byte-for-byte
+fn files_equal(left: &Utf8Path, right: &Utf8Path) -> Result<bool, ReversalIssue> {
+    let left_bytes =
+        std::fs::read(left).map_err(|error| ReversalIssue::new(left, error.to_string()))?;
+    let right_bytes =
+        std::fs::read(right).map_err(|error| ReversalIssue::new(right, error.to_string()))?;
+    Ok(left_bytes == right_bytes)
+}
+
+/// Probe a path without following it and require regular content when present
+fn regular_file_present(path: &Utf8Path) -> Result<bool, ReversalIssue> {
+    match path.symlink_metadata() {
+        Ok(metadata) if fs::is_regular_file(&metadata) => Ok(true),
+        Ok(_) => Err(ReversalIssue::new(
+            path,
+            "backup path is non-regular and was preserved",
+        )),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(ReversalIssue::new(path, error.to_string())),
+    }
+}
+
+/// Avoid duplicate backend and capture reports for the same preserved path
+fn push_conflict(outcome: &mut ReversalOutcome, conflict: PreservedConflict) {
+    if outcome.preserved_conflicts.iter().any(|existing| {
+        existing.path == conflict.path && existing.preserved_at == conflict.preserved_at
+    }) {
+        return;
+    }
+    outcome.preserved_conflicts.push(conflict);
+}
+
+/// Remove baseline-new normal directories after their contents are resolved
+fn cleanup_new_dirs(
+    target_root: &Utf8Path,
+    mut directories: Vec<Utf8PathBuf>,
+    outcome: &mut ReversalOutcome,
+) {
+    directories.sort_by_key(|path| std::cmp::Reverse(path.components().count()));
+    directories.dedup();
+    for relative in directories {
+        let path = target_root.join(&relative);
+        match path.symlink_metadata() {
+            Ok(metadata) if fs::is_directory(&metadata) => {
+                if let Err(error) = std::fs::remove_dir(&path)
+                    && error.kind() != std::io::ErrorKind::DirectoryNotEmpty
+                {
+                    outcome
+                        .unresolved
+                        .push(ReversalIssue::new(&path, error.to_string()));
+                }
+            }
+            Ok(_) => push_conflict(
+                outcome,
+                PreservedConflict {
+                    path: relative,
+                    preserved_at: path,
+                    reason: "new directory path became non-regular and was preserved".to_owned(),
+                    blocking: true,
+                },
+            ),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => outcome
+                .unresolved
+                .push(ReversalIssue::new(&path, error.to_string())),
+        }
+    }
+}
+
+/// Invert overwrite staging layout back to a game-relative path
+fn game_relative_from_overwrite(overwrite_relative: &Utf8Path) -> Utf8PathBuf {
+    let mut components = overwrite_relative.components();
+    match components.next() {
+        Some(first) if first.as_str().eq_ignore_ascii_case(ROOT_DIR) => {
+            components.as_path().to_owned()
+        }
+        _ => Utf8Path::new("Data").join(overwrite_relative),
+    }
+}
+
+/// Invert rooted deployment layout into the global overwrite staging layout
+fn overwrite_staging_path(game_relative: &Utf8Path) -> Utf8PathBuf {
+    match strip_data_prefix(game_relative) {
+        Some(under_data) if !under_data.as_str().is_empty() => under_data,
+        _ => Utf8Path::new(ROOT_DIR).join(game_relative),
+    }
+}
+
+/// Discover plugins and reconcile and save the profile load order
 fn prepare_load_order(
     instance: &Instance,
     profile: &Profile,
@@ -367,7 +902,7 @@ fn prepare_load_order(
     Ok(order)
 }
 
-/// This profile's `Fallout4Custom.ini` and `Saves/<profile>/` under the instance's My Games (INI) directory
+/// Compute this profile's custom INI and saves directory
 fn save_paths(
     instance: &Instance,
     profile: &str,
@@ -379,7 +914,7 @@ fn save_paths(
     Ok((custom_ini, saves_dir))
 }
 
-/// Don't start a deploy when the backup dir survives from a previous run
+/// Refuse deploy when the fixed backup root survives without a journal
 fn guard_no_orphaned_backup(backup_root: &Utf8Path) -> Result<(), ApplyError> {
     if backup_root.exists() {
         return Err(ApplyError::OrphanedBackup {

@@ -121,6 +121,21 @@ fn restore_leaves_a_value_the_user_changed_afterward() {
 }
 
 #[test]
+fn restore_is_resolved_when_current_already_equals_original() {
+    let (_tmp, custom_ini, _saves_dir) = setup();
+    std::fs::write(&custom_ini, "[General]\r\nSLocalSavePath=Saves\\Old\\\r\n").unwrap();
+
+    let outcome =
+        restore_save_redirect(&custom_ini, "Hardcore", Some("Saves\\Old\\")).expect("restore");
+
+    assert_eq!(outcome, Restore::Restored);
+    assert_eq!(
+        Ini::parse(&std::fs::read_to_string(&custom_ini).unwrap()).get("General", "SLocalSavePath"),
+        Some("Saves\\Old\\")
+    );
+}
+
+#[test]
 fn restore_is_a_noop_when_the_ini_is_gone() {
     let (_tmp, custom_ini, _saves_dir) = setup();
     // Never written; a clean restore should simply succeed

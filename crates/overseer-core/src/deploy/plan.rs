@@ -50,7 +50,7 @@ impl DeployPlan {
 
         for m in mods {
             walk_mod_files(m, |relative, abs| {
-                let key = relative.as_str().to_lowercase();
+                let key = logical_path_key(&relative);
                 winners.insert(
                     key,
                     PlannedFile {
@@ -93,6 +93,11 @@ impl DeployPlan {
     pub fn is_empty(&self) -> bool {
         self.files.is_empty()
     }
+}
+
+/// Build the case-folded key shared by planning, ownership matching, and recovery
+pub(crate) fn logical_path_key(path: &Utf8Path) -> String {
+    path.as_str().to_lowercase()
 }
 
 /// Walk a mod's staging dir, invoking `f(relative, absolute)` for every file in `WalkDir` order

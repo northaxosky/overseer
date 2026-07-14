@@ -7,3 +7,6 @@ mod redirect;
 pub(crate) use error::SaveParseError;
 pub use info::{SaveInfo, SaveMeta, delete_save, list_saves};
 pub use redirect::{apply_save_redirect, restore_save_redirect, save_redirect_value};
+pub(crate) use redirect::{
+    read_save_redirect, restore_save_redirect_unconditionally, write_save_redirect,
+};

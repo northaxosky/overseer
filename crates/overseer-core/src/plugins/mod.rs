@@ -11,6 +11,7 @@ mod separator;
 pub use carrier::carrier_for;
 pub use discover::discover_plugins;
 pub use error::PluginError;
+pub(crate) use gamestate::restore_plugins_txt;
 pub use gamestate::{
     implicit_active_plugins, read_plugins_txt, restore_plugins_txt_if_ours, write_active_plugins,
 };

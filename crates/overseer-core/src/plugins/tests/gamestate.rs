@@ -142,12 +142,27 @@ fn restore_if_ours_keeps_a_diverged_file() {
 }
 
 #[test]
-fn restore_if_ours_restores_unconditionally_when_nothing_was_written() {
+fn restore_if_ours_preserves_unknown_legacy_intent() {
     let (_tmp, _game, local) = setup();
     std::fs::write(local.join("Plugins.txt"), b"*Whatever.esp\n").expect("seed current");
-    // intended == None: we never reached the write phase, so fully undo to the original
     let outcome =
         restore_plugins_txt_if_ours(&local, Some(b"*Original.esp\n"), None).expect("restore");
+    assert_eq!(outcome, Restore::Conflict);
+    assert_eq!(
+        std::fs::read(local.join("Plugins.txt")).expect("read"),
+        b"*Whatever.esp\n"
+    );
+}
+
+#[test]
+fn restore_if_ours_resolves_when_current_already_equals_original() {
+    let (_tmp, _game, local) = setup();
+    std::fs::write(local.join("Plugins.txt"), b"*Original.esp\n").expect("seed original");
+
+    let outcome =
+        restore_plugins_txt_if_ours(&local, Some(b"*Original.esp\n"), Some(b"*Cool.esp\n"))
+            .expect("restore");
+
     assert_eq!(outcome, Restore::Restored);
     assert_eq!(
         std::fs::read(local.join("Plugins.txt")).expect("read"),

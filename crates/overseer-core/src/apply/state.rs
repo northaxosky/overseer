@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 /// Where a deployment transaction stands, used in crash recovery
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Status {
-    /// Journalled before Data/ was mutated - reversible
+    /// Journalled before the game target was mutated - reversible
     InProgress,
     /// Deployment completed & is live
     Committed,
@@ -23,6 +23,9 @@ pub enum Status {
 pub struct Deployment {
     /// Where this transaction stands
     pub status: Status,
+    /// Whether this deployment ever reached Committed, or None for a legacy journal
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub committed: Option<bool>,
     /// Name of the profile that was deployed
     pub profile: String,
     /// What the file deploy wrote, so `purge` can remove them
@@ -38,10 +41,6 @@ pub struct Deployment {
     /// The user's prior `SLocalSavePath`, captured when local saves are deployed so reversal can restore it
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub save_redirect: Option<SaveRedirect>,
-
-    /// Whether this deployment ever committed, so reversal keeps the right restore mode after a failed retry
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub committed: Option<bool>,
 }
 
 /// Journalled record that a deployment redirected the game's save path
@@ -53,9 +52,19 @@ pub struct SaveRedirect {
 }
 
 impl Deployment {
+    /// Whether side-effect reversal must preserve post-commit external changes
+    pub(crate) fn was_committed(&self) -> bool {
+        self.committed.unwrap_or(self.status != Status::InProgress)
+    }
+
     /// Path to the state file for `instance`
     pub(crate) fn path(instance: &Instance) -> Utf8PathBuf {
         instance.state_dir().join("deployment.json")
+    }
+
+    /// Path to the reversal-only pre-deployment path snapshot
+    pub(crate) fn baseline_path(instance: &Instance) -> Utf8PathBuf {
+        instance.state_dir().join("deployment-baseline.json")
     }
 
     /// Whether a deployment is currently recorded for `instance`
@@ -88,8 +97,40 @@ impl Deployment {
         fs::write_atomic(&path, text.as_bytes()).map_err(Into::into)
     }
 
+    /// Persist the sorted pre-deployment path snapshot outside the main journal
+    pub(crate) fn save_baseline(
+        instance: &Instance,
+        paths: &[Utf8PathBuf],
+    ) -> Result<(), ApplyError> {
+        let path = Self::baseline_path(instance);
+        let text = serde_json::to_string(paths).map_err(|source| ApplyError::State {
+            path: path.clone(),
+            source,
+        })?;
+        fs::write_atomic(&path, text.as_bytes()).map_err(Into::into)
+    }
+
+    /// Load the optional path snapshot, treating its absence as a legacy journal
+    pub(crate) fn load_baseline(
+        instance: &Instance,
+    ) -> Result<Option<Vec<Utf8PathBuf>>, ApplyError> {
+        let path = Self::baseline_path(instance);
+        let Some(text) = fs::read_to_string_opt(&path)? else {
+            return Ok(None);
+        };
+        serde_json::from_str(&text)
+            .map(Some)
+            .map_err(|source| ApplyError::State { path, source })
+    }
+
+    /// Remove an orphan-free optional baseline sidecar
+    pub(crate) fn remove_baseline(instance: &Instance) -> Result<(), ApplyError> {
+        fs::remove_file_opt(&Self::baseline_path(instance)).map_err(Into::into)
+    }
+
     /// Delete the state file, marking the instance as no longer deployed
     pub(crate) fn remove(instance: &Instance) -> Result<(), ApplyError> {
+        Self::remove_baseline(instance)?;
         let path = Self::path(instance);
         std::fs::remove_file(&path).map_err(|e| io_err(&path, e).into())
     }

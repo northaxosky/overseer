@@ -14,6 +14,7 @@ pub use deployer::{Deployer, DeployerKind, LaunchTarget, TargetOwnership, deploy
 pub use error::DeployError;
 pub use hardlink::HardlinkDeployer;
 pub use layout::{BACKUP_DIR, DATA_DIR, ROOT_DIR, strip_data_prefix};
+pub(crate) use plan::logical_path_key;
 pub use plan::{DeployPlan, ModSource, PlannedFile};
 pub use progress::{NullSink, ProgressEvent, ProgressSink};
 pub use record::{
