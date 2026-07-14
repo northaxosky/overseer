@@ -628,7 +628,28 @@ fn install_uses_a_downloads_basename_and_reconciles_lazily() {
     overseer(&["mod", "list", "--instance", inst_s, "--profile", "Survival"])
         .success()
         .stdout(predicate::str::contains("TexturePack"));
-    assert_eq!(text(modlist), "+Existing\n-TexturePack\n");
+    // `mod list` is a read: it reconciles in memory and must not rewrite modlist.txt
+    assert_eq!(text(modlist), "+Existing\r\n");
+}
+
+#[test]
+fn mod_list_does_not_persist_a_transiently_missing_mod() {
+    let tmp = TempDir::new().unwrap();
+    let inst = init_instance(&tmp);
+    let inst_s = inst.to_str().unwrap();
+    // Two enabled mods in the profile, but one folder is temporarily absent
+    // (external drive, cloud sync, mid-operation) so reconcile would drop it
+    let modlist = inst.join("profiles/Default/modlist.txt");
+    std::fs::write(&modlist, b"+Present\r\n+Missing\r\n").unwrap();
+    std::fs::create_dir_all(inst.join("mods/Present")).unwrap();
+    let before = bytes(&modlist);
+
+    overseer(&["mod", "list", "--instance", inst_s])
+        .success()
+        .stdout(predicate::str::contains("Present"));
+
+    // A read must never persist the drop, or the mod's enabled state and priority are lost
+    assert_eq!(bytes(&modlist), before);
 }
 
 #[test]
@@ -668,8 +689,8 @@ fn mod_remove_leaves_profiles_for_lazy_reconciliation() {
         "Alternate",
     ])
     .success();
-    assert_eq!(text(default), "+Keep\n-Other\n");
-    assert_eq!(text(alternate), "-Other\n-Keep\n");
+    // Reads reconcile in memory only, so the modlists are still exactly what `mod remove` left
+    assert_eq!([bytes(&default), bytes(&alternate)], before);
 }
 
 #[test]

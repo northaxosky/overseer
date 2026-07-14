@@ -451,6 +451,35 @@ fn sync_plugins_persists_changed_order_and_returns_discovered_state() {
 }
 
 #[test]
+fn resolve_plugins_reconciles_in_memory_without_persisting() {
+    let (_tmp, instance) = temp_instance();
+    write_plugin(&instance.mods_dir().join("ModA"), "Patch.esp", 0, &[]);
+    let profile = profile_of(&["ModA"]);
+    // A stale on-disk order that resolve should reconcile in memory only
+    let profile_dir = instance.profile_dir(&profile.name);
+    std::fs::create_dir_all(&profile_dir).expect("create profile");
+    let plugins = profile_dir.join("plugins.txt");
+    std::fs::write(&plugins, b"*Gone.esp\r\n").expect("write stale order");
+
+    let (discovered, order) = profile.resolve_plugins(&instance).expect("resolve");
+
+    assert_eq!(discovered.len(), 1);
+    assert_eq!(
+        order.plugins,
+        vec![crate::plugins::PluginEntry {
+            name: "Patch.esp".to_owned(),
+            active: true,
+        }],
+        "the returned order is reconciled in memory"
+    );
+    assert_eq!(
+        std::fs::read(&plugins).expect("read"),
+        b"*Gone.esp\r\n",
+        "a read must not rewrite plugins.txt"
+    );
+}
+
+#[test]
 fn pending_mod_state_blocks_plugin_sync_before_order_mutation() {
     let (_tmp, instance) = temp_instance();
     write_plugin(&instance.mods_dir().join("ModA"), "Patch.esp", 0, &[]);

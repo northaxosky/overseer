@@ -15,12 +15,12 @@ pub fn run(command: PluginCommand) -> Result<()> {
     }
 }
 
-/// Reconcile the mod list, discover plugins from enabled mods, and load + reconcile the plugin load order
+/// Reconcile the mod list and resolve the plugin load order in memory, without persisting
 fn synced(target: &ProfileArgs) -> Result<(Instance, Vec<PluginMeta>, PluginLoadOrder)> {
     let (instance, profile) = target.load_context()?;
     let (discovered, order) = profile
-        .sync_plugins(&instance)
-        .with_context(|| format!("syncing plugins for `{}`", profile.name))?;
+        .resolve_plugins(&instance)
+        .with_context(|| format!("resolving plugins for `{}`", profile.name))?;
     Ok((instance, discovered, order))
 }
 

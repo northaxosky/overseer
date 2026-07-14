@@ -306,17 +306,25 @@ impl Profile {
         Ok(removed + added > 0)
     }
 
-    /// Discover this profile's plugins, reconcile its load order, and persist changes
-    pub fn sync_plugins(
+    /// Discover this profile's plugins and reconcile its load order in memory, without persisting
+    pub fn resolve_plugins(
         &self,
         instance: &Instance,
     ) -> Result<(Vec<PluginMeta>, PluginLoadOrder), PluginError> {
         instance.ensure_mod_state_available()?;
         let discovered = discover_plugins(instance, self)?;
         let mut order = PluginLoadOrder::load(instance, &self.name)?;
-        if order.reconcile(&discovered) {
-            order.save(instance)?;
-        }
+        order.reconcile(&discovered);
+        Ok((discovered, order))
+    }
+
+    /// Discover, reconcile, and persist this profile's load order
+    pub fn sync_plugins(
+        &self,
+        instance: &Instance,
+    ) -> Result<(Vec<PluginMeta>, PluginLoadOrder), PluginError> {
+        let (discovered, order) = self.resolve_plugins(instance)?;
+        order.save(instance)?;
         Ok((discovered, order))
     }
 }
