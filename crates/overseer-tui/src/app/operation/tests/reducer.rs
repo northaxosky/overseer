@@ -84,7 +84,7 @@ fn seed_ephemeral_view_state(app: &mut App) {
         "cached.dds",
         "Winner",
     )]));
-    app.downloads.entries = vec![download_entry("Cached.zip", 1, 1, false)];
+    app.downloads.entries = vec![download_entry("Cached.zip", 1, 1)];
     app.saves.entries = vec![save_info("Cached.fos", 1, None)];
 }
 
@@ -120,7 +120,7 @@ fn same_context_applies_and_profile_or_root_changes_discard() {
     let result = completion(
         &same,
         Ok(OperationOutput::RefreshDownloads(vec![download_entry(
-            "Same.zip", 1, 1, false,
+            "Same.zip", 1, 1,
         )])),
     );
     same.apply_completion(OperationKind::RefreshDownloads, result);
@@ -133,7 +133,6 @@ fn same_context_applies_and_profile_or_root_changes_discard() {
             "Stale.zip",
             1,
             1,
-            false,
         )])),
     );
     changed_profile.session.profile.name = "Other".to_owned();
@@ -154,7 +153,6 @@ fn same_context_applies_and_profile_or_root_changes_discard() {
             "Stale.zip",
             1,
             1,
-            false,
         )])),
     );
     changed_root.session.instance.root = Utf8PathBuf::from("different-instance");
@@ -306,7 +304,7 @@ fn install_success_accepts_session_and_downloads_without_resetting_other_panes()
         "Winner",
     )]));
     *app.conflicts.list.state_mut().offset_mut() = 2;
-    app.downloads.entries = vec![download_entry("Old.zip", 1, 1, false)];
+    app.downloads.entries = vec![download_entry("Old.zip", 1, 1)];
     app.saves.entries = vec![save_info("Cached.fos", 1, None)];
     app.saves.list.select(Some(0));
     *app.saves.list.state_mut().offset_mut() = 4;
@@ -316,7 +314,7 @@ fn install_success_accepts_session_and_downloads_without_resetting_other_panes()
             name: "Installed".to_owned(),
             state: InstallState::Refreshed {
                 session: Box::new(session_with_mod("Installed")),
-                downloads: vec![download_entry("Installed.zip", 2, 2, true)],
+                downloads: vec![download_entry("Installed.zip", 2, 2)],
             },
         }),
     );
@@ -327,7 +325,6 @@ fn install_success_accepts_session_and_downloads_without_resetting_other_panes()
     assert_eq!(app.mods.index(), Some(0));
     assert_eq!(app.plugins.index(), None);
     assert_eq!(app.downloads.entries[0].name, "Installed.zip");
-    assert!(app.downloads.entries[0].installed);
     assert_eq!(app.saves.entries[0].file_name, "Cached.fos");
     assert_eq!(app.saves.list.state_mut().offset(), 4);
     assert_eq!(app.conflicts.list.state_mut().offset(), 2);
@@ -347,7 +344,7 @@ fn install_success_accepts_session_and_downloads_without_resetting_other_panes()
 #[test]
 fn committed_install_residue_preserves_cached_state_and_reports_success() {
     let mut app = App::sample();
-    app.downloads.entries = vec![download_entry("Cached.zip", 1, 1, false)];
+    app.downloads.entries = vec![download_entry("Cached.zip", 1, 1)];
     app.conflicts.status = ConflictsStatus::Ready(ConflictSnapshot::from_entries(vec![conflict(
         "cached.dds",
         "Winner",
@@ -383,7 +380,7 @@ fn committed_install_residue_preserves_cached_state_and_reports_success() {
 #[test]
 fn failed_install_accepts_session_recovery_and_keeps_primary_failure() {
     let mut app = App::sample();
-    app.downloads.entries = vec![download_entry("Cached.zip", 1, 1, false)];
+    app.downloads.entries = vec![download_entry("Cached.zip", 1, 1)];
     app.conflicts.status = ConflictsStatus::Ready(ConflictSnapshot::from_entries(Vec::new()));
     let result = completion(
         &app,
@@ -647,7 +644,7 @@ fn focus_workspace_and_selection_changes_do_not_discard() {
     let result = completion(
         &app,
         Ok(OperationOutput::RefreshDownloads(vec![download_entry(
-            "Kept.zip", 1, 1, false,
+            "Kept.zip", 1, 1,
         )])),
     );
     app.focus = Focus::Workspace;
@@ -777,15 +774,15 @@ fn failed_saves_refresh_preserves_cache_and_selection() {
 fn latest_download_sort_and_selected_path_win_at_acceptance() {
     let mut app = App::sample();
     app.downloads.entries = vec![
-        download_entry("Alpha.zip", 1, 1, false),
-        download_entry("Beta.zip", 3, 2, false),
+        download_entry("Alpha.zip", 1, 1),
+        download_entry("Beta.zip", 3, 2),
     ];
     app.downloads.list.select(Some(1));
     let result = completion(
         &app,
         Ok(OperationOutput::RefreshDownloads(vec![
-            download_entry("Beta.zip", 3, 2, false),
-            download_entry("Alpha.zip", 1, 1, false),
+            download_entry("Beta.zip", 3, 2),
+            download_entry("Alpha.zip", 1, 1),
         ])),
     );
     app.settings.downloads_sort = DownloadsSort {
@@ -810,16 +807,16 @@ fn latest_download_sort_and_selected_path_win_at_acceptance() {
 fn missing_selected_path_clamps_the_prior_numeric_index() {
     let mut app = App::sample();
     app.downloads.entries = vec![
-        download_entry("A.zip", 1, 1, false),
-        download_entry("B.zip", 1, 1, false),
-        download_entry("Gone.zip", 1, 1, false),
+        download_entry("A.zip", 1, 1),
+        download_entry("B.zip", 1, 1),
+        download_entry("Gone.zip", 1, 1),
     ];
     app.downloads.list.select(Some(2));
     let result = completion(
         &app,
         Ok(OperationOutput::RefreshDownloads(vec![
-            download_entry("A.zip", 1, 1, false),
-            download_entry("B.zip", 1, 1, false),
+            download_entry("A.zip", 1, 1),
+            download_entry("B.zip", 1, 1),
         ])),
     );
 
@@ -831,7 +828,7 @@ fn missing_selected_path_clamps_the_prior_numeric_index() {
 #[test]
 fn failed_refresh_preserves_cached_downloads() {
     let mut app = App::sample();
-    app.downloads.entries = vec![download_entry("Cached.zip", 1, 1, false)];
+    app.downloads.entries = vec![download_entry("Cached.zip", 1, 1)];
     let result = completion(&app, Err(OperationFailure::new("test worker stopped")));
 
     app.apply_completion(OperationKind::RefreshDownloads, result);

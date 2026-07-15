@@ -29,7 +29,7 @@ fn completed_message(app: &App) -> (&str, bool) {
 }
 
 #[test]
-fn install_job_reloads_the_session_and_marks_the_download_installed() {
+fn install_job_reloads_the_session_and_keeps_the_download_listed() {
     let (_temp, mut app) = initialized_app();
     let archive = app.session.instance.downloads_dir().join("CoolMod.zip");
     write_zip(&archive, &[("Textures/a.dds", b"texture")]);
@@ -70,13 +70,13 @@ fn install_job_reloads_the_session_and_marks_the_download_installed() {
         .expect("read modlist"),
         ""
     );
-    let entry = app
-        .downloads
-        .entries
-        .iter()
-        .find(|entry| entry.name == "CoolMod.zip")
-        .expect("download remains listed");
-    assert!(entry.installed);
+    assert!(
+        app.downloads
+            .entries
+            .iter()
+            .any(|entry| entry.name == "CoolMod.zip"),
+        "download remains listed"
+    );
     assert_eq!(completed_message(&app), ("Installed CoolMod", true));
 }
 

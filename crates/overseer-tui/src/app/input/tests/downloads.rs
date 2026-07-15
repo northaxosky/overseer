@@ -70,29 +70,6 @@ fn enter_on_an_installable_download_opens_a_confirm_without_installing() {
 }
 
 #[test]
-fn enter_on_an_installed_download_just_notes_it() {
-    let (_tmp, scaffold) = temp_instance();
-    let instance = Instance::init(scaffold.root.clone(), scaffold.config.clone()).expect("init");
-    test_support::write(&instance.downloads_dir().join("Mod.zip"), "fake");
-    std::fs::create_dir_all(instance.mods_dir().join("Mod")).expect("seed installed mod");
-    let mut app = App::sample();
-    app.session.instance = instance;
-
-    app.handle_key(key(KeyCode::Char('3')));
-    app.finish_operation_after_terminal();
-    app.focus = Focus::Workspace;
-    app.handle_key(key(KeyCode::Enter));
-
-    assert!(app.modal.is_none(), "an installed row opens no confirm");
-    assert!(
-        app.message
-            .as_ref()
-            .is_some_and(|n| n.text.contains("Already installed")),
-        "the user is told it's already in"
-    );
-}
-
-#[test]
 fn worker_refuses_when_deployment_goes_live_after_confirmation() {
     let (_tmp, scaffold) = temp_instance();
     let instance = Instance::init(scaffold.root.clone(), scaffold.config.clone()).expect("init");
@@ -182,13 +159,13 @@ fn confirming_starts_the_install_worker_and_preserves_location() {
         matches!(app.conflicts.status, ConflictsStatus::Stale),
         "the conflict scan is invalidated"
     );
-    let row = app
-        .downloads
-        .entries
-        .iter()
-        .find(|e| e.name == "CoolMod.zip")
-        .expect("the archive is still listed");
-    assert!(row.installed, "the row now reads as installed");
+    assert!(
+        app.downloads
+            .entries
+            .iter()
+            .any(|entry| entry.name == "CoolMod.zip"),
+        "the archive is still listed"
+    );
     assert!(matches!(
         app.operation,
         OperationState::Completed(ref completed)

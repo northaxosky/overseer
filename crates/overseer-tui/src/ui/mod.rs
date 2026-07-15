@@ -370,14 +370,7 @@ fn render_downloads(app: &mut App, frame: &mut Frame, area: Rect) {
         .downloads
         .entries
         .iter()
-        .map(|e| {
-            // Installed archives are muted with a suffix, like inactive rows elsewhere
-            if e.installed {
-                ListItem::new(format!("{} (installed)", e.name)).style(theme::style(Role::Muted))
-            } else {
-                ListItem::new(e.name.clone())
-            }
-        })
+        .map(|e| ListItem::new(e.name.clone()))
         .collect();
     render_pane(
         frame,

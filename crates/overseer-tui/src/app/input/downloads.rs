@@ -16,20 +16,15 @@ impl App {
         self.downloads.entries.get(i)
     }
 
-    /// Act on Enter/Space in the downloads pane: note an already installed archive, else open confirm
+    /// Act on Enter/Space in the downloads pane: open the install confirmation
     pub(super) fn begin_install_selected(&mut self) {
         let Some(entry) = self.selected_download() else {
             return;
         };
 
         // Copy out what the confirm needs so we stop borrowing `self.downloads`
-        let installed = entry.installed;
         let name = entry.name.clone();
         let path = entry.path.clone();
-        if installed {
-            self.note("Already installed");
-            return;
-        }
         let stem = path.file_stem().unwrap_or(&name).to_owned();
         self.modal = Some(Modal::Confirm(Confirm {
             message: format!("Install {name}? Creates mods/{stem}."),

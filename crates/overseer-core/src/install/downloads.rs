@@ -14,8 +14,6 @@ pub struct DownloadEntry {
     pub name: String,
     /// Absolute path to the archive in `downloads/`
     pub path: Utf8PathBuf,
-    /// Whether `mods/<file stem>/` already exists; likely a prior install
-    pub installed: bool,
     /// Archive size in bytes, or 0 when filesystem metadata is unavailable
     pub size: u64,
     /// Archive modification time, or [`SystemTime::UNIX_EPOCH`] when unavailable
@@ -24,7 +22,6 @@ pub struct DownloadEntry {
 
 /// List the installable archives in `instance.downloads_dir()`, sorted by name
 pub fn list_downloads(instance: &Instance) -> Result<Vec<DownloadEntry>, InstallError> {
-    instance.ensure_mod_state_available()?;
     let dir = instance.downloads_dir();
     let Some(entries) = crate::fs::read_dir_opt(&dir)? else {
         return Ok(Vec::new());
@@ -56,14 +53,9 @@ pub fn list_downloads(instance: &Instance) -> Result<Vec<DownloadEntry>, Install
                 (0, SystemTime::UNIX_EPOCH)
             }
         };
-        // The default install name is the file stem, matching `install`/CLI
-        let installed = path
-            .file_stem()
-            .is_some_and(|stem| instance.mods_dir().join(stem).is_dir());
         downloads.push(DownloadEntry {
             name,
             path,
-            installed,
             size,
             modified,
         });

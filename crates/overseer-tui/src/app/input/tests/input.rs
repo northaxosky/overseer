@@ -250,8 +250,8 @@ fn o_cycles_downloads_sort_key_and_resets_to_top() {
         let mut app = App::sample();
         app.workspace = Workspace::Downloads;
         app.downloads.entries = vec![
-            download_entry("B.zip", 1, 10, false),
-            download_entry("A.zip", 1, 20, false),
+            download_entry("B.zip", 1, 10),
+            download_entry("A.zip", 1, 20),
         ];
         app.downloads.list.select(Some(1));
 

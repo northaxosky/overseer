@@ -208,7 +208,7 @@ fn synthetic_job_runs_through_operation_agnostic_worker() {
     let request = WorkerRequest::new(
         context.clone(),
         OutputJob {
-            entries: vec![download_entry("Mod.zip", 1, 2, false)],
+            entries: vec![download_entry("Mod.zip", 1, 2)],
         },
     );
     let (sender, receiver) = sync_channel(CHANNEL_CAPACITY);
@@ -311,7 +311,6 @@ fn completion_is_discarded_when_join_panics() {
                 "Ignored.zip",
                 1,
                 1,
-                false,
             )])),
         })))
         .expect("queue completion");
@@ -364,7 +363,6 @@ fn queued_completion_is_reduced_before_disconnect() {
                 "Applied.zip",
                 1,
                 1,
-                false,
             )])),
         })))
         .expect("queue completion");
@@ -469,7 +467,7 @@ fn all_workspace_digit_keys_remain_available_while_busy() {
     for (digit, expected) in cases {
         let mut app = App::sample();
         app.workspace = Workspace::Saves;
-        app.downloads.entries = vec![download_entry("Cached.zip", 1, 1, false)];
+        app.downloads.entries = vec![download_entry("Cached.zip", 1, 1)];
         let release = start_read_only_gated(&mut app);
 
         app.handle_key(key(KeyCode::Char(digit)));

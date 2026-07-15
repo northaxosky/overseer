@@ -340,14 +340,14 @@ fn cached_conflicts_remain_visible_during_rescan_and_after_failure() {
 }
 
 #[test]
-fn downloads_workspace_lists_archives_and_marks_installed() {
+fn downloads_workspace_lists_archives() {
     use crate::app::Workspace;
     use crate::test_support::download_entry;
     let mut app = App::sample();
     app.workspace = Workspace::Downloads;
     app.downloads.entries = vec![
-        download_entry("Alpha.zip", 0, 0, false),
-        download_entry("Beta.7z", 0, 0, true),
+        download_entry("Alpha.zip", 0, 0),
+        download_entry("Beta.7z", 0, 0),
     ];
     app.downloads.list.select(Some(0));
     let out = render(&mut app, 80, 24);
@@ -357,10 +357,6 @@ fn downloads_workspace_lists_archives_and_marks_installed() {
         "an installable archive is listed"
     );
     assert!(out.contains("Beta.7z"), "every archive is listed");
-    assert!(
-        out.contains("(installed)"),
-        "an installed archive is tagged"
-    );
 }
 
 #[test]
@@ -403,7 +399,7 @@ fn cached_downloads_remain_visible_during_refresh() {
     use crate::test_support::download_entry;
     let mut app = App::sample();
     app.workspace = Workspace::Downloads;
-    app.downloads.entries = vec![download_entry("Cached.zip", 1, 1, false)];
+    app.downloads.entries = vec![download_entry("Cached.zip", 1, 1)];
     app.downloads.list.select(Some(0));
     app.start_operation(RefreshDownloadsJob);
 

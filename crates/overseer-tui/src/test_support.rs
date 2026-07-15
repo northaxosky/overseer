@@ -93,16 +93,10 @@ pub(crate) fn save_info(name: &str, modified_secs: u64, meta: Option<SaveMeta>) 
 }
 
 /// A `DownloadEntry` at `downloads/{name}` whose mtime sits `modified_secs` past the epoch
-pub(crate) fn download_entry(
-    name: &str,
-    size: u64,
-    modified_secs: u64,
-    installed: bool,
-) -> DownloadEntry {
+pub(crate) fn download_entry(name: &str, size: u64, modified_secs: u64) -> DownloadEntry {
     DownloadEntry {
         name: name.to_owned(),
         path: Utf8PathBuf::from(format!("downloads/{name}")),
-        installed,
         size,
         modified: SystemTime::UNIX_EPOCH + Duration::from_secs(modified_secs),
     }

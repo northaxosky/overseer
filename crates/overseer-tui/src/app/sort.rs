@@ -40,7 +40,6 @@ pub(crate) fn sort_downloads(entries: &mut [DownloadEntry], sort: DownloadsSort)
             DownloadsSortKey::Name => apply_dir(cmp_download_name(a, b), sort.dir),
             DownloadsSortKey::Date => apply_dir(a.modified.cmp(&b.modified), sort.dir),
             DownloadsSortKey::Size => apply_dir(a.size.cmp(&b.size), sort.dir),
-            DownloadsSortKey::Installed => apply_dir(a.installed.cmp(&b.installed), sort.dir),
         };
         base.then_with(|| cmp_download_name(a, b))
     });
@@ -209,11 +208,11 @@ fn default_saves_dir(key: SavesSortKey) -> SortDir {
     }
 }
 
-/// Newest/biggest first for date and size; names and install-state ascending
+/// Newest/biggest first for date and size; names ascending
 fn default_downloads_dir(key: DownloadsSortKey) -> SortDir {
     match key {
         DownloadsSortKey::Date | DownloadsSortKey::Size => SortDir::Desc,
-        DownloadsSortKey::Name | DownloadsSortKey::Installed => SortDir::Asc,
+        DownloadsSortKey::Name => SortDir::Asc,
     }
 }
 

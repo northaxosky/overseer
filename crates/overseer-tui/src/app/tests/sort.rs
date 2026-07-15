@@ -53,14 +53,13 @@ fn save_level_sort_keeps_unparsed_entries_last() {
 #[test]
 fn sorts_downloads_by_each_key() {
     let entries = vec![
-        download_entry("Zeta.zip", 5, 10, true),
-        download_entry("alpha.7z", 10, 20, false),
+        download_entry("Zeta.zip", 5, 10),
+        download_entry("alpha.7z", 10, 20),
     ];
     for key in [
         DownloadsSortKey::Name,
         DownloadsSortKey::Date,
         DownloadsSortKey::Size,
-        DownloadsSortKey::Installed,
     ] {
         let mut sorted = entries.clone();
         sort_downloads(
@@ -87,8 +86,8 @@ fn sort_labels_include_key_and_direction() {
 fn applying_a_sort_moves_the_cursor_to_the_top() {
     let mut app = App::sample();
     app.downloads.entries = vec![
-        download_entry("B.zip", 1, 10, false),
-        download_entry("A.zip", 1, 20, false),
+        download_entry("B.zip", 1, 10),
+        download_entry("A.zip", 1, 20),
     ];
     app.downloads.list.select(Some(1));
     *app.downloads.list.state_mut().offset_mut() = 4;
@@ -132,8 +131,8 @@ fn equal_keys_keep_a_name_ascending_tiebreak_regardless_of_direction() {
 fn download_date_ties_break_on_case_insensitive_name() {
     // Equal mtime forces the tiebreak; "apple" < "banana" only case-insensitively
     let mut entries = vec![
-        download_entry("Banana.zip", 0, 1, false),
-        download_entry("apple.zip", 0, 1, false),
+        download_entry("Banana.zip", 0, 1),
+        download_entry("apple.zip", 0, 1),
     ];
     sort_downloads(
         &mut entries,

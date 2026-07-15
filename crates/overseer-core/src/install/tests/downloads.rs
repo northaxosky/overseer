@@ -46,39 +46,6 @@ fn ignores_symlinked_archives_when_supported() {
 }
 
 #[test]
-fn installed_flag_tracks_the_mods_directory() {
-    let (_tmp, instance) = temp_instance();
-    touch(&instance.downloads_dir().join("CoolMod.zip"));
-    touch(&instance.downloads_dir().join("Other.zip"));
-    // A mods/<stem>/ folder marks the first archive as already installed
-    std::fs::create_dir_all(instance.mods_dir().join("CoolMod")).expect("mkdir");
-
-    let entries = list_downloads(&instance).expect("list");
-    let installed: Vec<(&str, bool)> = entries
-        .iter()
-        .map(|e| (e.name.as_str(), e.installed))
-        .collect();
-    assert_eq!(installed, [("CoolMod.zip", true), ("Other.zip", false)]);
-}
-
-#[test]
-fn pending_mod_state_blocks_installed_flag_derivation() {
-    let (_tmp, instance) = temp_instance();
-    touch(&instance.downloads_dir().join("CoolMod.zip"));
-    let pending = instance.pending_mod_operation_dir();
-    std::fs::create_dir_all(instance.state_dir()).expect("create state");
-    std::fs::write(&pending, "pending").expect("write residue");
-
-    let error = list_downloads(&instance).expect_err("pending state");
-
-    assert!(matches!(
-        error,
-        InstallError::Instance(crate::instance::InstanceError::PendingModOperation { path })
-            if path == pending
-    ));
-}
-
-#[test]
 fn entries_include_size_and_modified_time() {
     let (_tmp, instance) = temp_instance();
     let archive = instance.downloads_dir().join("Sized.zip");

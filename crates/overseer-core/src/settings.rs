@@ -73,7 +73,6 @@ pub enum DownloadsSortKey {
     Name,
     Date,
     Size,
-    Installed,
 }
 
 /// Persisted list sort preference
