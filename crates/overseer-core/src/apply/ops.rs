@@ -36,11 +36,8 @@ pub fn deploy_profile(
 
     let mut profile = Profile::load_existing(instance, profile_name)?;
     profile.reconcile(instance)?;
-    let mut sources = profile.deploy_sources(instance);
-
-    let overwrite = instance.overwrite_dir();
-    fs::ensure_dir(&overwrite)?;
-    sources.push(ModSource::overwrite(&overwrite));
+    fs::ensure_dir(&instance.overwrite_dir())?;
+    let sources = deployment_sources(instance, &profile);
 
     let plan = DeployPlan::from_rooted_mods(&instance.config.game_dir, &sources)?;
     let deployer = deployer_for(instance.config.deployer);
@@ -161,6 +158,16 @@ pub fn status(instance: &Instance) -> Result<Option<DeploymentStatus>, ApplyErro
         deployment,
         verified,
     }))
+}
+
+/// The ordered deploy sources for a profile: managed mods (low->high) plus the overwrite if present
+pub fn deployment_sources(instance: &Instance, profile: &Profile) -> Vec<ModSource> {
+    let mut sources = profile.deploy_sources(instance);
+    let overwrite = instance.overwrite_dir();
+    if overwrite.symlink_metadata().is_ok_and(|m| m.is_dir()) {
+        sources.push(ModSource::overwrite(overwrite));
+    }
+    sources
 }
 
 /// Rename an installed mod, refusing while a committed deployment is live

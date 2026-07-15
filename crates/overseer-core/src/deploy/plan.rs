@@ -14,6 +14,16 @@ pub enum ProviderOrigin {
     Overwrite,
 }
 
+impl ProviderOrigin {
+    /// A display label, `Overwrite` for the global overwrite
+    pub fn display_name(&self) -> &str {
+        match self {
+            ProviderOrigin::Mod { name } => name,
+            ProviderOrigin::Overwrite => "Overwrite",
+        }
+    }
+}
+
 /// A deploy source on disk: its typed origin + staging directory
 #[derive(Debug, Clone)]
 pub struct ModSource {
@@ -40,10 +50,7 @@ impl ModSource {
 
     /// A display label for this source, `Overwrite` for the global overwrite
     pub fn display_name(&self) -> &str {
-        match &self.origin {
-            ProviderOrigin::Mod { name } => name,
-            ProviderOrigin::Overwrite => "Overwrite",
-        }
+        self.origin.display_name()
     }
 
     /// The managed mod name, or `None` for the overwrite
@@ -101,17 +108,29 @@ impl DeployPlan {
         })
     }
 
-    /// Build a plan rooted at the game directory, honouring the `Root/` convention
+    /// Build a plan rooted at the game directory, honoring the `Root/` convention
     pub fn from_rooted_mods(
         game_dir: impl Into<Utf8PathBuf>,
         mods: &[ModSource],
     ) -> Result<Self, DeployError> {
-        let mut plan = Self::from_mods(game_dir, mods)?;
-        for file in &mut plan.files {
-            let dest = map_root_relative(&file.winner, &file.relative)?;
-            file.relative = dest;
-        }
-        Ok(plan)
+        let files = enumerate_destinations(mods)?
+            .into_values()
+            .map(|entry| {
+                let winner = entry
+                    .providers
+                    .last()
+                    .expect("a destination always has at least one provider");
+                PlannedFile {
+                    relative: entry.destination,
+                    source: winner.source.clone(),
+                    winner: winner.origin.display_name().to_owned(),
+                }
+            })
+            .collect();
+        Ok(Self {
+            target_root: game_dir.into(),
+            files,
+        })
     }
 
     pub fn files(&self) -> &[PlannedFile] {
@@ -124,6 +143,60 @@ impl DeployPlan {
 
     pub fn is_empty(&self) -> bool {
         self.files.is_empty()
+    }
+}
+
+/// One mod's contribution t oa destination
+#[derive(Debug, Clone)]
+pub struct Provider {
+    pub origin: ProviderOrigin,
+    pub source: Utf8PathBuf,
+}
+
+/// A final destination and every mod that provides it, low->high (winner last)
+#[derive(Debug, Clone)]
+pub struct DestinationEntry {
+    pub destination: Utf8PathBuf,
+    pub providers: Vec<Provider>,
+}
+
+/// Map each final game-relative destination to its ordered providers; shared by deploy + inspect
+pub(crate) fn enumerate_destinations(
+    mods: &[ModSource],
+) -> Result<BTreeMap<String, DestinationEntry>, DeployError> {
+    let mut map: BTreeMap<String, DestinationEntry> = BTreeMap::new();
+    for m in mods {
+        walk_mod_files(m, |relative, abs| {
+            let destination = map_root_relative(m.display_name(), &relative)?;
+            let entry = map
+                .entry(logical_path_key(&destination))
+                .or_insert_with(|| DestinationEntry {
+                    destination: destination.clone(),
+                    providers: Vec::new(),
+                });
+            entry.destination = destination;
+            // one provider per origin: drop any earlier occurrence, keep the highest-priority one
+            entry
+                .providers
+                .retain(|p| !same_origin(&p.origin, &m.origin));
+            entry.providers.push(Provider {
+                origin: m.origin.clone(),
+                source: abs,
+            });
+            Ok(())
+        })?;
+    }
+    Ok(map)
+}
+
+/// Whether two origins are the same provider (mod names compared case-insensitively)
+fn same_origin(a: &ProviderOrigin, b: &ProviderOrigin) -> bool {
+    match (a, b) {
+        (ProviderOrigin::Overwrite, ProviderOrigin::Overwrite) => true,
+        (ProviderOrigin::Mod { name: x }, ProviderOrigin::Mod { name: y }) => {
+            x.eq_ignore_ascii_case(y)
+        }
+        _ => false,
     }
 }
 
