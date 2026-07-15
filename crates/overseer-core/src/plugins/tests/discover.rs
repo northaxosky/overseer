@@ -137,3 +137,22 @@ fn empty_profile_discovers_nothing() {
     let found = discover_plugins(&instance, &profile(vec![])).expect("discover");
     assert!(found.is_empty());
 }
+
+#[test]
+fn lenient_discovery_collects_unreadable_plugins_and_keeps_the_rest() {
+    let (_t, instance) = temp_instance();
+    let mod_dir = instance.mods_dir().join("ModA");
+    write_plugin(&mod_dir, "Good.esp", 0, &[]);
+    std::fs::write(mod_dir.join("Corrupt.esp"), b"not a valid plugin").unwrap();
+    let profile = profile(vec![entry("ModA", true)]);
+
+    let (readable, unreadable) =
+        discover_plugins_lenient(&instance, &profile).expect("lenient discovery");
+    assert_eq!(names(&readable), ["Good.esp"]);
+    assert_eq!(unreadable.len(), 1);
+    assert_eq!(unreadable[0].name, "Corrupt.esp");
+    assert!(!unreadable[0].reason.is_empty());
+
+    // Strict discovery still fails hard on the same corrupt plugin
+    assert!(discover_plugins(&instance, &profile).is_err());
+}

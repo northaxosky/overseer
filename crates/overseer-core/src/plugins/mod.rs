@@ -9,7 +9,7 @@ mod metadata;
 mod separator;
 
 pub use carrier::carrier_for;
-pub use discover::discover_plugins;
+pub use discover::{UnreadablePlugin, discover_plugins, discover_plugins_lenient};
 pub use error::PluginError;
 pub(crate) use gamestate::restore_plugins_txt;
 pub use gamestate::{

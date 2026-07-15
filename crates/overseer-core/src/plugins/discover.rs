@@ -4,18 +4,57 @@ use super::error::{PluginError, io_err};
 use super::metadata::{PluginMeta, is_plugin_file, read_metadata};
 use crate::error::non_utf8;
 use crate::instance::{Instance, Profile};
-use camino::Utf8Path;
+use camino::{Utf8Path, Utf8PathBuf};
 use walkdir::WalkDir;
+
+/// A plugin file discovery could not parse; carries why for diagnostics
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnreadablePlugin {
+    /// Plugin's filename
+    pub name: String,
+    /// Why the plugin could not be read or parsed
+    pub reason: String,
+}
 
 /// Discover the plugins a profile would deploy
 pub fn discover_plugins(
     instance: &Instance,
     profile: &Profile,
 ) -> Result<Vec<PluginMeta>, PluginError> {
-    let mut seen: Vec<String> = Vec::new();
-    let mut plugins: Vec<PluginMeta> = Vec::new();
     let game_id = instance.config.game.plugin_id();
+    discover_plugin_paths(instance, profile)?
+        .into_iter()
+        .map(|(name, path)| read_metadata(game_id, &name, &path))
+        .collect()
+}
 
+/// [`discover_plugins`] but keeps going past unparseable plugins, collecting them separately
+pub fn discover_plugins_lenient(
+    instance: &Instance,
+    profile: &Profile,
+) -> Result<(Vec<PluginMeta>, Vec<UnreadablePlugin>), PluginError> {
+    let game_id = instance.config.game.plugin_id();
+    let mut readable = Vec::new();
+    let mut unreadable = Vec::new();
+    for (name, path) in discover_plugin_paths(instance, profile)? {
+        match read_metadata(game_id, &name, &path) {
+            Ok(meta) => readable.push(meta),
+            Err(error) => unreadable.push(UnreadablePlugin {
+                name,
+                reason: error.to_string(),
+            }),
+        }
+    }
+    Ok((readable, unreadable))
+}
+
+/// The deduped `(name, path)` plugin files an enabled mod profile provides, in priority order
+fn discover_plugin_paths(
+    instance: &Instance,
+    profile: &Profile,
+) -> Result<Vec<(String, Utf8PathBuf)>, PluginError> {
+    let mut seen: Vec<String> = Vec::new();
+    let mut paths = Vec::new();
     for entry in &profile.mods {
         if !entry.enabled {
             continue;
@@ -26,20 +65,18 @@ pub fn discover_plugins(
                 .file_name()
                 .expect("Walked plugin file always has a name")
                 .to_owned();
-
             if seen.iter().any(|s| s.eq_ignore_ascii_case(&name)) {
                 continue;
             }
-            plugins.push(read_metadata(game_id, &name, &found)?);
-            seen.push(name);
+            seen.push(name.clone());
+            paths.push((name, found));
         }
     }
-
-    Ok(plugins)
+    Ok(paths)
 }
 
 /// Plugin files (`.esp`/`.esm`/`.esl`) directly under a directory; a missing directory yields an empty list
-fn find_plugin_files(dir: &Utf8Path) -> Result<Vec<camino::Utf8PathBuf>, PluginError> {
+fn find_plugin_files(dir: &Utf8Path) -> Result<Vec<Utf8PathBuf>, PluginError> {
     let mut found = Vec::new();
     for entry in WalkDir::new(dir).min_depth(1).max_depth(1) {
         let entry = match entry {
