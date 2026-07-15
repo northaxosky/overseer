@@ -2,7 +2,7 @@
 
 use camino::Utf8PathBuf;
 use overseer_core::apply::{self, DeploymentStatus, ReversalOutcome};
-use overseer_core::deploy::FileConflict;
+use overseer_core::deploy::ConflictSnapshot;
 use overseer_core::install::DownloadEntry;
 use overseer_core::instance::Instance;
 use overseer_core::saves::SaveInfo;
@@ -141,7 +141,7 @@ pub(crate) enum OperationOutput {
     RefreshDownloads(Vec<DownloadEntry>),
     RefreshSaves(Vec<SaveInfo>),
     Doctor(Report),
-    ScanConflicts(Vec<FileConflict>),
+    ScanConflicts(ConflictSnapshot),
     Purge {
         status: Option<DeploymentStatus>,
         outcome: ReversalOutcome,

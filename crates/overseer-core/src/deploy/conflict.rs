@@ -62,6 +62,11 @@ impl ConflictSnapshot {
         &self.conflicts
     }
 
+    /// Wrap ready-made entries as a snapshot, for adapters and tests
+    pub fn from_entries(conflicts: Vec<DestinationEntry>) -> Self {
+        Self { conflicts }
+    }
+
     pub fn is_empty(&self) -> bool {
         self.conflicts().is_empty()
     }

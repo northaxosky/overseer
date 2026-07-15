@@ -21,7 +21,7 @@ pub(crate) use sort::{downloads_sort_label, saves_sort_label};
 use anyhow::Result;
 use camino::Utf8Path;
 use overseer_core::apply::{self, DeploymentStatus};
-use overseer_core::deploy::FileConflict;
+use overseer_core::deploy::ConflictSnapshot;
 use overseer_core::install::DownloadEntry;
 use overseer_core::instance::{Instance, Profile};
 use overseer_core::plugins::{PluginLoadOrder, PluginMeta, PluginSeparators, discover_plugins};
@@ -114,7 +114,7 @@ impl Workspace {
 pub(crate) enum ConflictsStatus {
     #[default]
     Stale,
-    Ready(Vec<FileConflict>),
+    Ready(ConflictSnapshot),
 }
 
 /// The conflicts workspace's own state (grouped so `App` doesn't get loose fields)

@@ -38,6 +38,11 @@ fn scan_job_reloads_the_profile_and_preserves_provider_priority() {
         panic!("conflict output reaches the reducer: {:?}", app.operation)
     };
     assert_eq!(found.len(), 1);
-    assert_eq!(found[0].providers, ["Loser", "Winner"]);
+    let providers: Vec<&str> = found.conflicts()[0]
+        .providers
+        .iter()
+        .map(|p| p.origin.display_name())
+        .collect();
+    assert_eq!(providers, ["Loser", "Winner"]);
     assert!(matches!(app.operation, OperationState::Idle));
 }

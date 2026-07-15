@@ -3,7 +3,7 @@
 use super::*;
 
 use overseer_core::apply::DeploymentStatus;
-use overseer_core::deploy::FileConflict;
+use overseer_core::deploy::ConflictSnapshot;
 use overseer_core::install::DownloadEntry;
 use overseer_core::saves::SaveInfo;
 use overseer_diagnostics::Report;
@@ -32,7 +32,7 @@ fn runner_boundary_types_are_send() {
     assert_send::<Session>();
     assert_send::<DeploymentStatus>();
     assert_send::<Report>();
-    assert_send::<Vec<FileConflict>>();
+    assert_send::<ConflictSnapshot>();
     assert_send::<Vec<SaveInfo>>();
     assert_send::<Vec<DownloadEntry>>();
     assert_send::<OperationOutput>();
@@ -76,7 +76,7 @@ fn typed_outputs_map_to_their_operation_kinds() {
             OperationKind::Purge,
         ),
         (
-            OperationOutput::ScanConflicts(Vec::new()),
+            OperationOutput::ScanConflicts(ConflictSnapshot::from_entries(Vec::new())),
             OperationKind::ScanConflicts,
         ),
         (

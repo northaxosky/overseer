@@ -62,7 +62,9 @@ fn successful_mod_toggle_round_trips_and_refreshes_plugins() {
     use crate::app::ConflictsStatus;
 
     let (_tmp, mut app) = persisted_toggle_app();
-    app.conflicts.status = ConflictsStatus::Ready(Vec::new());
+    app.conflicts.status = ConflictsStatus::Ready(
+        overseer_core::deploy::ConflictSnapshot::from_entries(Vec::new()),
+    );
     app.plugins.select(Some(99));
 
     app.toggle_selected();
@@ -112,7 +114,9 @@ fn failed_mod_toggle_leaves_live_state_unchanged() {
     use crate::app::ConflictsStatus;
 
     let (_tmp, mut app) = persisted_toggle_app();
-    app.conflicts.status = ConflictsStatus::Ready(Vec::new());
+    app.conflicts.status = ConflictsStatus::Ready(
+        overseer_core::deploy::ConflictSnapshot::from_entries(Vec::new()),
+    );
     let mods_before = app.session.profile.mods.clone();
     let local_saves_before = app.session.profile.local_saves;
     let order_before = app.session.order.plugins.clone();
@@ -159,7 +163,9 @@ fn failed_plugin_refresh_after_mod_save_reports_partial_success() {
         .join("OffMod")
         .join("Off.esp");
     std::fs::write(&corrupt, b"not a plugin").expect("corrupt plugin");
-    app.conflicts.status = ConflictsStatus::Ready(Vec::new());
+    app.conflicts.status = ConflictsStatus::Ready(
+        overseer_core::deploy::ConflictSnapshot::from_entries(Vec::new()),
+    );
     let order_before = app.session.order.plugins.clone();
     let discovered_before = app.session.discovered.clone();
     let plugins_selection_before = app.plugins.index();
@@ -405,7 +411,9 @@ fn successful_reorder_round_trips_and_marks_conflicts_stale() {
     use crate::app::ConflictsStatus;
 
     let (_tmp, mut app) = persisted_reorder_app();
-    app.conflicts.status = ConflictsStatus::Ready(Vec::new());
+    app.conflicts.status = ConflictsStatus::Ready(
+        overseer_core::deploy::ConflictSnapshot::from_entries(Vec::new()),
+    );
     let order_before = app.session.order.plugins.clone();
     let discovered_before = app.session.discovered.clone();
 
@@ -430,7 +438,9 @@ fn failed_reorder_leaves_profile_cursor_conflicts_and_plugins_unchanged() {
     use crate::app::ConflictsStatus;
 
     let (_tmp, mut app) = persisted_reorder_app();
-    app.conflicts.status = ConflictsStatus::Ready(Vec::new());
+    app.conflicts.status = ConflictsStatus::Ready(
+        overseer_core::deploy::ConflictSnapshot::from_entries(Vec::new()),
+    );
     let mods_before = app.session.profile.mods.clone();
     let local_saves_before = app.session.profile.local_saves;
     let cursor_before = app.mods.index();

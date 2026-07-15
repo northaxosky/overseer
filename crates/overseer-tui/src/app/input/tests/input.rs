@@ -112,10 +112,18 @@ fn brackets_cycle_through_the_workspaces() {
 
 #[test]
 fn jk_route_to_the_active_workspace_list() {
-    use overseer_core::deploy::FileConflict;
-    let conflict = |name: &str| FileConflict {
-        relative: camino::Utf8PathBuf::from(name),
-        providers: vec!["Low".to_owned(), "High".to_owned()],
+    use overseer_core::deploy::{ConflictSnapshot, DestinationEntry, Provider, ProviderOrigin};
+    let conflict = |name: &str| DestinationEntry {
+        destination: camino::Utf8PathBuf::from(name),
+        providers: ["Low", "High"]
+            .into_iter()
+            .map(|provider| Provider {
+                origin: ProviderOrigin::Mod {
+                    name: provider.to_owned(),
+                },
+                source: camino::Utf8PathBuf::from(format!("mods/{provider}")),
+            })
+            .collect(),
     };
 
     let mut app = App::sample();
@@ -128,7 +136,10 @@ fn jk_route_to_the_active_workspace_list() {
 
     // Conflicts workspace: j/k move the conflicts list, leaving plugins put
     app.workspace = Workspace::Conflicts;
-    app.conflicts.status = ConflictsStatus::Ready(vec![conflict("a.dds"), conflict("b.dds")]);
+    app.conflicts.status = ConflictsStatus::Ready(ConflictSnapshot::from_entries(vec![
+        conflict("a.dds"),
+        conflict("b.dds"),
+    ]));
     app.conflicts.list.select(Some(0));
     app.move_main_selection(1);
     assert_eq!(app.conflicts.list.index(), Some(1), "conflicts list moves");
@@ -324,10 +335,18 @@ fn switching_to_conflicts_does_not_scan() {
 
 #[test]
 fn conflicts_selection_length_tracks_the_scan_status() {
-    use overseer_core::deploy::FileConflict;
-    let conflict = |name: &str| FileConflict {
-        relative: camino::Utf8PathBuf::from(name),
-        providers: vec!["A".to_owned(), "B".to_owned()],
+    use overseer_core::deploy::{ConflictSnapshot, DestinationEntry, Provider, ProviderOrigin};
+    let conflict = |name: &str| DestinationEntry {
+        destination: camino::Utf8PathBuf::from(name),
+        providers: ["A", "B"]
+            .into_iter()
+            .map(|provider| Provider {
+                origin: ProviderOrigin::Mod {
+                    name: provider.to_owned(),
+                },
+                source: camino::Utf8PathBuf::from(format!("mods/{provider}")),
+            })
+            .collect(),
     };
     let mut app = App::sample();
     app.focus = Focus::Workspace;
@@ -339,7 +358,10 @@ fn conflicts_selection_length_tracks_the_scan_status() {
     assert_eq!(app.conflicts.list.index(), None, "a stale scan has no rows");
 
     // Ready(n) ⇒ n rows: movement walks them
-    app.conflicts.status = ConflictsStatus::Ready(vec![conflict("a.dds"), conflict("b.dds")]);
+    app.conflicts.status = ConflictsStatus::Ready(ConflictSnapshot::from_entries(vec![
+        conflict("a.dds"),
+        conflict("b.dds"),
+    ]));
     app.conflicts.list.select(Some(0));
     app.move_main_selection(1);
     assert_eq!(
@@ -357,7 +379,9 @@ fn after_session_changed_resets_selection_and_marks_conflicts_stale() {
     *app.conflicts.list.state_mut().offset_mut() = 2;
     *app.downloads.list.state_mut().offset_mut() = 3;
     *app.saves.list.state_mut().offset_mut() = 4;
-    app.conflicts.status = ConflictsStatus::Ready(Vec::new());
+    app.conflicts.status = ConflictsStatus::Ready(
+        overseer_core::deploy::ConflictSnapshot::from_entries(Vec::new()),
+    );
     app.workspace = Workspace::Plugins;
 
     app.after_session_changed();

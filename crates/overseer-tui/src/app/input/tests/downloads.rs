@@ -137,7 +137,9 @@ fn confirming_starts_the_install_worker_and_preserves_location() {
     let mut app = App::sample();
     app.session = Session::load(&instance.root, Some("Default")).expect("session");
     // A prior ready scan we expect the install to invalidate
-    app.conflicts.status = ConflictsStatus::Ready(Vec::new());
+    app.conflicts.status = ConflictsStatus::Ready(
+        overseer_core::deploy::ConflictSnapshot::from_entries(Vec::new()),
+    );
 
     app.handle_key(key(KeyCode::Char('3')));
     app.finish_operation_after_terminal();

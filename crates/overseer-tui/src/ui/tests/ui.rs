@@ -179,10 +179,18 @@ fn empty_conflicts_show_scanning_while_the_worker_runs() {
     app.finish_operation_after_terminal();
 }
 
-fn conflict(relative: &str, providers: &[&str]) -> overseer_core::deploy::FileConflict {
-    overseer_core::deploy::FileConflict {
-        relative: camino::Utf8PathBuf::from(relative),
-        providers: providers.iter().map(|p| (*p).to_owned()).collect(),
+fn conflict(relative: &str, providers: &[&str]) -> overseer_core::deploy::DestinationEntry {
+    overseer_core::deploy::DestinationEntry {
+        destination: camino::Utf8PathBuf::from(relative),
+        providers: providers
+            .iter()
+            .map(|name| overseer_core::deploy::Provider {
+                origin: overseer_core::deploy::ProviderOrigin::Mod {
+                    name: (*name).to_owned(),
+                },
+                source: camino::Utf8PathBuf::from(format!("mods/{name}/{relative}")),
+            })
+            .collect(),
     }
 }
 
@@ -192,7 +200,9 @@ fn conflicts_workspace_ready_shows_list_row_and_detail() {
     let mut app = App::sample();
     app.workspace = Workspace::Conflicts;
     app.conflicts.status =
-        ConflictsStatus::Ready(vec![conflict("Textures/shared.dds", &["Low", "High"])]);
+        ConflictsStatus::Ready(overseer_core::deploy::ConflictSnapshot::from_entries(vec![
+            conflict("Textures/shared.dds", &["Low", "High"]),
+        ]));
     let out = render(&mut app, 80, 24);
     assert!(
         out.contains("Textures/shared.dds"),
@@ -216,10 +226,13 @@ fn conflicts_workspace_detail_lists_losers_high_to_low() {
     use crate::app::{ConflictsStatus, Workspace};
     let mut app = App::sample();
     app.workspace = Workspace::Conflicts;
-    app.conflicts.status = ConflictsStatus::Ready(vec![conflict(
-        "Meshes/shared.nif",
-        &["BaseLayer", "MiddleLayer", "TopLayer"],
-    )]);
+    app.conflicts.status =
+        ConflictsStatus::Ready(overseer_core::deploy::ConflictSnapshot::from_entries(vec![
+            conflict(
+                "Meshes/shared.nif",
+                &["BaseLayer", "MiddleLayer", "TopLayer"],
+            ),
+        ]));
     app.conflicts.list.select(Some(0));
     let out = render(&mut app, 80, 24);
     let middle = out.find("MiddleLayer").expect("nearest loser");
@@ -232,10 +245,11 @@ fn conflicts_workspace_detail_follows_the_selection() {
     use crate::app::{ConflictsStatus, Workspace};
     let mut app = App::sample();
     app.workspace = Workspace::Conflicts;
-    app.conflicts.status = ConflictsStatus::Ready(vec![
-        conflict("a.dds", &["Lo", "AlphaWinner"]),
-        conflict("b.dds", &["Lo", "BetaWinner"]),
-    ]);
+    app.conflicts.status =
+        ConflictsStatus::Ready(overseer_core::deploy::ConflictSnapshot::from_entries(vec![
+            conflict("a.dds", &["Lo", "AlphaWinner"]),
+            conflict("b.dds", &["Lo", "BetaWinner"]),
+        ]));
     app.conflicts.list.select(Some(1));
     let out = render(&mut app, 80, 24);
     assert!(
@@ -253,10 +267,13 @@ fn conflicts_workspace_detail_wraps_a_narrow_path() {
     use crate::app::{ConflictsStatus, Workspace};
     let mut app = App::sample();
     app.workspace = Workspace::Conflicts;
-    app.conflicts.status = ConflictsStatus::Ready(vec![conflict(
-        "Textures/VeryLongConflictPathWithUniqueWrapTail.dds",
-        &["Low", "High"],
-    )]);
+    app.conflicts.status =
+        ConflictsStatus::Ready(overseer_core::deploy::ConflictSnapshot::from_entries(vec![
+            conflict(
+                "Textures/VeryLongConflictPathWithUniqueWrapTail.dds",
+                &["Low", "High"],
+            ),
+        ]));
     let out = render(&mut app, 50, 24);
     assert!(
         out.contains("niqueWrapTail.dds"),
@@ -269,7 +286,9 @@ fn conflicts_workspace_empty_state_stays_a_message() {
     use crate::app::{ConflictsStatus, Workspace};
     let mut app = App::sample();
     app.workspace = Workspace::Conflicts;
-    app.conflicts.status = ConflictsStatus::Ready(Vec::new());
+    app.conflicts.status = ConflictsStatus::Ready(
+        overseer_core::deploy::ConflictSnapshot::from_entries(Vec::new()),
+    );
     let out = render(&mut app, 80, 24);
     assert!(
         out.contains("No conflicts detected"),
@@ -287,7 +306,9 @@ fn cached_conflicts_remain_visible_during_rescan_and_after_failure() {
     let mut app = App::sample();
     app.workspace = Workspace::Conflicts;
     app.conflicts.status =
-        ConflictsStatus::Ready(vec![conflict("Textures/cached.dds", &["Low", "High"])]);
+        ConflictsStatus::Ready(overseer_core::deploy::ConflictSnapshot::from_entries(vec![
+            conflict("Textures/cached.dds", &["Low", "High"]),
+        ]));
     app.conflicts.list.select(Some(0));
     app.start_operation(ScanConflictsJob);
 

@@ -4,7 +4,9 @@ use super::*;
 
 use camino::Utf8PathBuf;
 use overseer_core::apply::{self, DeploymentStatus};
-use overseer_core::deploy::{FileConflict, NullSink};
+use overseer_core::deploy::{
+    ConflictSnapshot, DestinationEntry, NullSink, Provider, ProviderOrigin,
+};
 use overseer_core::instance::{Instance, ModKind, ModListEntry};
 use overseer_core::settings::{DownloadsSort, DownloadsSortKey, SavesSort, SavesSortKey, SortDir};
 use overseer_core::test_support::{install_mod, save_profile, temp_instance};
@@ -21,10 +23,23 @@ fn completion(app: &App, outcome: Result<OperationOutput, OperationFailure>) -> 
     }
 }
 
-fn conflict(relative: &str, winner: &str) -> FileConflict {
-    FileConflict {
-        relative: Utf8PathBuf::from(relative),
-        providers: vec!["Loser".to_owned(), winner.to_owned()],
+fn conflict(relative: &str, winner: &str) -> DestinationEntry {
+    DestinationEntry {
+        destination: Utf8PathBuf::from(relative),
+        providers: vec![
+            Provider {
+                origin: ProviderOrigin::Mod {
+                    name: "Loser".to_owned(),
+                },
+                source: Utf8PathBuf::from("mods/Loser"),
+            },
+            Provider {
+                origin: ProviderOrigin::Mod {
+                    name: winner.to_owned(),
+                },
+                source: Utf8PathBuf::from(format!("mods/{winner}")),
+            },
+        ],
     }
 }
 
@@ -65,7 +80,10 @@ fn seed_ephemeral_view_state(app: &mut App) {
     app.plugins.select(Some(1));
     app.focus = Focus::Workspace;
     app.workspace = Workspace::Saves;
-    app.conflicts.status = ConflictsStatus::Ready(vec![conflict("cached.dds", "Winner")]);
+    app.conflicts.status = ConflictsStatus::Ready(ConflictSnapshot::from_entries(vec![conflict(
+        "cached.dds",
+        "Winner",
+    )]));
     app.downloads.entries = vec![download_entry("Cached.zip", 1, 1, false)];
     app.saves.entries = vec![save_info("Cached.fos", 1, None)];
 }
@@ -89,7 +107,8 @@ fn assert_ephemeral_view_state(app: &App) {
     );
     assert!(matches!(
         app.conflicts.status,
-        ConflictsStatus::Ready(ref found) if found[0].relative == "cached.dds"
+        ConflictsStatus::Ready(ref found)
+            if found.conflicts()[0].destination == "cached.dds"
     ));
     assert_eq!(app.downloads.entries[0].name, "Cached.zip");
     assert_eq!(app.saves.entries[0].file_name, "Cached.fos");
@@ -282,7 +301,10 @@ fn install_success_accepts_session_and_downloads_without_resetting_other_panes()
     app.plugins.select(Some(1));
     app.focus = Focus::Workspace;
     app.workspace = Workspace::Saves;
-    app.conflicts.status = ConflictsStatus::Ready(vec![conflict("cached.dds", "Winner")]);
+    app.conflicts.status = ConflictsStatus::Ready(ConflictSnapshot::from_entries(vec![conflict(
+        "cached.dds",
+        "Winner",
+    )]));
     *app.conflicts.list.state_mut().offset_mut() = 2;
     app.downloads.entries = vec![download_entry("Old.zip", 1, 1, false)];
     app.saves.entries = vec![save_info("Cached.fos", 1, None)];
@@ -326,7 +348,10 @@ fn install_success_accepts_session_and_downloads_without_resetting_other_panes()
 fn committed_install_residue_preserves_cached_state_and_reports_success() {
     let mut app = App::sample();
     app.downloads.entries = vec![download_entry("Cached.zip", 1, 1, false)];
-    app.conflicts.status = ConflictsStatus::Ready(vec![conflict("cached.dds", "Winner")]);
+    app.conflicts.status = ConflictsStatus::Ready(ConflictSnapshot::from_entries(vec![conflict(
+        "cached.dds",
+        "Winner",
+    )]));
     let profile_before = app.session.profile.mods.clone();
     let downloads_before = app.downloads.entries.clone();
     let pending = Utf8PathBuf::from(r"state\pending-mod-operation");
@@ -359,7 +384,7 @@ fn committed_install_residue_preserves_cached_state_and_reports_success() {
 fn failed_install_accepts_session_recovery_and_keeps_primary_failure() {
     let mut app = App::sample();
     app.downloads.entries = vec![download_entry("Cached.zip", 1, 1, false)];
-    app.conflicts.status = ConflictsStatus::Ready(Vec::new());
+    app.conflicts.status = ConflictsStatus::Ready(ConflictSnapshot::from_entries(Vec::new()));
     let result = completion(
         &app,
         Err(OperationFailure {
@@ -432,13 +457,17 @@ fn failed_install_keeps_primary_and_secondary_session_errors() {
 #[test]
 fn successful_conflict_result_replaces_cache_and_selects_the_first_row() {
     let mut app = App::sample();
-    app.conflicts.status = ConflictsStatus::Ready(vec![conflict("old.dds", "Old")]);
+    app.conflicts.status = ConflictsStatus::Ready(ConflictSnapshot::from_entries(vec![conflict(
+        "old.dds", "Old",
+    )]));
     let result = completion(
         &app,
-        Ok(OperationOutput::ScanConflicts(vec![
-            conflict("a.dds", "Alpha"),
-            conflict("b.dds", "Beta"),
-        ])),
+        Ok(OperationOutput::ScanConflicts(
+            ConflictSnapshot::from_entries(vec![
+                conflict("a.dds", "Alpha"),
+                conflict("b.dds", "Beta"),
+            ]),
+        )),
     );
 
     app.apply_completion(OperationKind::ScanConflicts, result);
@@ -448,8 +477,9 @@ fn successful_conflict_result_replaces_cache_and_selects_the_first_row() {
     };
     assert_eq!(
         found
+            .conflicts()
             .iter()
-            .map(|entry| entry.relative.as_str())
+            .map(|entry| entry.destination.as_str())
             .collect::<Vec<_>>(),
         ["a.dds", "b.dds"]
     );
@@ -460,8 +490,10 @@ fn successful_conflict_result_replaces_cache_and_selects_the_first_row() {
 #[test]
 fn failed_conflict_scan_preserves_cached_results_and_selection() {
     let mut app = App::sample();
-    app.conflicts.status =
-        ConflictsStatus::Ready(vec![conflict("a.dds", "Alpha"), conflict("b.dds", "Beta")]);
+    app.conflicts.status = ConflictsStatus::Ready(ConflictSnapshot::from_entries(vec![
+        conflict("a.dds", "Alpha"),
+        conflict("b.dds", "Beta"),
+    ]));
     app.conflicts.list.select(Some(1));
     let result = completion(&app, Err(OperationFailure::new("scan stopped")));
 
@@ -470,7 +502,7 @@ fn failed_conflict_scan_preserves_cached_results_and_selection() {
     let ConflictsStatus::Ready(found) = &app.conflicts.status else {
         panic!("cached conflicts remain ready")
     };
-    assert_eq!(found[1].relative.as_str(), "b.dds");
+    assert_eq!(found.conflicts()[1].destination.as_str(), "b.dds");
     assert_eq!(app.conflicts.list.index(), Some(1));
     assert!(matches!(
         app.operation,
@@ -487,10 +519,9 @@ fn profile_global_conflicts_accept_after_selection_and_workspace_changes() {
     let mut app = App::sample();
     let result = completion(
         &app,
-        Ok(OperationOutput::ScanConflicts(vec![conflict(
-            "shared.dds",
-            "Winner",
-        )])),
+        Ok(OperationOutput::ScanConflicts(
+            ConflictSnapshot::from_entries(vec![conflict("shared.dds", "Winner")]),
+        )),
     );
     app.mods.select(Some(1));
     app.focus = Focus::Workspace;
@@ -500,7 +531,8 @@ fn profile_global_conflicts_accept_after_selection_and_workspace_changes() {
 
     assert!(matches!(
         app.conflicts.status,
-        ConflictsStatus::Ready(ref found) if found[0].relative.as_str() == "shared.dds"
+        ConflictsStatus::Ready(ref found)
+            if found.conflicts()[0].destination.as_str() == "shared.dds"
     ));
     assert!(matches!(app.operation, OperationState::Idle));
 }

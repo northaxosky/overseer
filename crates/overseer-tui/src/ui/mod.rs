@@ -8,7 +8,7 @@ mod modal;
 mod operation;
 
 use overseer_core::apply::{DeploymentStatus, Status};
-use overseer_core::deploy::FileConflict;
+use overseer_core::deploy::DestinationEntry;
 use overseer_core::instance::ModListEntry;
 use overseer_core::plugins::is_master;
 use overseer_frontend::style::Role;
@@ -254,12 +254,12 @@ fn render_conflicts(app: &mut App, frame: &mut Frame, area: Rect) {
                 focused,
             );
         }
-        ConflictsStatus::Ready(found) => found,
+        ConflictsStatus::Ready(found) => found.conflicts(),
     };
 
     let rows: Vec<ListItem<'static>> = found
         .iter()
-        .map(|c| ListItem::new(format!(" {}  ×{}", c.relative, c.providers.len())))
+        .map(|c| ListItem::new(format!(" {}  ×{}", c.destination, c.providers.len())))
         .collect();
     let selected = app
         .conflicts
@@ -285,12 +285,12 @@ fn render_conflicts(app: &mut App, frame: &mut Frame, area: Rect) {
     frame.render_widget(detail, panes[1]);
 }
 
-/// The selected conflict's full path, winner, overridden mods, and the winner's staged path
-fn conflict_detail_lines(conflict: &FileConflict, width: usize) -> Vec<Line<'static>> {
+/// The selected conflict's destination, winner, overridden mods, and the winner's source path
+fn conflict_detail_lines(conflict: &DestinationEntry, width: usize) -> Vec<Line<'static>> {
     let label = "File: ";
     let indent = label.chars().count();
     let text_width = width.saturating_sub(indent).max(1);
-    let mut lines: Vec<Line<'static>> = wrap_text(conflict.relative.as_str(), text_width)
+    let mut lines: Vec<Line<'static>> = wrap_text(conflict.destination.as_str(), text_width)
         .into_iter()
         .enumerate()
         .map(|(i, chunk)| {
@@ -312,23 +312,23 @@ fn conflict_detail_lines(conflict: &FileConflict, width: usize) -> Vec<Line<'sta
 
     lines.push(Line::from(vec![
         Span::styled("Winner: ", theme::style(Role::Heading)),
-        Span::styled(winner.clone(), theme::style(Role::Success)),
+        Span::styled(
+            winner.origin.display_name().to_owned(),
+            theme::style(Role::Success),
+        ),
     ]));
 
     lines.push(Line::styled("Overridden:", theme::style(Role::Heading)));
     for loser in losers.iter().rev() {
         lines.push(Line::styled(
-            format!("  · {loser}"),
+            format!("  · {}", loser.origin.display_name()),
             theme::style(Role::Muted),
         ));
     }
 
     lines.push(Line::from(vec![
         Span::styled("Staged: ", theme::style(Role::Heading)),
-        Span::styled(
-            format!("mods/{winner}/{}", conflict.relative),
-            theme::style(Role::Muted),
-        ),
+        Span::styled(winner.source.to_string(), theme::style(Role::Muted)),
     ]));
     lines
 }

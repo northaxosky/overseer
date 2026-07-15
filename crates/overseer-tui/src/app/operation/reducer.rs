@@ -7,7 +7,7 @@ use super::protocol::{
     WorkerEvent,
 };
 use super::runner::{CompletedOperation, OperationProgress, OperationState, RunningOperation};
-use overseer_core::deploy::FileConflict;
+use overseer_core::deploy::ConflictSnapshot;
 use overseer_core::install::DownloadEntry;
 use overseer_core::saves::SaveInfo;
 use overseer_diagnostics::Report;
@@ -109,9 +109,9 @@ impl App {
     }
 
     /// Replace the conflict cache and select its first row
-    fn accept_conflicts(&mut self, found: Vec<FileConflict>) {
-        self.conflicts.list.select_first(found.len());
-        self.conflicts.status = ConflictsStatus::Ready(found);
+    fn accept_conflicts(&mut self, snapshot: ConflictSnapshot) {
+        self.conflicts.list.select_first(snapshot.len());
+        self.conflicts.status = ConflictsStatus::Ready(snapshot);
     }
 
     /// Accept the only operation result allowed to replace the active session
