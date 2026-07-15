@@ -1,5 +1,4 @@
-//! F4SE health: the loader must match the game's runtime, and deployed F4SE plugins need
-//! the matching Address Library.
+//! F4SE health: the loader must match the game's runtime, and deployed F4SE plugins need AL
 
 use crate::context::{AddressLibraryStatus, GameContext};
 use crate::finding::Finding;
