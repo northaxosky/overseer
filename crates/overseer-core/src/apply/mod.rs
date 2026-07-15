@@ -7,7 +7,9 @@ mod outcome;
 mod state;
 
 pub use error::ApplyError;
-pub use ops::{DeploymentStatus, deploy_profile, purge, rename_mod, rename_profile, status};
+pub use ops::{
+    DeploymentStatus, deploy_profile, deployment_sources, purge, rename_mod, rename_profile, status,
+};
 pub use outcome::{CapturedPath, ReversalOutcome};
 pub use state::{Deployment, Status};
 

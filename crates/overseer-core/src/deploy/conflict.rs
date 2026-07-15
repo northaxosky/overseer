@@ -1,7 +1,7 @@
 //! Read-only conflict detection: which enabled mods provide the same file
 
 use super::error::DeployError;
-use super::plan::{ModSource, walk_mod_files};
+use super::plan::{DestinationEntry, ModSource, enumerate_destinations, walk_mod_files};
 use camino::Utf8PathBuf;
 use std::collections::BTreeMap;
 
@@ -39,6 +39,36 @@ pub fn detect_conflicts(mods: &[ModSource]) -> Result<Vec<FileConflict>, DeployE
             providers: names,
         })
         .collect())
+}
+
+/// A read-only snapshot of every destination provided by more than one source
+#[derive(Debug, Clone)]
+pub struct ConflictSnapshot {
+    conflicts: Vec<DestinationEntry>,
+}
+
+impl ConflictSnapshot {
+    /// Enumerate destinations for `mods` (low->high) and keep only contested ones
+    pub fn build(mods: &[ModSource]) -> Result<Self, DeployError> {
+        let conflicts = enumerate_destinations(mods)?
+            .into_values()
+            .filter(|entry| entry.providers.len() > 1)
+            .collect();
+        Ok(Self { conflicts })
+    }
+
+    /// The contested destinations, sorted by destination, providers low->high (winner last)
+    pub fn conflicts(&self) -> &[DestinationEntry] {
+        &self.conflicts
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.conflicts().is_empty()
+    }
+
+    pub fn len(&self) -> usize {
+        self.conflicts().len()
+    }
 }
 
 #[cfg(test)]
