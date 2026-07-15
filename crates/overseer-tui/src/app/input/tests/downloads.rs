@@ -1,7 +1,9 @@
 //! Tests for the downloads workspace's actions
 
 use crate::app::input::test_helpers::key;
-use crate::app::{App, ConflictsStatus, Focus, OperationKind, OperationState, Session, Workspace};
+use crate::app::{
+    App, ConflictsStatus, Focus, InstallJob, OperationKind, OperationState, Session, Workspace,
+};
 use overseer_core::deploy::NullSink;
 use overseer_core::instance::Instance;
 use overseer_core::test_support::{self, temp_instance};
@@ -38,7 +40,7 @@ fn pressing_3_switches_to_downloads_and_lists_archives() {
 }
 
 #[test]
-fn enter_on_an_installable_download_opens_a_confirm_without_installing() {
+fn enter_on_a_download_opens_the_install_name_prompt() {
     let (_tmp, scaffold) = temp_instance();
     let instance = Instance::init(scaffold.root.clone(), scaffold.config.clone()).expect("init");
     test_support::write(&instance.downloads_dir().join("Mod.zip"), "fake");
@@ -51,26 +53,23 @@ fn enter_on_an_installable_download_opens_a_confirm_without_installing() {
     app.handle_key(key(KeyCode::Enter));
 
     match &app.modal {
-        Some(crate::app::Modal::Confirm(c)) => {
+        Some(crate::app::Modal::Prompt(p)) => {
             assert!(
-                c.message.contains("Install Mod.zip"),
-                "confirm names the archive"
+                matches!(p.kind, crate::app::PromptKind::InstallName { .. }),
+                "an install-name prompt opens"
             );
-            assert!(
-                c.message.contains("mods/Mod"),
-                "confirm names the destination"
-            );
+            assert_eq!(p.input, "Mod", "the mod name defaults to the archive stem");
         }
-        other => panic!("expected a confirm modal, got {other:?}"),
+        other => panic!("expected an install-name prompt, got {other:?}"),
     }
     assert!(
         !app.session.instance.mods_dir().join("Mod").exists(),
-        "nothing is installed until the confirm is accepted"
+        "nothing is installed until the prompt is submitted"
     );
 }
 
 #[test]
-fn worker_refuses_when_deployment_goes_live_after_confirmation() {
+fn worker_refuses_when_deployment_goes_live_after_submitting() {
     let (_tmp, scaffold) = temp_instance();
     let instance = Instance::init(scaffold.root.clone(), scaffold.config.clone()).expect("init");
     test_support::install_mod(&instance, "Seed", &[("Textures/seed.dds", "texture")]);
@@ -86,11 +85,11 @@ fn worker_refuses_when_deployment_goes_live_after_confirmation() {
     app.finish_operation_after_terminal();
     app.focus = Focus::Workspace;
     app.handle_key(key(KeyCode::Enter));
-    assert!(matches!(app.modal, Some(crate::app::Modal::Confirm(_))));
+    assert!(matches!(app.modal, Some(crate::app::Modal::Prompt(_))));
     overseer_core::apply::deploy_profile(&instance, "Default", &NullSink)
         .expect("deployment becomes live");
 
-    app.handle_key(key(KeyCode::Char('y')));
+    app.handle_key(key(KeyCode::Enter));
     app.finish_operation_after_terminal();
 
     assert!(!instance.mods_dir().join("Blocked").exists());
@@ -102,7 +101,7 @@ fn worker_refuses_when_deployment_goes_live_after_confirmation() {
 }
 
 #[test]
-fn confirming_starts_the_install_worker_and_preserves_location() {
+fn submitting_starts_the_install_worker_and_preserves_location() {
     let (_tmp, scaffold) = temp_instance();
     let instance = Instance::init(scaffold.root.clone(), scaffold.config.clone()).expect("init");
     instance.create_profile("Default").expect("profile");
@@ -121,17 +120,17 @@ fn confirming_starts_the_install_worker_and_preserves_location() {
     app.handle_key(key(KeyCode::Char('3')));
     app.finish_operation_after_terminal();
     app.focus = Focus::Workspace;
-    app.handle_key(key(KeyCode::Enter)); // opens the confirm
+    app.handle_key(key(KeyCode::Enter)); // opens the install-name prompt
     assert!(
-        matches!(app.modal, Some(crate::app::Modal::Confirm(_))),
-        "confirm is open"
+        matches!(app.modal, Some(crate::app::Modal::Prompt(_))),
+        "prompt is open"
     );
-    app.handle_key(key(KeyCode::Char('y'))); // accepts it
+    app.handle_key(key(KeyCode::Enter)); // submits it
 
     assert_eq!(
         app.running_operation_kind(),
         Some(OperationKind::Install),
-        "confirmation starts the generic worker"
+        "submitting starts the generic worker"
     );
     assert!(
         app.session.profile.position("CoolMod").is_none(),
@@ -143,7 +142,7 @@ fn confirming_starts_the_install_worker_and_preserves_location() {
     );
     app.finish_operation_after_terminal();
 
-    assert!(app.modal.is_none(), "the confirm closes after accepting");
+    assert!(app.modal.is_none(), "the prompt closes after submitting");
     assert!(
         instance
             .mods_dir()
@@ -185,7 +184,7 @@ fn confirming_starts_the_install_worker_and_preserves_location() {
 }
 
 #[test]
-fn install_download_surfaces_the_fomod_refusal() {
+fn install_surfaces_the_fomod_refusal() {
     let (_tmp, scaffold) = temp_instance();
     let instance = Instance::init(scaffold.root.clone(), scaffold.config.clone()).expect("init");
     instance.create_profile("Default").expect("profile");
@@ -200,7 +199,7 @@ fn install_download_surfaces_the_fomod_refusal() {
     let mut app = App::sample();
     app.session = Session::load(&instance.root, Some("Default")).expect("session");
 
-    app.install_download(&archive);
+    app.start_operation(InstallJob::new("Fancy.zip".to_owned(), "Fancy".to_owned()));
     assert_eq!(
         app.running_operation_kind(),
         Some(OperationKind::Install),

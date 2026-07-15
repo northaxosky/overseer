@@ -1,12 +1,13 @@
 //! The Prompt modal: single-line text entry for new-profile, new-separator, rename-mod, rename-profile, and add-exe.
 
-use camino::Utf8Path;
+use camino::{Utf8Path, Utf8PathBuf};
 use overseer_core::apply;
 use overseer_core::instance::{Executable, InstanceError, ModKind};
 use ratatui::crossterm::event::{KeyCode, KeyEvent};
 
 use crate::app::{
-    App, Focus, ModPaneRow, Modal, Prompt, PromptKind, SelectKind, Session, separator_display,
+    App, Focus, InstallJob, ModPaneRow, Modal, Prompt, PromptKind, SelectKind, Session,
+    separator_display,
 };
 
 impl App {
@@ -32,6 +33,7 @@ impl App {
                 Some(PromptKind::RenamePluginSeparator { index, .. }) => {
                     self.submit_rename_plugin_separator(index);
                 }
+                Some(PromptKind::InstallName { archive }) => self.submit_install(archive),
                 None => {}
             },
             KeyCode::Backspace => {
@@ -155,6 +157,24 @@ impl App {
             Ok(()) => self.open_edit_exe_args(index),
             Err(msg) => self.set_prompt_error(msg),
         }
+    }
+
+    /// Install the selected archive under the name typed into the prompt
+    fn submit_install(&mut self, archive: Utf8PathBuf) {
+        let Some(Modal::Prompt(prompt)) = self.modal.as_ref() else {
+            return;
+        };
+        let name = prompt.input.trim().to_owned();
+        if let Err(msg) = validate_name(&name) {
+            self.set_prompt_error(msg);
+            return;
+        };
+        let Some(basename) = archive.file_name().map(str::to_owned) else {
+            self.set_prompt_error("Could not identify the archive basename".to_owned());
+            return;
+        };
+        self.modal = None;
+        self.start_operation(InstallJob::new(basename, name));
     }
 
     /// Rename the target at `index`, validating uniqueness and persisting with rollback

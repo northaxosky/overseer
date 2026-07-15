@@ -7,8 +7,8 @@ use ratatui::crossterm::event::KeyCode;
 
 fn open_confirm(app: &mut App) {
     app.modal = Some(Modal::Confirm(Confirm {
-        message: "Install Mod.zip?".to_owned(),
-        action: ConfirmAction::InstallDownload(camino::Utf8PathBuf::from("Mod.zip")),
+        message: "Deploy?".to_owned(),
+        action: ConfirmAction::Deploy,
     }));
 }
 

@@ -36,6 +36,7 @@ pub(crate) enum PromptKind {
     AddExe,
     EditExeName { index: usize },
     EditExeArgs { index: usize },
+    InstallName { archive: Utf8PathBuf },
 }
 
 impl PromptKind {
@@ -54,6 +55,7 @@ impl PromptKind {
             }
             PromptKind::EditExeName { .. } => "Edit target — name".to_owned(),
             PromptKind::EditExeArgs { .. } => "Edit target — launch args".to_owned(),
+            PromptKind::InstallName { .. } => "Install — new mod name".to_owned(),
         }
     }
 
@@ -76,6 +78,7 @@ impl PromptKind {
             | PromptKind::NewSeparator
             | PromptKind::RenameSeparator { .. }
             | PromptKind::NewPluginSeparator
+            | PromptKind::InstallName { .. }
             | PromptKind::RenamePluginSeparator { .. } => None,
         }
     }
@@ -176,8 +179,6 @@ pub(crate) struct Confirm {
 /// What a confirmed [`Confirm`] does
 #[derive(Debug)]
 pub(crate) enum ConfirmAction {
-    /// Install the archive at this path into the instance's `mods/`
-    InstallDownload(Utf8PathBuf),
     /// Delete the `.fos` save at this path (and its script-extender co-save)
     DeleteSave(Utf8PathBuf),
     /// Remove the launch target with this name from the instance config

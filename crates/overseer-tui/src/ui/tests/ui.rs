@@ -570,11 +570,10 @@ fn an_unparsed_save_renders_as_its_file_name() {
 #[test]
 fn confirm_modal_shows_its_message_and_choices() {
     use crate::app::{Confirm, ConfirmAction, Modal};
-    use camino::Utf8PathBuf;
     let mut app = App::sample();
     app.modal = Some(Modal::Confirm(Confirm {
         message: "Install Mod.zip? Creates mods/Mod.".to_owned(),
-        action: ConfirmAction::InstallDownload(Utf8PathBuf::from("downloads/Mod.zip")),
+        action: ConfirmAction::Deploy,
     }));
     let out = render(&mut app, 80, 24);
     assert!(out.contains("Confirm"), "the modal is titled");

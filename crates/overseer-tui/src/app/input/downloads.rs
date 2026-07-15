@@ -1,7 +1,6 @@
 //! The downloads workspace's actions: listing archives and installing one
 
-use crate::app::{App, Confirm, ConfirmAction, InstallJob, Modal, RefreshDownloadsJob};
-use camino::Utf8Path;
+use crate::app::{App, Modal, Prompt, PromptKind, RefreshDownloadsJob};
 use overseer_core::install::DownloadEntry;
 
 impl App {
@@ -16,34 +15,18 @@ impl App {
         self.downloads.entries.get(i)
     }
 
-    /// Act on Enter/Space in the downloads pane: open the install confirmation
+    /// Act on Enter/Space in the downloads pane: prompt for the install name
     pub(super) fn begin_install_selected(&mut self) {
         let Some(entry) = self.selected_download() else {
             return;
         };
-
-        // Copy out what the confirm needs so we stop borrowing `self.downloads`
-        let name = entry.name.clone();
         let path = entry.path.clone();
-        let stem = path.file_stem().unwrap_or(&name).to_owned();
-        self.modal = Some(Modal::Confirm(Confirm {
-            message: format!("Install {name}? Creates mods/{stem}."),
-            action: ConfirmAction::InstallDownload(path),
+        let stem = path.file_stem().unwrap_or_default().to_owned();
+        self.modal = Some(Modal::Prompt(Prompt {
+            kind: PromptKind::InstallName { archive: path },
+            input: stem,
+            error: None,
         }));
-    }
-
-    /// Start archive installation on the background worker
-    pub(super) fn install_download(&mut self, path: &Utf8Path) {
-        let Some(archive) = path.file_name().map(str::to_owned) else {
-            self.fail("Could not identify the archive basename");
-            return;
-        };
-        let Some(name) = path.file_stem().map(str::to_owned) else {
-            self.fail("Could not derive a mod name from the archive");
-            return;
-        };
-
-        self.start_operation(InstallJob::new(archive, name));
     }
 }
 
