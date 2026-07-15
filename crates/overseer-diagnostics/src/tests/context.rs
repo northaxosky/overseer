@@ -293,9 +293,9 @@ fn scan_archives_flags_a_corrupt_ba2_as_invalid() {
     assert!(matches!(archives[0].scan, ArchiveScan::Invalid));
 }
 
-/// An F4SE plugin DLL that can't be read is skipped, not scanned
+/// An F4SE plugin DLL that can't be read is collected as unreadable, not silently dropped
 #[test]
-fn scan_f4se_plugins_skips_an_unreadable_dll() {
+fn scan_f4se_plugins_collects_an_unreadable_dll() {
     let (_tmp, base) = temp_base();
     let f4se = base.join("mods/F4SE");
     let dll = f4se.join("F4SE/Plugins/Buffout4.dll");
@@ -305,10 +305,17 @@ fn scan_f4se_plugins_skips_an_unreadable_dll() {
     // Swap the planned DLL for a directory so reading its bytes fails
     std::fs::remove_file(&dll).unwrap();
     std::fs::create_dir(&dll).unwrap();
+    let (plugins, unreadable) = scan_f4se_plugins(&plan, "F4SE/Plugins");
     assert!(
-        scan_f4se_plugins(&plan, "F4SE/Plugins").is_empty(),
-        "an unreadable F4SE DLL is skipped, not scanned"
+        plugins.is_empty(),
+        "an unreadable DLL is not scanned as a plugin"
     );
+    assert_eq!(
+        unreadable.len(),
+        1,
+        "the unreadable DLL is reported, not dropped"
+    );
+    assert_eq!(unreadable[0].name, "Buffout4.dll");
 }
 
 #[test]

@@ -1,7 +1,7 @@
 //! Tests for the F4SE health check
 
 use super::*;
-use crate::context::F4sePluginScan;
+use crate::context::{F4sePluginScan, UnreadableF4se};
 use crate::finding::Severity;
 use overseer_core::detect::Generation;
 use overseer_core::f4se::F4sePlugin;
@@ -195,4 +195,22 @@ fn a_real_og_plugin_is_silent_on_old_gen() {
         ..GameContext::default()
     };
     assert!(super::run(&ctx).is_empty());
+}
+
+#[test]
+fn an_unreadable_f4se_plugin_warns() {
+    let ctx = GameContext {
+        unreadable_f4se: vec![UnreadableF4se {
+            name: "Buffout4.dll".to_owned(),
+            mod_name: "Buffout 4".to_owned(),
+            reason: "access denied".to_owned(),
+        }],
+        ..GameContext::default()
+    };
+    let findings = super::run(&ctx);
+    assert_eq!(findings.len(), 1);
+    assert_eq!(findings[0].severity, Severity::Warning);
+    assert!(findings[0].title.contains("Buffout4.dll"));
+    assert!(findings[0].title.contains("Buffout 4"));
+    assert!(findings[0].title.contains("could not be read"));
 }

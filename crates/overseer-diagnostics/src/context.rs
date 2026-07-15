@@ -15,7 +15,8 @@ use overseer_core::instance::{Instance, Profile};
 use overseer_core::patch::fallout4::dlc;
 use overseer_core::patch::fingerprint::fingerprint_file;
 use overseer_core::plugins::{
-    PluginLoadOrder, PluginMeta, discover_plugins, implicit_active_plugins, read_metadata,
+    PluginLoadOrder, PluginMeta, UnreadablePlugin, discover_plugins_lenient,
+    implicit_active_plugins, read_metadata,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -60,6 +61,8 @@ pub(crate) struct GameContext {
     pub active_plugins: Vec<PluginMeta>,
     /// The real load-order budget: active mod plugins plus force-loaded base/DLC/Creation Club plugins
     pub loaded_plugins: Vec<PluginMeta>,
+    /// Mod and force-loaded plugins that could not be parsed during inspection
+    pub unreadable_plugins: Vec<UnreadablePlugin>,
     /// The files this profile would deploy under the game's `Data/` folder
     pub data_files: Vec<DataFile>,
     /// The state of the game's Creation Club manifest
@@ -80,6 +83,8 @@ pub(crate) struct GameContext {
     pub address_library: AddressLibraryStatus,
     /// Deployed F4SE plugin DLLs and what runtime each advertises
     pub f4se_plugins: Vec<F4sePluginScan>,
+    /// Deployed F4SE plugin DLLs that could not be read during inspection
+    pub unreadable_f4se: Vec<UnreadableF4se>,
     /// The game exe's runtime packed for matching plugin `compatibleVersions`, if known
     pub runtime_packed: Option<u32>,
     /// Loaded BA2 counts across base game archives and active mod archives
@@ -126,6 +131,16 @@ pub(crate) struct F4sePluginScan {
     pub mod_name: String,
     /// What its PE exports / version data reveal
     pub plugin: F4sePlugin,
+}
+
+/// A deployed F4SE plugin DLL that could not be read during inspection
+pub(crate) struct UnreadableF4se {
+    /// File name, e.g. `Buffout4.dll`
+    pub name: String,
+    /// The mod that owns it
+    pub mod_name: String,
+    /// Why it could not be read
+    pub reason: String,
 }
 
 /// Whether the F4SE Address Library is in place. Only meaningful when F4SE plugins are deployed
@@ -221,7 +236,7 @@ impl GameContext {
         let mut profile = Profile::load(instance, profile)?;
         profile.reconcile(instance)?;
 
-        let discovered = discover_plugins(instance, &profile)?;
+        let (discovered, mut unreadable) = discover_plugins_lenient(instance, &profile)?;
         let mut order = PluginLoadOrder::load(instance, &profile.name)?;
         order.reconcile(&discovered);
 
@@ -256,7 +271,13 @@ impl GameContext {
             for name in implicit_active_plugins(game_id, &instance.config.game_dir, &local_dir)? {
                 let path = data_dir.join(&name);
                 if path.exists() {
-                    loaded_plugins.push(read_metadata(plugin_id, &name, &path)?);
+                    match read_metadata(plugin_id, &name, &path) {
+                        Ok(meta) => loaded_plugins.push(meta),
+                        Err(error) => unreadable.push(UnreadablePlugin {
+                            name,
+                            reason: error.to_string(),
+                        }),
+                    }
                 }
             }
         }
@@ -279,7 +300,7 @@ impl GameContext {
             .script_extender_plugins_dir()
             .map(|dir| address_library_status(&data_files, install.version, dir))
             .unwrap_or(AddressLibraryStatus::NotApplicable);
-        let f4se_plugins = instance
+        let (f4se_plugins, unreadable_f4se) = instance
             .config
             .game
             .script_extender_plugins_dir()
@@ -314,11 +335,13 @@ impl GameContext {
             ini_status,
             sadd_records,
             loaded_plugins,
+            unreadable_plugins: unreadable,
             archives,
             runtime_family,
             loader_family,
             address_library,
             f4se_plugins,
+            unreadable_f4se,
             runtime_packed,
             loaded_archive_counts,
             script_overrides,
@@ -330,33 +353,38 @@ impl GameContext {
 }
 
 /// Parse every `F4SE/Plugins/*.dll` the profile would deploy, attributed to its mod
-fn scan_f4se_plugins(plan: &DeployPlan, se_plugins_dir: &str) -> Vec<F4sePluginScan> {
-    plan.files()
-        .iter()
-        .filter(|f| {
-            f.relative
-                .extension()
-                .is_some_and(|e| e.eq_ignore_ascii_case("dll"))
-                && strip_data_prefix(&f.relative).is_some_and(|p| p.starts_with(se_plugins_dir))
-        })
-        .filter_map(|f| {
-            let bytes = match std::fs::read(&f.source) {
-                Ok(bytes) => bytes,
-                Err(e) => {
-                    tracing::warn!(path = %f.source, error = %e, "skipping unreadable F4SE plugin");
-                    return None;
-                }
-            };
-            match parse_f4se_dll(&bytes) {
-                F4seDll::Plugin(plugin) => Some(F4sePluginScan {
+fn scan_f4se_plugins(
+    plan: &DeployPlan,
+    se_plugins_dir: &str,
+) -> (Vec<F4sePluginScan>, Vec<UnreadableF4se>) {
+    let mut plugins = Vec::new();
+    let mut unreadable = Vec::new();
+    for f in plan.files().iter().filter(|f| {
+        f.relative
+            .extension()
+            .is_some_and(|e| e.eq_ignore_ascii_case("dll"))
+            && strip_data_prefix(&f.relative).is_some_and(|p| p.starts_with(se_plugins_dir))
+    }) {
+        let bytes = match std::fs::read(&f.source) {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                unreadable.push(UnreadableF4se {
                     name: f.relative.file_name().unwrap_or_default().to_owned(),
                     mod_name: f.winner.clone(),
-                    plugin,
-                }),
-                _ => None,
+                    reason: error.to_string(),
+                });
+                continue;
             }
-        })
-        .collect()
+        };
+        if let F4seDll::Plugin(plugin) = parse_f4se_dll(&bytes) {
+            plugins.push(F4sePluginScan {
+                name: f.relative.file_name().unwrap_or_default().to_owned(),
+                mod_name: f.winner.clone(),
+                plugin,
+            });
+        }
+    }
+    (plugins, unreadable)
 }
 
 /// Gate the Address Library on deployed F4SE plugins: any `F4SE/Plugins/*.dll` requires the matching `version-*.bin`

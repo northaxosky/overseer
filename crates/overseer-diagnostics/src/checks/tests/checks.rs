@@ -17,6 +17,7 @@ fn the_registry_lists_every_check_in_display_order() {
     assert_eq!(
         ids,
         vec![
+            "plugins",
             "plugin-count",
             "missing-masters",
             "race-subgraphs",

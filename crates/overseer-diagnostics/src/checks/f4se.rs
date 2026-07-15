@@ -45,7 +45,15 @@ pub fn run(ctx: &GameContext) -> Vec<Finding> {
             }
         }
     }
-
+    for unreadable in &ctx.unreadable_f4se {
+        findings.push(
+            Finding::warning(format!(
+                "`{}` (from `{}`) could not be read",
+                unreadable.name, unreadable.mod_name
+            ))
+            .detail(unreadable.reason.clone()),
+        );
+    }
     findings
 }
 
