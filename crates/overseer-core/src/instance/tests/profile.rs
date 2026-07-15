@@ -254,7 +254,7 @@ fn deploy_sources_reverses_to_lowest_priority_first() {
     // Stored highest-priority-first; the engine wants lowest-priority-first
     let profile = profile_of(&["High", "Mid", "Low"]);
     let sources = profile.deploy_sources(&instance);
-    let names: Vec<&str> = sources.iter().map(|s| s.name.as_str()).collect();
+    let names: Vec<&str> = sources.iter().map(|s| s.display_name()).collect();
     assert_eq!(names, ["Low", "Mid", "High"]);
 }
 
@@ -271,7 +271,7 @@ fn deploy_sources_excludes_separators() {
         local_saves: false,
     };
     let sources = profile.deploy_sources(&instance);
-    let names: Vec<&str> = sources.iter().map(|s| s.name.as_str()).collect();
+    let names: Vec<&str> = sources.iter().map(|s| s.display_name()).collect();
     // Only the managed mods, lowest-priority first; the separator never deploys
     assert_eq!(names, ["Low", "High"]);
 }
@@ -291,7 +291,7 @@ fn deploy_sources_excludes_foreign_mods() {
     let names: Vec<String> = profile
         .deploy_sources(&instance)
         .iter()
-        .map(|s| s.name.clone())
+        .map(|s| s.display_name().to_owned())
         .collect();
     assert_eq!(names, ["RealMod"], "foreign DLC/CC entries never deploy");
 }
@@ -307,7 +307,7 @@ fn deploy_sources_excludes_disabled_mods() {
     let names: Vec<String> = profile
         .deploy_sources(&instance)
         .iter()
-        .map(|s| s.name.clone())
+        .map(|s| s.display_name().to_owned())
         .collect();
     assert_eq!(names, ["Also", "Yes"]);
 }

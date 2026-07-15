@@ -24,8 +24,8 @@ pub fn detect_conflicts(mods: &[ModSource]) -> Result<Vec<FileConflict>, DeployE
             let key = relative.as_str().to_lowercase();
             let entry = providers.entry(key).or_default();
             entry.0 = relative; // latest casing wins
-            if entry.1.last() != Some(&m.name) {
-                entry.1.push(m.name.clone());
+            if entry.1.last().map(String::as_str) != Some(m.display_name()) {
+                entry.1.push(m.display_name().to_owned());
             }
             Ok(())
         })?;

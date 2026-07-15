@@ -7,18 +7,50 @@ use super::layout::{DATA_DIR, ROOT_DIR};
 use camino::{Utf8Path, Utf8PathBuf};
 use walkdir::WalkDir;
 
-/// A mod as it exists on disk: name + staging directory
+/// Where a deployed file comes from: a managed mod or the global overwrite
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ProviderOrigin {
+    Mod { name: String },
+    Overwrite,
+}
+
+/// A deploy source on disk: its typed origin + staging directory
 #[derive(Debug, Clone)]
 pub struct ModSource {
-    pub name: String,
+    pub origin: ProviderOrigin,
     pub staging_dir: Utf8PathBuf,
 }
 
 impl ModSource {
+    /// A managed mod source named `name`
     pub fn new(name: impl Into<String>, staging_dir: impl Into<Utf8PathBuf>) -> Self {
         Self {
-            name: name.into(),
+            origin: ProviderOrigin::Mod { name: name.into() },
             staging_dir: staging_dir.into(),
+        }
+    }
+
+    /// The global overwrite source
+    pub fn overwrite(staging_dir: impl Into<Utf8PathBuf>) -> Self {
+        Self {
+            origin: ProviderOrigin::Overwrite,
+            staging_dir: staging_dir.into(),
+        }
+    }
+
+    /// A display label for this source, `Overwrite` for the global overwrite
+    pub fn display_name(&self) -> &str {
+        match &self.origin {
+            ProviderOrigin::Mod { name } => name,
+            ProviderOrigin::Overwrite => "Overwrite",
+        }
+    }
+
+    /// The managed mod name, or `None` for the overwrite
+    pub fn mod_name(&self) -> Option<&str> {
+        match &self.origin {
+            ProviderOrigin::Mod { name } => Some(name),
+            ProviderOrigin::Overwrite => None,
         }
     }
 }
@@ -56,7 +88,7 @@ impl DeployPlan {
                     PlannedFile {
                         relative,
                         source: abs,
-                        winner: m.name.clone(),
+                        winner: m.display_name().to_owned(),
                     },
                 );
                 Ok(())
@@ -107,7 +139,7 @@ pub(super) fn walk_mod_files(
 ) -> Result<(), DeployError> {
     if !m.staging_dir.is_dir() {
         return Err(DeployError::MissingStaging {
-            mod_name: m.name.clone(),
+            mod_name: m.display_name().to_owned(),
             path: m.staging_dir.clone(),
         });
     }

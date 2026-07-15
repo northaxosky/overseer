@@ -40,7 +40,7 @@ pub fn deploy_profile(
 
     let overwrite = instance.overwrite_dir();
     fs::ensure_dir(&overwrite)?;
-    sources.push(ModSource::new("Overwrite", &overwrite));
+    sources.push(ModSource::overwrite(&overwrite));
 
     let plan = DeployPlan::from_rooted_mods(&instance.config.game_dir, &sources)?;
     let deployer = deployer_for(instance.config.deployer);
