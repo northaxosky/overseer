@@ -2,9 +2,9 @@
 //! realistic multi-mod instance, which deploys, resolves a file conflict, and purges clean —
 //! with no dependency on any real game or the maintainer's personal MO2 install.
 
-use camino::Utf8PathBuf;
+use camino::{Utf8Path, Utf8PathBuf};
 use overseer_core::apply::{deploy_profile, purge, status};
-use overseer_core::deploy::{NullSink, detect_conflicts};
+use overseer_core::deploy::{ConflictSnapshot, NullSink};
 use overseer_core::instance::{Instance, Profile};
 use overseer_core::test_support::{self, FLAG_MASTER, TestbedSpec};
 
@@ -31,9 +31,20 @@ fn golden_instance_deploys_resolves_conflicts_and_purges_clean() {
 
     // The two providers of the shared file collapse to one conflict, winner (higher priority) last
     let profile = Profile::load(&instance, "Default").expect("load profile");
-    let conflicts = detect_conflicts(&profile.deploy_sources(&instance)).expect("detect conflicts");
-    assert_eq!(conflicts.len(), 1);
-    assert_eq!(conflicts[0].providers, ["Loser", "Winner"]);
+    let snapshot = ConflictSnapshot::build(&profile.deploy_sources(&instance))
+        .expect("build conflict snapshot");
+    assert_eq!(snapshot.len(), 1);
+    let conflict = &snapshot.conflicts()[0];
+    assert_eq!(
+        conflict.destination,
+        Utf8Path::new("Data").join("Textures").join("shared.dds")
+    );
+    let providers: Vec<_> = conflict
+        .providers
+        .iter()
+        .map(|provider| provider.origin.display_name())
+        .collect();
+    assert_eq!(providers, ["Loser", "Winner"]);
 
     deploy_profile(&instance, "Default", &NullSink).expect("deploy");
 

@@ -39,7 +39,7 @@
 
 use camino::{Utf8Path, Utf8PathBuf};
 use overseer_core::apply::{self, Status};
-use overseer_core::deploy::{DeployPlan, NullSink, detect_conflicts};
+use overseer_core::deploy::{ConflictSnapshot, DeployPlan, NullSink};
 use overseer_core::detect;
 use overseer_core::game::GameKind;
 use overseer_core::instance::{Instance, Profile};
@@ -503,19 +503,28 @@ fn deploy_purge_roundtrip_with_real_mods_leaves_testbed_pristine() {
     }
 
     // (2) The real conflict resolves to the higher-priority mod. The curated set makes the two; MCM mods share `Interface/MCM.swf`; the one listed first must win
-    let conflicts = detect_conflicts(&sources).expect("detect conflicts on real mods");
+    let snapshot = ConflictSnapshot::build(&sources).expect("build conflict snapshot on real mods");
     assert!(
-        !conflicts.is_empty(),
+        !snapshot.is_empty(),
         "curated set produced no file conflict"
     );
     if staged.contains(&"Mod Configuration Menu") && staged.contains(&"Fallout 76 Style Main Menu")
     {
-        let mcm = conflicts
+        let mcm = snapshot
+            .conflicts()
             .iter()
-            .find(|c| c.relative.as_str().to_lowercase().ends_with("mcm.swf"))
+            .find(|conflict| {
+                let expected = Utf8Path::new("Data").join("Interface").join("MCM.swf");
+                conflict
+                    .destination
+                    .as_str()
+                    .eq_ignore_ascii_case(expected.as_str())
+            })
             .expect("the two MCM mods must conflict on MCM.swf");
         assert_eq!(
-            mcm.providers.last().map(String::as_str),
+            mcm.providers
+                .last()
+                .map(|provider| provider.origin.display_name()),
             Some("Mod Configuration Menu"),
             "highest-priority mod should win the MCM.swf conflict; providers were {:?}",
             mcm.providers

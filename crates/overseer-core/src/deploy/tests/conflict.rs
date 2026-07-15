@@ -5,6 +5,14 @@ use super::*;
 use crate::test_support::{temp, write};
 use camino::Utf8Path;
 
+fn provider_names(entry: &DestinationEntry) -> Vec<&str> {
+    entry
+        .providers
+        .iter()
+        .map(|provider| provider.origin.display_name())
+        .collect()
+}
+
 #[test]
 fn two_mods_sharing_a_file_report_one_conflict_in_priority_order() {
     let (_tmp, base) = temp();
@@ -13,15 +21,16 @@ fn two_mods_sharing_a_file_report_one_conflict_in_priority_order() {
     write(&a.join("Textures/shared.dds"), "from-a");
     write(&b.join("Textures/shared.dds"), "from-b");
 
-    let conflicts =
-        detect_conflicts(&[ModSource::new("A", &a), ModSource::new("B", &b)]).expect("detect");
+    let snapshot = ConflictSnapshot::build(&[ModSource::new("A", &a), ModSource::new("B", &b)])
+        .expect("build conflict snapshot");
+    let conflicts = snapshot.conflicts();
 
     assert_eq!(conflicts.len(), 1);
     // Providers in priority order, the higher-priority mod last
-    assert_eq!(conflicts[0].providers, ["A", "B"]);
+    assert_eq!(provider_names(&conflicts[0]), ["A", "B"]);
     assert_eq!(
-        conflicts[0].relative,
-        Utf8Path::new("Textures").join("shared.dds")
+        conflicts[0].destination,
+        Utf8Path::new("Data").join("Textures").join("shared.dds")
     );
 }
 
@@ -35,15 +44,16 @@ fn three_mods_sharing_a_file_list_all_providers_winner_last() {
     write(&b.join("f.txt"), "b");
     write(&c.join("f.txt"), "c");
 
-    let conflicts = detect_conflicts(&[
+    let snapshot = ConflictSnapshot::build(&[
         ModSource::new("A", &a),
         ModSource::new("B", &b),
         ModSource::new("C", &c),
     ])
-    .expect("detect");
+    .expect("build conflict snapshot");
+    let conflicts = snapshot.conflicts();
 
     assert_eq!(conflicts.len(), 1);
-    assert_eq!(conflicts[0].providers, ["A", "B", "C"]);
+    assert_eq!(provider_names(&conflicts[0]), ["A", "B", "C"]);
 }
 
 #[test]
@@ -54,15 +64,16 @@ fn case_only_differences_collapse_to_one_conflict() {
     write(&a.join("Textures/foo.dds"), "a");
     write(&b.join("textures/Foo.dds"), "b");
 
-    let conflicts =
-        detect_conflicts(&[ModSource::new("A", &a), ModSource::new("B", &b)]).expect("detect");
+    let snapshot = ConflictSnapshot::build(&[ModSource::new("A", &a), ModSource::new("B", &b)])
+        .expect("build conflict snapshot");
+    let conflicts = snapshot.conflicts();
 
     assert_eq!(conflicts.len(), 1);
-    assert_eq!(conflicts[0].providers, ["A", "B"]);
+    assert_eq!(provider_names(&conflicts[0]), ["A", "B"]);
     // The winner's casing is retained for display
     assert_eq!(
-        conflicts[0].relative,
-        Utf8Path::new("textures").join("Foo.dds")
+        conflicts[0].destination,
+        Utf8Path::new("Data").join("textures").join("Foo.dds")
     );
 }
 
@@ -78,16 +89,20 @@ fn files_unique_to_one_mod_are_not_conflicts() {
     // C overlaps nothing and must contribute no conflicts
     write(&c.join("only_c.dds"), "c");
 
-    let conflicts = detect_conflicts(&[
+    let snapshot = ConflictSnapshot::build(&[
         ModSource::new("A", &a),
         ModSource::new("B", &b),
         ModSource::new("C", &c),
     ])
-    .expect("detect");
+    .expect("build conflict snapshot");
+    let conflicts = snapshot.conflicts();
 
     assert_eq!(conflicts.len(), 1);
-    assert_eq!(conflicts[0].relative, Utf8Path::new("shared.dds"));
-    assert_eq!(conflicts[0].providers, ["A", "B"]);
+    assert_eq!(
+        conflicts[0].destination,
+        Utf8Path::new("Data").join("shared.dds")
+    );
+    assert_eq!(provider_names(&conflicts[0]), ["A", "B"]);
 }
 
 #[test]
@@ -98,22 +113,26 @@ fn nested_files_conflict_and_directories_are_skipped() {
     write(&a.join("Meshes/armor/x.nif"), "a");
     write(&b.join("Meshes/armor/x.nif"), "b");
 
-    let conflicts =
-        detect_conflicts(&[ModSource::new("A", &a), ModSource::new("B", &b)]).expect("detect");
+    let snapshot = ConflictSnapshot::build(&[ModSource::new("A", &a), ModSource::new("B", &b)])
+        .expect("build conflict snapshot");
+    let conflicts = snapshot.conflicts();
 
     // Only the file collides; the shared `Meshes` and `Meshes/armor` dirs are skipped
     assert_eq!(conflicts.len(), 1);
     assert_eq!(
-        conflicts[0].relative,
-        Utf8Path::new("Meshes").join("armor").join("x.nif")
+        conflicts[0].destination,
+        Utf8Path::new("Data")
+            .join("Meshes")
+            .join("armor")
+            .join("x.nif")
     );
-    assert_eq!(conflicts[0].providers, ["A", "B"]);
+    assert_eq!(provider_names(&conflicts[0]), ["A", "B"]);
 }
 
 #[test]
 fn empty_mod_list_has_no_conflicts() {
-    let conflicts = detect_conflicts(&[]).expect("detect");
-    assert!(conflicts.is_empty());
+    let snapshot = ConflictSnapshot::build(&[]).expect("build conflict snapshot");
+    assert!(snapshot.is_empty());
 }
 
 #[test]
@@ -123,8 +142,9 @@ fn a_single_mod_has_no_conflicts() {
     write(&a.join("Textures/x.dds"), "a");
     write(&a.join("Meshes/y.nif"), "a");
 
-    let conflicts = detect_conflicts(&[ModSource::new("A", &a)]).expect("detect");
-    assert!(conflicts.is_empty());
+    let snapshot =
+        ConflictSnapshot::build(&[ModSource::new("A", &a)]).expect("build conflict snapshot");
+    assert!(snapshot.is_empty());
 }
 
 // Two files differing only by case are distinct on a case-sensitive FS but collapse to one key on a case-insensitive one, so a mod must never be reported as conflicting with itself. This can't be staged on Windows's case-insensitive FS, hence cfg(unix)
@@ -136,8 +156,9 @@ fn case_collision_within_one_mod_is_not_a_self_conflict() {
     write(&a.join("Foo.dds"), "upper");
     write(&a.join("foo.dds"), "lower");
 
-    let conflicts = detect_conflicts(&[ModSource::new("A", &a)]).expect("detect");
-    assert!(conflicts.is_empty());
+    let snapshot =
+        ConflictSnapshot::build(&[ModSource::new("A", &a)]).expect("build conflict snapshot");
+    assert!(snapshot.is_empty());
 }
 
 #[test]
@@ -145,7 +166,8 @@ fn missing_staging_directory_is_an_error() {
     let (_tmp, base) = temp();
     let missing = base.join("does/not/exist");
 
-    let err = detect_conflicts(&[ModSource::new("Ghost", &missing)]).expect_err("should fail");
+    let err = ConflictSnapshot::build(&[ModSource::new("Ghost", &missing)])
+        .expect_err("missing staging directory should fail");
     match err {
         DeployError::MissingStaging { mod_name, path } => {
             assert_eq!(mod_name, "Ghost");
@@ -156,7 +178,7 @@ fn missing_staging_directory_is_an_error() {
 }
 
 #[test]
-fn conflicts_are_sorted_by_relative_path() {
+fn conflicts_are_sorted_by_destination() {
     let (_tmp, base) = temp();
     let a = base.join("mods/A");
     let b = base.join("mods/B");
@@ -168,19 +190,22 @@ fn conflicts_are_sorted_by_relative_path() {
     write(&b.join("alpha.txt"), "b");
     write(&b.join("mid/beta.txt"), "b");
 
-    let conflicts =
-        detect_conflicts(&[ModSource::new("A", &a), ModSource::new("B", &b)]).expect("detect");
+    let snapshot = ConflictSnapshot::build(&[ModSource::new("A", &a), ModSource::new("B", &b)])
+        .expect("build conflict snapshot");
+    let conflicts = snapshot.conflicts();
 
     assert_eq!(conflicts.len(), 3);
-    let keys: Vec<String> = conflicts
+    let destinations: Vec<_> = conflicts
         .iter()
-        .map(|c| c.relative.as_str().to_lowercase())
+        .map(|conflict| conflict.destination.clone())
         .collect();
-    let mut sorted = keys.clone();
-    sorted.sort();
     assert_eq!(
-        keys, sorted,
-        "conflicts are sorted by lowercased relative path"
+        destinations,
+        [
+            Utf8Path::new("Data").join("alpha.txt"),
+            Utf8Path::new("Data").join("mid").join("beta.txt"),
+            Utf8Path::new("Data").join("zeta.txt")
+        ]
     );
 }
 
@@ -195,14 +220,15 @@ fn per_mod_meta_ini_is_excluded_from_conflicts() {
     write(&a.join("Textures/shared.dds"), "a");
     write(&b.join("Textures/shared.dds"), "b");
 
-    let conflicts =
-        detect_conflicts(&[ModSource::new("A", &a), ModSource::new("B", &b)]).expect("detect");
+    let snapshot = ConflictSnapshot::build(&[ModSource::new("A", &a), ModSource::new("B", &b)])
+        .expect("build conflict snapshot");
+    let conflicts = snapshot.conflicts();
 
     // Only the real shared asset conflicts; the two meta.ini files are ignored
     assert_eq!(conflicts.len(), 1);
     assert_eq!(
-        conflicts[0].relative,
-        Utf8Path::new("Textures").join("shared.dds")
+        conflicts[0].destination,
+        Utf8Path::new("Data").join("Textures").join("shared.dds")
     );
 }
 
@@ -214,8 +240,8 @@ fn overseer_provenance_is_excluded_from_conflicts() {
     write(&a.join(".overseer-mod.toml"), "archive = \"A.zip\"");
     write(&b.join(".OVERSEER-MOD.TOML"), "archive = \"B.zip\"");
 
-    let conflicts =
-        detect_conflicts(&[ModSource::new("A", &a), ModSource::new("B", &b)]).expect("detect");
+    let snapshot = ConflictSnapshot::build(&[ModSource::new("A", &a), ModSource::new("B", &b)])
+        .expect("build conflict snapshot");
 
-    assert!(conflicts.is_empty());
+    assert!(snapshot.is_empty());
 }

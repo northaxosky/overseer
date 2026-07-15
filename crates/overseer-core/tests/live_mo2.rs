@@ -8,7 +8,7 @@
 //! purges, or writes — so it is safe to run against a live instance.
 
 use camino::{Utf8Path, Utf8PathBuf};
-use overseer_core::deploy::{ModSource, detect_conflicts};
+use overseer_core::deploy::{ConflictSnapshot, ModSource};
 use overseer_core::game::GameKind;
 use overseer_core::instance::{Instance, ModKind, Profile};
 
@@ -138,10 +138,10 @@ fn detects_conflicts_across_real_mods() {
     assert!(!sources.is_empty(), "expected some deployable mods");
 
     // The planning-layer conflict detector must run cleanly over a real, many-mod load order
-    let conflicts = detect_conflicts(&sources).expect("conflict detection runs on real mods");
+    let snapshot = ConflictSnapshot::build(&sources).expect("conflict detection runs on real mods");
     eprintln!(
         "{} conflicting file path(s) across {} deployable mods",
-        conflicts.len(),
+        snapshot.len(),
         sources.len()
     );
 }

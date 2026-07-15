@@ -9,7 +9,7 @@ mod plan;
 mod progress;
 mod record;
 
-pub use conflict::{ConflictSnapshot, FileConflict, detect_conflicts};
+pub use conflict::ConflictSnapshot;
 pub use deployer::{Deployer, DeployerKind, LaunchTarget, TargetOwnership, deployer_for};
 pub use error::DeployError;
 pub use hardlink::HardlinkDeployer;
