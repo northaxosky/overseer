@@ -195,6 +195,23 @@ fn conflict(relative: &str, providers: &[&str]) -> overseer_core::deploy::Destin
 }
 
 #[test]
+fn conflicts_workspace_filtered_to_nothing_explains_the_filter() {
+    use crate::app::{ConflictsStatus, Workspace};
+    let mut app = App::sample();
+    app.workspace = Workspace::Conflicts;
+    app.conflicts.status =
+        ConflictsStatus::Ready(overseer_core::deploy::ConflictSnapshot::from_entries(vec![
+            conflict("Data/x.dds", &["Low", "High"]),
+        ]));
+    app.conflicts.filter = Some("Nonexistent".to_owned());
+    let out = render(&mut app, 80, 24);
+    assert!(
+        out.contains("No conflicts for the selected mod"),
+        "a filter that matches nothing explains itself"
+    );
+}
+
+#[test]
 fn conflicts_workspace_ready_shows_list_row_and_detail() {
     use crate::app::{ConflictsStatus, Workspace};
     let mut app = App::sample();

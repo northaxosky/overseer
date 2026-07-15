@@ -21,7 +21,7 @@ pub(crate) use sort::{downloads_sort_label, saves_sort_label};
 use anyhow::Result;
 use camino::Utf8Path;
 use overseer_core::apply::{self, DeploymentStatus};
-use overseer_core::deploy::ConflictSnapshot;
+use overseer_core::deploy::{ConflictSnapshot, ProviderOrigin};
 use overseer_core::install::DownloadEntry;
 use overseer_core::instance::{Instance, Profile};
 use overseer_core::plugins::{PluginLoadOrder, PluginMeta, PluginSeparators, discover_plugins};
@@ -122,6 +122,26 @@ pub(crate) enum ConflictsStatus {
 pub(crate) struct ConflictsState {
     pub(crate) status: ConflictsStatus,
     pub(crate) list: ListCursor,
+    pub(crate) filter: Option<String>,
+}
+
+impl ConflictsState {
+    /// Snapshot-conflict indices that pass teh active mod filter (empty unless ready)
+    pub(crate) fn visible_indices(&self) -> Vec<usize> {
+        let ConflictsStatus::Ready(snapshot) = &self.status else {
+            return Vec::new();
+        };
+        (0..snapshot.conflicts().len())
+            .filter(|&i| {
+                match &self.filter {
+            None => true,
+            Some(name) => snapshot.conflicts()[i].providers.iter().any(|p| {
+                matches!(&p.origin, ProviderOrigin::Mod { name: m } if m.eq_ignore_ascii_case(name))
+            })
+        }
+            })
+            .collect()
+    }
 }
 
 /// The downloads workspace's own state

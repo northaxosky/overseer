@@ -110,8 +110,10 @@ impl App {
 
     /// Replace the conflict cache and select its first row
     fn accept_conflicts(&mut self, snapshot: ConflictSnapshot) {
-        self.conflicts.list.select_first(snapshot.len());
+        self.conflicts.filter = None;
         self.conflicts.status = ConflictsStatus::Ready(snapshot);
+        let len = self.conflicts.visible_indices().len();
+        self.conflicts.list.select_first(len);
     }
 
     /// Accept the only operation result allowed to replace the active session

@@ -235,51 +235,64 @@ fn render_plugins(app: &mut App, frame: &mut Frame, area: Rect) {
 /// The conflicts workspace: a scan result, or a short prompt in every other state
 fn render_conflicts(app: &mut App, frame: &mut Frame, area: Rect) {
     let focused = app.focus == Focus::Workspace;
-    let found = match &app.conflicts.status {
-        ConflictsStatus::Stale => {
-            let text = if app.operation.is_running_kind(OperationKind::ScanConflicts) {
-                "Scanning conflicts..."
-            } else {
-                "Press r to scan for conflicts."
-            };
 
-            return render_workspace_message(frame, area, CONFLICTS_TITLE, text, focused);
-        }
-        ConflictsStatus::Ready(found) if found.is_empty() => {
-            return render_workspace_message(
-                frame,
-                area,
-                CONFLICTS_TITLE,
-                "No conflicts detected.",
-                focused,
-            );
-        }
-        ConflictsStatus::Ready(found) => found.conflicts(),
+    if matches!(app.conflicts.status, ConflictsStatus::Stale) {
+        let text = if app.operation.is_running_kind(OperationKind::ScanConflicts) {
+            "Scanning conflicts..."
+        } else {
+            "Press r to scan for conflicts."
+        };
+        return render_workspace_message(frame, area, CONFLICTS_TITLE, text, focused);
+    }
+
+    let indices = app.conflicts.visible_indices();
+    if indices.is_empty() {
+        let text = if app.conflicts.filter.is_some() {
+            "No conflicts for the selected mod (Esc to clear filter)."
+        } else {
+            "No conflicts detected."
+        };
+        return render_workspace_message(frame, area, CONFLICTS_TITLE, text, focused);
+    }
+
+    let title = match &app.conflicts.filter {
+        Some(name) => format!("{CONFLICTS_TITLE} — {name}"),
+        None => CONFLICTS_TITLE.to_owned(),
     };
+    let block = pane_block(title, focused);
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    let panes = Layout::vertical([Constraint::Fill(1), Constraint::Length(8)]).split(inner);
 
-    let rows: Vec<ListItem<'static>> = found
+    let ConflictsStatus::Ready(snapshot) = &app.conflicts.status else {
+        return;
+    };
+    let conflicts = snapshot.conflicts();
+    let rows: Vec<ListItem<'static>> = indices
         .iter()
-        .map(|c| ListItem::new(format!(" {}  ×{}", c.destination, c.providers.len())))
+        .map(|&i| {
+            ListItem::new(format!(
+                " {}  ×{}",
+                conflicts[i].destination,
+                conflicts[i].providers.len()
+            ))
+        })
         .collect();
-    let selected = app
+    let sel = app
         .conflicts
         .list
         .index()
-        .and_then(|i| found.get(i))
-        .unwrap_or(&found[0]);
+        .unwrap_or(0)
+        .min(indices.len() - 1);
+    let detail_lines = conflict_detail_lines(&conflicts[indices[sel]], panes[1].width as usize);
 
-    let block = pane_block(CONFLICTS_TITLE, focused);
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
-
-    let panes = Layout::vertical([Constraint::Fill(1), Constraint::Length(8)]).split(inner);
     let mut list = List::new(rows);
     if focused {
         list = highlighted(list);
     }
     frame.render_stateful_widget(list, panes[0], app.conflicts.list.state_mut());
 
-    let detail = Paragraph::new(conflict_detail_lines(selected, panes[1].width as usize))
+    let detail = Paragraph::new(detail_lines)
         .wrap(Wrap { trim: false })
         .block(Block::new().borders(Borders::TOP).title(" detail "));
     frame.render_widget(detail, panes[1]);

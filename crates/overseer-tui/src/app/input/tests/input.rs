@@ -372,6 +372,45 @@ fn conflicts_selection_length_tracks_the_scan_status() {
 }
 
 #[test]
+fn f_filters_conflicts_to_the_selected_mod_and_esc_clears() {
+    use overseer_core::deploy::{ConflictSnapshot, DestinationEntry, Provider, ProviderOrigin};
+    let entry = |dest: &str, providers: &[&str]| DestinationEntry {
+        destination: camino::Utf8PathBuf::from(dest),
+        providers: providers
+            .iter()
+            .map(|n| Provider {
+                origin: ProviderOrigin::Mod {
+                    name: (*n).to_owned(),
+                },
+                source: camino::Utf8PathBuf::from(format!("mods/{n}")),
+            })
+            .collect(),
+    };
+    let mut app = app_with_groups();
+    app.workspace = Workspace::Conflicts;
+    app.focus = Focus::Workspace;
+    app.conflicts.status = ConflictsStatus::Ready(ConflictSnapshot::from_entries(vec![
+        entry("Data/a.dds", &["PatchB", "PatchA"]),
+        entry("Data/b.dds", &["TextureX", "PatchB"]),
+    ]));
+    app.conflicts.list.select(Some(0));
+
+    // PatchA is display row 4 (model 0); filter conflicts to it
+    app.mods.select(Some(4));
+    app.handle_key(KeyEvent::new(KeyCode::Char('f'), KeyModifiers::NONE));
+    assert_eq!(app.conflicts.filter.as_deref(), Some("PatchA"));
+    assert_eq!(
+        app.conflicts.visible_indices(),
+        vec![0],
+        "only the conflict involving PatchA shows"
+    );
+
+    app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    assert_eq!(app.conflicts.filter, None, "Esc clears the filter");
+    assert_eq!(app.conflicts.visible_indices(), vec![0, 1]);
+}
+
+#[test]
 fn after_session_changed_resets_selection_and_marks_conflicts_stale() {
     let mut app = App::sample();
     app.mods.select(Some(1));

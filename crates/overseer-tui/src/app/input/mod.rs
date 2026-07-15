@@ -15,6 +15,7 @@ use super::{
     App, ConflictsStatus, Focus, ListCursor, Modal, OperationKind, ScanConflictsJob, SelectKind,
     Workspace,
 };
+use overseer_core::instance::ModKind;
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 #[derive(Clone, Copy)]
@@ -39,6 +40,15 @@ impl App {
             return;
         }
         if self.handle_busy_main_key(key) {
+            return;
+        }
+        if key.code == KeyCode::Esc
+            && self.workspace == Workspace::Conflicts
+            && self.conflicts.filter.is_some()
+        {
+            self.conflicts.filter = None;
+            let len = self.conflicts.visible_indices().len();
+            self.conflicts.list.select_first(len);
             return;
         }
         if is_quit(key) {
@@ -88,6 +98,8 @@ impl App {
             KeyCode::Char('x') | KeyCode::Delete => self.begin_delete_selected_separator(),
             // `L` toggles the profile's LocalSaves; self-guards to the focused Saves pane
             KeyCode::Char('L') => self.toggle_local_saves(),
+            // 'f' filters conflicts by the selected mod
+            KeyCode::Char('f') => self.filter_conflicts_to_selection(),
 
             // Main view related controls
             KeyCode::Char(' ') | KeyCode::Enter => self.toggle_selected(),
@@ -258,6 +270,25 @@ impl App {
             _ => false,
         }
     }
+
+    /// Filter the Conflicts list to the managed mod selected in the Mods pane
+    fn filter_conflicts_to_selection(&mut self) {
+        if self.workspace != Workspace::Conflicts {
+            return;
+        }
+        let rows = self.mods.project(&self.session.profile.mods);
+        let Some(row) = self.mods.index().and_then(|i| rows.get(i)).copied() else {
+            return;
+        };
+        let entry = &self.session.profile.mods[row.model_index()];
+        if entry.kind != ModKind::Managed {
+            self.note("Select a managed mod to filter conflicts");
+            return;
+        }
+        self.conflicts.filter = Some(entry.name.clone());
+        let len = self.conflicts.visible_indices().len();
+        self.conflicts.list.select_first(len);
+    }
 }
 
 impl Workspace {
@@ -331,10 +362,7 @@ impl Workspace {
         match self {
             Workspace::Plugins => None,
             Workspace::Conflicts => {
-                let len = match &app.conflicts.status {
-                    ConflictsStatus::Ready(v) => v.len(),
-                    _ => 0,
-                };
+                let len = app.conflicts.visible_indices().len();
                 Some((&mut app.conflicts.list, len))
             }
             Workspace::Downloads => {
