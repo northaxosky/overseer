@@ -47,7 +47,7 @@ fn higher_priority_wins_files_are_hardlinks_and_purge_is_clean() {
     fs::write(mod_b.join("Textures/shared.dds"), "B-edited").unwrap();
     assert_eq!(fs::read_to_string(&shared).unwrap(), "B-edited");
 
-    assert!(deployer.verify(&record).is_ok());
+    assert!(deployer.verify(&record).is_complete());
 
     // Purge removes every deployed file and the directories we created
     let report = deployer.undeploy(&record, &NullSink);

@@ -519,7 +519,7 @@ fn status_summary(status: Option<&DeploymentStatus>) -> String {
         ),
         Some(s) => {
             let files = s.deployment.record.entries.len();
-            let health = if s.verified.is_ok() {
+            let health = if s.verified.is_complete() {
                 "verified".to_owned()
             } else {
                 format!("{} missing", s.verified.missing.len())

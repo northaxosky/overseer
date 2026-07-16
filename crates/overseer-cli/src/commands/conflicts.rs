@@ -3,12 +3,12 @@
 use crate::cli::ProfileArgs;
 use crate::ui::{Role, heading, styled};
 use anyhow::{Context, Result};
-use overseer_core::apply::deployment_sources;
+use overseer_core::apply::deploy_sources;
 use overseer_core::deploy::ConflictSnapshot;
 
 pub fn run(target: &ProfileArgs) -> Result<()> {
     let (instance, profile) = target.load_context()?;
-    let snapshot = ConflictSnapshot::build(&deployment_sources(&instance, &profile))
+    let snapshot = ConflictSnapshot::build(&deploy_sources(&instance, &profile))
         .context("detecting conflicts")?;
 
     if snapshot.is_empty() {

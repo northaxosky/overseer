@@ -25,17 +25,17 @@ fn vfs_stub_launch_is_unsupported() {
 }
 
 #[test]
-fn verify_report_is_ok_only_when_nothing_missing() {
+fn verify_report_is_complete_only_when_nothing_missing() {
     let ok = VerifyReport {
         expected: 3,
         missing: vec![],
     };
-    assert!(ok.is_ok());
+    assert!(ok.is_complete());
     let bad = VerifyReport {
         expected: 3,
         missing: vec![Utf8PathBuf::from("x.txt")],
     };
-    assert!(!bad.is_ok());
+    assert!(!bad.is_complete());
 }
 
 #[test]

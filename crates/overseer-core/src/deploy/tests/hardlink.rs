@@ -114,10 +114,10 @@ fn verify_passes_then_reports_missing() {
     let (record, data) = record_one(&base, "x.txt", "x");
     let d = HardlinkDeployer::new();
     d.deploy(&record, &NullSink).expect("deploy");
-    assert!(d.verify(&record).is_ok());
+    assert!(d.verify(&record).is_complete());
     fs::remove_file(data.join("x.txt")).unwrap();
     let report = d.verify(&record);
-    assert!(!report.is_ok());
+    assert!(!report.is_complete());
     assert_eq!(report.expected, 1);
     assert_eq!(report.missing.len(), 1);
 }

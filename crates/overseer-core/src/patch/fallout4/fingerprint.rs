@@ -27,38 +27,35 @@ impl BinaryFingerprint {
     }
 
     /// Verify `file` against this entry, reporting which hash tier cleared it
-    pub fn verify_file(self, file: &FileFingerprint) -> Option<VerifiedBy> {
+    pub fn verify(self, file: &FileFingerprint) -> Option<VerifiedBy> {
         self.expected.verify(file)
     }
 
     /// Whether `file` matches this entry at any available tier
-    pub fn matches_file(self, file: &FileFingerprint) -> bool {
+    pub fn matches(self, file: &FileFingerprint) -> bool {
         self.expected.matches(file)
     }
 }
 
-/// The expected fingerprint for `rel_path` at `generation`, if known
-pub fn target_fingerprint(
-    generation: Generation,
-    rel_path: &str,
-) -> Option<&'static BinaryFingerprint> {
+/// The expected fingerprint for `rel` at `generation`, if known
+pub fn target_fingerprint(generation: Generation, rel: &str) -> Option<&'static BinaryFingerprint> {
     FINGERPRINTS
         .iter()
-        .find(|fp| fp.generation == generation && fp.rel_path.eq_ignore_ascii_case(rel_path))
+        .find(|fp| fp.generation == generation && fp.rel_path.eq_ignore_ascii_case(rel))
 }
 
-/// The known edition whose `rel_path` fingerprint matches `file`, if any
-pub fn known_source(rel_path: &str, file: &FileFingerprint) -> Option<&'static BinaryFingerprint> {
+/// The known edition whose `rel` fingerprint matches `file`, if any
+pub fn known_source(rel: &str, file: &FileFingerprint) -> Option<&'static BinaryFingerprint> {
     FINGERPRINTS
         .iter()
-        .find(|fp| fp.rel_path.eq_ignore_ascii_case(rel_path) && fp.matches_file(file))
+        .find(|fp| fp.rel_path.eq_ignore_ascii_case(rel) && fp.matches(file))
 }
 
-/// Whether any known fingerprint for `rel_path` has exactly `size` bytes
-pub fn any_known_size(rel_path: &str, size: u64) -> bool {
+/// Whether any known fingerprint for `rel` has exactly `size` bytes
+pub fn any_known_size(rel: &str, size: u64) -> bool {
     FINGERPRINTS
         .iter()
-        .any(|fp| fp.rel_path.eq_ignore_ascii_case(rel_path) && fp.expected.size == size)
+        .any(|fp| fp.rel_path.eq_ignore_ascii_case(rel) && fp.expected.size == size)
 }
 
 /// The verified identity table for every known Fallout 4 core binary

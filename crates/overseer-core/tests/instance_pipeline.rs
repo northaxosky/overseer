@@ -62,7 +62,7 @@ fn deploy_status_purge_round_trip() {
     // status reports the live deployment (one entry per distinct destination path)
     let st = status(&instance).expect("status").expect("deployed");
     assert_eq!(st.deployment.profile, "Default");
-    assert!(st.verified.is_ok(), "all deployed files present");
+    assert!(st.verified.is_complete(), "all deployed files present");
     assert_eq!(st.deployment.record.entries.len(), 3);
 
     // purge removes every deployed file, the dirs it created, and clears the journal

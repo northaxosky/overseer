@@ -514,7 +514,7 @@ fn status_reports_the_live_deployment() {
 
     let report = status(&instance).expect("status").expect("deployed");
     assert_eq!(report.deployment.profile, "Default");
-    assert!(report.verified.is_ok(), "all deployed files present");
+    assert!(report.verified.is_complete(), "all deployed files present");
     assert!(
         report
             .deployment
@@ -536,7 +536,7 @@ fn status_detects_a_missing_deployed_file() {
     std::fs::remove_file(deployed(&instance, "Cool.esp")).expect("remove");
 
     let report = status(&instance).expect("status").expect("deployed");
-    assert!(!report.verified.is_ok());
+    assert!(!report.verified.is_complete());
     assert!(
         report
             .verified
@@ -559,7 +559,7 @@ fn status_treats_a_replaced_deployed_file_as_present() {
 
     let report = status(&instance).expect("status").expect("deployed");
     assert!(
-        report.verified.is_ok(),
+        report.verified.is_complete(),
         "status verifies path presence, not hard-link identity"
     );
 }

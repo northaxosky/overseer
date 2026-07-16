@@ -95,7 +95,7 @@ pub struct VerifyReport {
 }
 
 impl VerifyReport {
-    pub fn is_ok(&self) -> bool {
+    pub fn is_complete(&self) -> bool {
         self.missing.is_empty()
     }
 }

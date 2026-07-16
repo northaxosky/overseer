@@ -545,7 +545,7 @@ fn items_skips_a_group_with_an_unrecorded_target() {
     let (_tmp, root) = temp();
     std::fs::write(root.join("check.bin"), b"123456789").unwrap();
 
-    let resolved = items(&root, &policy).unwrap();
+    let resolved = list_items(&root, &policy).unwrap();
     let groups: Vec<&str> = resolved.iter().map(|i| i.group).collect();
     assert_eq!(groups, ["known"]);
 }

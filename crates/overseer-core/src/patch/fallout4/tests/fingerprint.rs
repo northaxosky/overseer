@@ -42,8 +42,8 @@ fn a_sha_backed_binary_rejects_a_crc32_collision() {
         crc32: exe.expected.crc32,
         sha256: "00".repeat(32),
     };
-    assert_eq!(exe.verify_file(&forged), None);
-    assert!(!exe.matches_file(&forged));
+    assert_eq!(exe.verify(&forged), None);
+    assert!(!exe.matches(&forged));
 }
 
 #[test]

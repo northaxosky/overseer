@@ -58,7 +58,7 @@ fn golden_instance_deploys_resolves_conflicts_and_purges_clean() {
         "base"
     );
     let st = status(&instance).expect("status").expect("deployed");
-    assert!(st.verified.is_ok(), "all deployed files present");
+    assert!(st.verified.is_complete(), "all deployed files present");
 
     // Purge reverses the whole transaction, leaving Data/ as it found it
     purge(&instance, &NullSink).expect("purge");

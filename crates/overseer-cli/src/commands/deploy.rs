@@ -80,7 +80,7 @@ pub fn status(instance: &InstanceArgs) -> Result<()> {
             };
             println!("  Plugins.txt: {backup}");
 
-            check("All deployed files present", status.verified.is_ok());
+            check("All deployed files present", status.verified.is_complete());
             for missing in &status.verified.missing {
                 println!(
                     "    {}",

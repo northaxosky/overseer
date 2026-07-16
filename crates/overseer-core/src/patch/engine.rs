@@ -161,7 +161,7 @@ fn push_group_items(group: &GroupSpec, policy: &Policy<'_>, out: &mut Vec<Conver
 }
 
 /// Every convertible, owned item under `policy`
-pub fn items(game_dir: &Utf8Path, policy: &Policy<'_>) -> Result<Vec<ConvertItem>, IoError> {
+pub fn list_items(game_dir: &Utf8Path, policy: &Policy<'_>) -> Result<Vec<ConvertItem>, IoError> {
     let mut items = Vec::new();
     for group in policy.groups {
         if !is_convertible(group, policy) || !group.is_owned(game_dir)? {
@@ -233,7 +233,7 @@ fn classify_preview(
 
 /// Plan the conversion for every owned, convertible item under `policy`
 pub fn plan(game_dir: &Utf8Path, policy: &Policy<'_>) -> Result<Vec<ItemPlan>, ConvertError> {
-    let items = items(game_dir, policy)?;
+    let items = list_items(game_dir, policy)?;
     items
         .into_iter()
         .map(|item| Ok(classify_preview(game_dir, item, policy)?))

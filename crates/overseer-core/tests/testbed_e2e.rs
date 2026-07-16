@@ -287,7 +287,7 @@ fn deploy_purge_roundtrip_leaves_testbed_pristine() {
         .expect("status")
         .expect("a live deployment");
     assert!(
-        status.verified.is_ok(),
+        status.verified.is_complete(),
         "status reports missing files: {:?}",
         status.verified.missing
     );
@@ -554,7 +554,7 @@ fn deploy_purge_roundtrip_with_real_mods_leaves_testbed_pristine() {
         .expect("status")
         .expect("a live deployment");
     assert!(
-        status.verified.is_ok(),
+        status.verified.is_complete(),
         "status reports missing files: {:?}",
         status.verified.missing
     );

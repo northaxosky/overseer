@@ -4,7 +4,7 @@ use super::super::protocol::{
     OperationContext, OperationFailure, OperationKind, OperationOutput, OperationPhase,
 };
 use super::super::runner::{BackgroundJob, OperationReporter};
-use overseer_core::apply::deployment_sources;
+use overseer_core::apply::deploy_sources;
 use overseer_core::deploy::ConflictSnapshot;
 use overseer_core::instance::{Instance, Profile};
 
@@ -36,7 +36,7 @@ impl BackgroundJob for ScanConflictsJob {
             ))
         })?;
 
-        let snapshot = ConflictSnapshot::build(&deployment_sources(&instance, &profile))
+        let snapshot = ConflictSnapshot::build(&deploy_sources(&instance, &profile))
             .map_err(|error| OperationFailure::new(format!("Could not scan conflicts: {error}")))?;
         Ok(OperationOutput::ScanConflicts(snapshot))
     }
