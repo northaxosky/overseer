@@ -12,7 +12,7 @@ pub fn run(target: &ProfileArgs) -> Result<()> {
         .context("detecting conflicts")?;
 
     if snapshot.is_empty() {
-        println!("No file conflicts among the enabled mods.");
+        println!("No file conflicts among the enabled mods");
         return Ok(());
     }
 

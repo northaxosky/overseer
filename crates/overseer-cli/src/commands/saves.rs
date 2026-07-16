@@ -20,7 +20,7 @@ fn list(target: &ProfileArgs) -> Result<()> {
     let saves = saves::list_saves(&dir, instance.config.game).context("listing saves")?;
 
     if saves.is_empty() {
-        println!("No saves for profile `{}`.", profile.name);
+        println!("No saves for profile `{}`", profile.name);
         return Ok(());
     }
 

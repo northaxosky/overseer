@@ -10,7 +10,7 @@ pub fn run(instance: &InstanceArgs) -> Result<()> {
     let downloads = list_downloads(&instance).context("listing downloads")?;
 
     if downloads.is_empty() {
-        println!("No archives in the downloads/ directory.");
+        println!("No archives in the downloads/ directory");
         return Ok(());
     }
 

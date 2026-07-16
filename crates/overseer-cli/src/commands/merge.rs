@@ -13,7 +13,7 @@ pub fn run(args: MergeArgs) -> Result<()> {
     if let Some(name) = &args.source.restore {
         let instance = args.target.load_instance()?;
         transaction::restore(&instance, name)?;
-        success(format!("restored merge `{name}`"));
+        success(format!("Restored merge `{name}`"));
         return Ok(());
     }
 
@@ -123,7 +123,7 @@ fn print_merge_plan(plan: &ResolvedPlan, name: &str, gate: Gate) {
 }
 
 fn print_merge_report(report: &MergeReport) {
-    success(format!("merged into `{}`", report.name));
+    success(format!("Merged into `{}`", report.name));
     println!("mod: {}", report.mod_dir);
     println!(
         "archives produced: {} general, {} texture",

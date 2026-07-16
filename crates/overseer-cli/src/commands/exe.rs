@@ -25,7 +25,7 @@ fn list(instance: &InstanceArgs) -> Result<()> {
     let instance = instance.load_instance()?;
     let exes = &instance.config.executables;
     if exes.is_empty() {
-        println!("No launch targets configured.");
+        println!("No launch targets configured");
         return Ok(());
     }
     print_launch_targets(exes);

@@ -33,7 +33,7 @@ fn list(target: &ProfileArgs) -> Result<()> {
     let (_instance, profile) = target.load_context()?;
 
     if profile.mods.is_empty() {
-        println!("No mods installed.");
+        println!("No mods installed");
         return Ok(());
     }
 

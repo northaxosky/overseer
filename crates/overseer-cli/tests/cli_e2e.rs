@@ -1029,7 +1029,7 @@ fn merge_list_then_restore_round_trips_the_sources() {
         inst_s,
     ])
     .success()
-    .stdout(predicate::str::contains("merged into `Merged`"));
+    .stdout(predicate::str::contains("Merged into `Merged`"));
 
     // The managed mod and manifest exist; the sources moved out of Data/
     assert!(inst.join("mods").join("Merged").is_dir());
@@ -1039,7 +1039,7 @@ fn merge_list_then_restore_round_trips_the_sources() {
 
     overseer(&["merge", "--restore", "Merged", "--instance", inst_s])
         .success()
-        .stdout(predicate::str::contains("restored merge `Merged`"));
+        .stdout(predicate::str::contains("Restored merge `Merged`"));
 
     // Restore returns the sources and drops the mod and manifest
     assert!(a_ba2.exists());
