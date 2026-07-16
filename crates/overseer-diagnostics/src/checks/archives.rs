@@ -44,10 +44,10 @@ pub fn run(ctx: &GameContext) -> Vec<Finding> {
 
     let counts = &ctx.loaded_archive_counts;
     if let Some(limits) = ctx.game.engine_limits() {
-        if let Some(finding) = limit_finding(counts.gnrl, limits.archives_gnrl, "General") {
+        if let Some(finding) = limit_finding("General", counts.gnrl, limits.archives_gnrl) {
             findings.push(finding);
         }
-        if let Some(finding) = limit_finding(counts.dx10, limits.archives_dx10, "Texture") {
+        if let Some(finding) = limit_finding("Texture", counts.dx10, limits.archives_dx10) {
             findings.push(finding);
         }
         if counts.gnrl + counts.dx10 > 0 {
@@ -69,7 +69,7 @@ pub fn run(ctx: &GameContext) -> Vec<Finding> {
     findings
 }
 
-fn limit_finding(count: usize, limit: usize, label: &str) -> Option<Finding> {
+fn limit_finding(label: &str, count: usize, limit: usize) -> Option<Finding> {
     match limit_tier(count, limit) {
         LimitTier::Over => Some(
             Finding::error(format!(

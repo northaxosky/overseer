@@ -13,13 +13,13 @@ pub fn run(ctx: &GameContext) -> Vec<Finding> {
     let light = ctx.loaded_plugins.iter().filter(|p| p.is_light).count();
     let full = ctx.loaded_plugins.len() - light;
     vec![
-        count_finding("FULL (ESM/ESP)", full, limits.plugins_full),
-        count_finding("Light (ESL)", light, limits.plugins_light),
+        limit_finding("FULL (ESM/ESP)", full, limits.plugins_full),
+        limit_finding("Light (ESL)", light, limits.plugins_light),
     ]
 }
 
 /// One finding for a plugin tier: error over the limit, warn when near it, else info
-fn count_finding(label: &str, count: usize, limit: usize) -> Finding {
+fn limit_finding(label: &str, count: usize, limit: usize) -> Finding {
     let title = format!("{label} plugins: {count} / {limit}");
     match limit_tier(count, limit) {
         LimitTier::Over => Finding::error(title).detail("Over the limit — the game won't start"),
