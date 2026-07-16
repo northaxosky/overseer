@@ -53,46 +53,13 @@ impl App {
                         self.operation = OperationState::Idle;
                     }
                     OperationOutput::Install { name, state } => {
-                        let message = match state {
-                            LifecycleState::Refreshed { session, downloads } => {
-                                self.accept_install_session(*session);
-                                self.accept_downloads(downloads);
-                                format!("Installed {name}")
-                            }
-                            LifecycleState::CommittedWithResidue(path) => {
-                                format!("Installed {name}; resolve pending residue at {path}")
-                            }
-                        };
-                        self.operation =
-                            OperationState::Completed(CompletedOperation::succeeded(kind, message));
+                        self.complete_lifecycle(kind, &name, state, "Installed")
                     }
                     OperationOutput::Remove { name, state } => {
-                        let message = match state {
-                            LifecycleState::Refreshed { session, downloads } => {
-                                self.accept_install_session(*session);
-                                self.accept_downloads(downloads);
-                                format!("Removed {name}")
-                            }
-                            LifecycleState::CommittedWithResidue(path) => {
-                                format!("Removed {name}; resolve pending residue at {path}")
-                            }
-                        };
-                        self.operation =
-                            OperationState::Completed(CompletedOperation::succeeded(kind, message));
+                        self.complete_lifecycle(kind, &name, state, "Removed")
                     }
                     OperationOutput::Replace { name, state } => {
-                        let message = match state {
-                            LifecycleState::Refreshed { session, downloads } => {
-                                self.accept_install_session(*session);
-                                self.accept_downloads(downloads);
-                                format!("Replaced {name}")
-                            }
-                            LifecycleState::CommittedWithResidue(path) => {
-                                format!("Replaced {name}; resolve pending residue at {path}")
-                            }
-                        };
-                        self.operation =
-                            OperationState::Completed(CompletedOperation::succeeded(kind, message));
+                        self.complete_lifecycle(kind, &name, state, "Replaced")
                     }
                     OperationOutput::Deploy { status, files } => {
                         self.session.status = status;
@@ -133,6 +100,27 @@ impl App {
                     OperationState::Completed(CompletedOperation::failed(kind, message));
             }
         }
+    }
+
+    /// Apply a finished lifecycle result and report it with the given past-tense verb
+    fn complete_lifecycle(
+        &mut self,
+        kind: OperationKind,
+        name: &str,
+        state: LifecycleState,
+        verb: &str,
+    ) {
+        let message = match state {
+            LifecycleState::Refreshed { session, downloads } => {
+                self.accept_install_session(*session);
+                self.accept_downloads(downloads);
+                format!("{verb} {name}")
+            }
+            LifecycleState::CommittedWithResidue(path) => {
+                format!("{verb} {name}; resolve pending residue at {path}")
+            }
+        };
+        self.operation = OperationState::Completed(CompletedOperation::succeeded(kind, message));
     }
 
     /// Replace the conflict cache and select its first row
