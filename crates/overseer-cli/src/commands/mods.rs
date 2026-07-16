@@ -12,9 +12,9 @@ use crate::ui::{heading, list_item, success};
 pub fn run(command: ModCommand) -> Result<()> {
     match command {
         ModCommand::List { target } => list(&target),
-        ModCommand::Enable { name, target } => set_status(&target, &name, true),
-        ModCommand::Disable { name, target } => set_status(&target, &name, false),
-        ModCommand::Move { name, to, target } => move_mod(&target, &name, to),
+        ModCommand::Enable { name, target } => set_enabled(&target, &name, true),
+        ModCommand::Disable { name, target } => set_enabled(&target, &name, false),
+        ModCommand::Move { name, to, target } => move_to(&target, &name, to),
         ModCommand::Rename {
             name,
             new_name,
@@ -48,7 +48,7 @@ fn list(target: &ProfileArgs) -> Result<()> {
     Ok(())
 }
 
-fn set_status(target: &ProfileArgs, mod_name: &str, enabled: bool) -> Result<()> {
+fn set_enabled(target: &ProfileArgs, mod_name: &str, enabled: bool) -> Result<()> {
     let (instance, mut profile) = target.load_context()?;
 
     if enabled {
@@ -72,7 +72,7 @@ fn set_status(target: &ProfileArgs, mod_name: &str, enabled: bool) -> Result<()>
     Ok(())
 }
 
-fn move_mod(target: &ProfileArgs, mod_name: &str, to_1based: usize) -> Result<()> {
+fn move_to(target: &ProfileArgs, mod_name: &str, to_1based: usize) -> Result<()> {
     let (instance, mut profile) = target.load_context()?;
 
     // The list is presented 1-based; convert to a 0-based index (move_to clamps the rest)

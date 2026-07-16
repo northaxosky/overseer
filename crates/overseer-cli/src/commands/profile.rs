@@ -8,7 +8,7 @@ use crate::ui::success;
 pub fn run(command: ProfileCommand) -> Result<()> {
     match command {
         ProfileCommand::Saves { state, target } => saves(&target, state),
-        ProfileCommand::New { name, instance } => new_profile(&instance, &name),
+        ProfileCommand::New { name, instance } => new(&instance, &name),
     }
 }
 
@@ -45,7 +45,7 @@ fn saves(target: &ProfileArgs, state: Option<Toggle>) -> Result<()> {
 }
 
 /// Create a new, empty profile in the instance
-fn new_profile(instance: &InstanceArgs, name: &str) -> Result<()> {
+fn new(instance: &InstanceArgs, name: &str) -> Result<()> {
     let instance = instance.load_instance()?;
     instance
         .create_profile(name)
