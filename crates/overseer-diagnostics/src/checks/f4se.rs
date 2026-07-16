@@ -53,6 +53,10 @@ pub fn run(ctx: &GameContext) -> Vec<Finding> {
             .detail(unreadable.reason.clone()),
         );
     }
+
+    if findings.is_empty() {
+        findings.push(Finding::info("No F4SE problems found"))
+    }
     findings
 }
 

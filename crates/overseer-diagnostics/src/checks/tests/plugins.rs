@@ -5,8 +5,15 @@ use crate::finding::Severity;
 use overseer_core::plugins::UnreadablePlugin;
 
 #[test]
-fn no_unreadable_plugins_is_silent() {
-    assert!(super::run(&GameContext::default()).is_empty());
+fn no_unreadable_plugins_reports_all_clear() {
+    let findings = super::run(&GameContext::default());
+    assert_eq!(findings.len(), 1);
+    assert_eq!(findings[0].severity, Severity::Info);
+    assert!(
+        findings[0]
+            .title
+            .contains("All plugins were read successfully")
+    );
 }
 
 #[test]

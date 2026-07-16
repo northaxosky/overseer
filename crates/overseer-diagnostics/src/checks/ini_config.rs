@@ -10,7 +10,13 @@ pub fn run(ctx: &GameContext) -> Vec<Finding> {
             IniStatus::Unreadable(error) => {
                 vec![Finding::warning("The game INIs could not be read").detail(error.clone())]
             }
-            IniStatus::Missing | IniStatus::Present => Vec::new(),
+            IniStatus::Missing => vec![Finding::warning("The game INIs were not found").detail(
+                "Launch the game once to generate them so archive invalidation can be verified",
+            )],
+            IniStatus::Present => vec![
+                Finding::warning("The game INIs could not be read")
+                    .detail("They are reported present but could not be parsed"),
+            ],
         };
     };
     let settings = &inis.settings;

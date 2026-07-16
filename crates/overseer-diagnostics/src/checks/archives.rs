@@ -60,6 +60,10 @@ pub fn run(ctx: &GameContext) -> Vec<Finding> {
                 counts.v1,
                 counts.vng
             )));
+        } else if findings.is_empty() {
+            findings.push(Finding::warning("No BA2 archives are loaded").detail(
+                "The base game ships BA2 archives; none were found — verify the game installation",
+            ));
         }
     }
     findings
@@ -75,9 +79,11 @@ fn limit_finding(count: usize, limit: usize, label: &str) -> Option<Finding> {
                 "Unpack or merge archives to reduce the total (don't mix texture and non-texture when merging).",
             ),
         ),
-        LimitTier::Near => Some(Finding::warning(format!(
+        LimitTier::Near => Some(
+            Finding::warning(format!(
             "{label} BA2 archives: {count} / {limit} — approaching the limit"
-        ))),
+        ))
+        .detail("Unpack or merge archives before you hit the limit")),
         LimitTier::Under => None,
     }
 }

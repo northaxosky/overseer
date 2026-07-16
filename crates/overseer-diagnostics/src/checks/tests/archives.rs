@@ -47,8 +47,11 @@ fn limit_findings(findings: &[Finding], label: &str) -> Vec<Finding> {
 }
 
 #[test]
-fn no_archives_reports_nothing() {
-    assert!(run(vec![]).is_empty());
+fn no_loaded_archives_warns() {
+    let findings = run(vec![]);
+    assert_eq!(findings.len(), 1);
+    assert_eq!(findings[0].severity, Severity::Warning);
+    assert!(findings[0].title.contains("No BA2 archives are loaded"));
 }
 
 #[test]
@@ -154,12 +157,16 @@ fn an_unsupported_version_warns() {
 }
 
 #[test]
-fn supported_next_gen_versions_do_not_warn() {
+fn supported_next_gen_versions_are_not_flagged() {
     let findings = run(vec![
         info("v7.ba2", header(7, Ba2Kind::Texture)),
         info("v8.ba2", header(8, Ba2Kind::General)),
     ]);
-    assert!(findings.iter().all(|f| f.severity != Severity::Warning));
+    assert!(
+        !findings
+            .iter()
+            .any(|f| f.title.contains("unsupported BA2 version"))
+    );
 }
 
 #[test]
@@ -179,10 +186,10 @@ fn starfield_ba2_versions_are_unsupported_for_fallout_4() {
 
 #[test]
 fn an_other_tag_is_not_counted_in_the_buckets() {
-    // A console GNMF archive parses as `Other` — neither general nor texture, and v1; is supported, so a lone one produces no findings at all
+    // A console GNMF archive parses as `Other` — neither general nor texture, and v1 is supported, so it is never flagged
     let findings = run(vec![info(
         "Console.ba2",
         header(1, Ba2Kind::Other(*b"GNMF")),
     )]);
-    assert!(findings.is_empty());
+    assert!(!findings.iter().any(|f| f.title.contains("Console.ba2")));
 }

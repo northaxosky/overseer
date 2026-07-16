@@ -226,7 +226,7 @@ fn launch_reports_missing_and_unknown_targets() {
 }
 
 #[test]
-fn doctor_reports_a_clean_fresh_instance() {
+fn doctor_reports_a_fresh_instance_with_a_bare_game_dir() {
     let tmp = TempDir::new().unwrap();
     let inst = tmp.path().join("inst");
     let inst_s = inst.to_str().unwrap();
@@ -257,13 +257,16 @@ fn doctor_reports_a_clean_fresh_instance() {
     ])
     .success();
 
-    // A fresh instance has no plugins, so every count is within limits
+    // A fresh instance has no plugins, so every count is within limits; the bare game dir ships
+    // no base archives, so the archives check flags that (the complete-install path is covered by
+    // the env-gated testbed harness, not this hermetic test)
     overseer(&["doctor", "--instance", inst_s])
         .success()
         .stdout(
             predicate::str::contains("Diagnostics: Default")
                 .and(predicate::str::contains("0 / 254"))
-                .and(predicate::str::contains("No problems found.")),
+                .and(predicate::str::contains("No BA2 archives are loaded"))
+                .and(predicate::str::contains("1 warning, 0 errors")),
         );
 }
 

@@ -19,9 +19,23 @@ fn severities(findings: &[Finding]) -> Vec<Severity> {
 }
 
 #[test]
-fn no_inis_is_silent() {
-    // The default context has `inis: None`
-    assert!(super::run(&GameContext::default()).is_empty());
+fn missing_inis_warn() {
+    // The default context has `inis: None` and `ini_status: Missing`
+    let findings = super::run(&GameContext::default());
+    assert_eq!(findings.len(), 1);
+    assert_eq!(findings[0].severity, Severity::Warning);
+    assert!(findings[0].title.contains("were not found"));
+}
+
+#[test]
+fn present_but_unparsed_inis_warn() {
+    let findings = super::run(&GameContext {
+        ini_status: IniStatus::Present,
+        ..GameContext::default()
+    });
+    assert_eq!(findings.len(), 1);
+    assert_eq!(findings[0].severity, Severity::Warning);
+    assert!(findings[0].title.contains("could not be read"));
 }
 
 #[test]

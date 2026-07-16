@@ -19,14 +19,20 @@ fn run(
     })
 }
 
+fn assert_no_problems(findings: &[Finding]) {
+    assert_eq!(findings.len(), 1);
+    assert_eq!(findings[0].severity, Severity::Info);
+    assert_eq!(findings[0].title, "No F4SE problems found");
+}
+
 #[test]
-fn a_matching_loader_is_silent() {
+fn a_matching_loader_reports_no_problems() {
     let findings = run(
         Some(Generation::OldGen),
         Some(Generation::OldGen),
         AddressLibraryStatus::NotApplicable,
     );
-    assert!(findings.is_empty());
+    assert_no_problems(&findings);
 }
 
 #[test]
@@ -43,23 +49,17 @@ fn a_mismatched_loader_errors() {
 }
 
 #[test]
-fn an_unknown_family_does_not_warn() {
-    assert!(
-        run(
-            None,
-            Some(Generation::NextGen),
-            AddressLibraryStatus::NotApplicable
-        )
-        .is_empty()
-    );
-    assert!(
-        run(
-            Some(Generation::NextGen),
-            None,
-            AddressLibraryStatus::NotApplicable
-        )
-        .is_empty()
-    );
+fn an_unknown_family_reports_no_problems() {
+    assert_no_problems(&run(
+        None,
+        Some(Generation::NextGen),
+        AddressLibraryStatus::NotApplicable,
+    ));
+    assert_no_problems(&run(
+        Some(Generation::NextGen),
+        None,
+        AddressLibraryStatus::NotApplicable,
+    ));
 }
 
 #[test]
@@ -77,15 +77,12 @@ fn a_missing_address_library_warns() {
 }
 
 #[test]
-fn a_present_address_library_is_silent() {
-    assert!(
-        run(
-            Some(Generation::OldGen),
-            Some(Generation::OldGen),
-            AddressLibraryStatus::Present
-        )
-        .is_empty()
-    );
+fn a_present_address_library_reports_no_problems() {
+    assert_no_problems(&run(
+        Some(Generation::OldGen),
+        Some(Generation::OldGen),
+        AddressLibraryStatus::Present,
+    ));
 }
 
 fn plugin_ctx(scans: Vec<F4sePluginScan>, packed: Option<u32>) -> GameContext {
@@ -112,12 +109,12 @@ fn scan(name: &str, supports_ngae: bool, compatible: &[u32]) -> F4sePluginScan {
 }
 
 #[test]
-fn a_plugin_advertising_the_runtime_is_silent() {
+fn a_plugin_advertising_the_runtime_reports_no_problems() {
     let findings = plugin_ctx(
         vec![scan("ok.dll", true, &[0x010B_0DD0])],
         Some(0x010B_0DD0),
     );
-    assert!(super::run(&findings).is_empty());
+    assert_no_problems(&super::run(&findings));
 }
 
 #[test]
@@ -142,17 +139,20 @@ fn an_og_only_plugin_warns_on_anniversary() {
 }
 
 #[test]
-fn plugins_are_silent_when_runtime_unknown() {
-    assert!(super::run(&plugin_ctx(vec![scan("x.dll", true, &[0x010A_3D80])], None)).is_empty());
+fn plugins_report_no_problems_when_runtime_unknown() {
+    assert_no_problems(&super::run(&plugin_ctx(
+        vec![scan("x.dll", true, &[0x010A_3D80])],
+        None,
+    )));
 }
 
 #[test]
-fn a_version_independent_plugin_is_silent_without_an_exact_match() {
+fn a_version_independent_plugin_reports_no_problems_without_an_exact_match() {
     // AE-band address + structure independence, so F4SE loads it on AE despite compat listing only OG
     let mut s = scan("indep.dll", true, &[0x010A_3D80]);
     s.plugin.address_independence = 0x4; // Address Library 1.11.137
     s.plugin.structure_independence = 0x4; // 1.11.137 struct layout
-    assert!(super::run(&plugin_ctx(vec![s], Some(0x010B_0DD0))).is_empty());
+    assert_no_problems(&super::run(&plugin_ctx(vec![s], Some(0x010B_0DD0))));
 }
 
 #[test]
@@ -186,7 +186,7 @@ fn a_plugin_with_no_og_entry_point_warns_on_old_gen() {
 }
 
 #[test]
-fn a_real_og_plugin_is_silent_on_old_gen() {
+fn a_real_og_plugin_reports_no_problems_on_old_gen() {
     // supports_og = true (exports Query); it advertises OG and must not be flagged
     let ctx = GameContext {
         runtime_family: Some(Generation::OldGen),
@@ -194,7 +194,7 @@ fn a_real_og_plugin_is_silent_on_old_gen() {
         f4se_plugins: vec![scan("legacy.dll", false, &[])],
         ..GameContext::default()
     };
-    assert!(super::run(&ctx).is_empty());
+    assert_no_problems(&super::run(&ctx));
 }
 
 #[test]
