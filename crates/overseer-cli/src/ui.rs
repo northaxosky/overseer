@@ -8,7 +8,7 @@ pub use overseer_frontend::style::{Color, Role};
 use owo_colors::{OwoColorize, Stream::Stdout, Style};
 
 fn role_style(role: Role) -> Style {
-    let p = role.palette();
+    let p = role.style();
     let mut style = match p.color {
         Some(Color::Green) => Style::new().green(),
         Some(Color::Red) => Style::new().red(),

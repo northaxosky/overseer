@@ -5,7 +5,7 @@ use ratatui::style::{Color as TuiColor, Modifier, Style};
 
 /// The ratatui style for a semantic role, derived from the shared palette
 pub(crate) fn style(role: Role) -> Style {
-    let p = role.palette();
+    let p = role.style();
     let mut style = Style::new();
     if let Some(color) = p.color {
         style = style.fg(match color {

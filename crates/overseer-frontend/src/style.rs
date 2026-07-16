@@ -43,7 +43,7 @@ pub struct RoleStyle {
 
 impl Role {
     /// This role's canonical, backend neutral styling
-    pub fn palette(self) -> RoleStyle {
+    pub fn style(self) -> RoleStyle {
         let colored = |c| RoleStyle {
             color: Some(c),
             bold: true,
