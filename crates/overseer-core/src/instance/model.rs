@@ -6,9 +6,13 @@ use crate::deploy::DeployerKind;
 use crate::fs;
 use crate::game::GameKind;
 use camino::{Utf8Path, Utf8PathBuf};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
+use std::fmt;
+use thiserror::Error;
 
 const PENDING_MOD_OPERATION_DIR: &str = "pending-mod-operation";
+const RESERVED_TOOL_KEYS: [&str; 2] = ["game", "script-extender"];
+const DERIVED_TOOL_NAMES: [&str; 2] = ["Game", "Script Extender (F4SE)"];
 
 /// Persisted configuration for an instance, stored as `overseer.toml` at the instance root
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -37,8 +41,8 @@ pub struct InstanceConfig {
     pub deployer: DeployerKind,
 
     /// User configured launch targets
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub executables: Vec<Executable>,
+    #[serde(default)]
+    pub tools: Vec<UserTool>,
 }
 
 fn default_profile() -> String {
@@ -58,33 +62,215 @@ pub struct InstalledMod {
     pub name: String,
 }
 
-/// A user configured launch target: An external tool or other way to run game
+/// A stable key for a user configured tool, immutable across display-name renames
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
+#[serde(transparent)]
+pub struct UserToolId(String);
+
+impl UserToolId {
+    /// Validate and wrap a tool key: nonempty, `[a-z0-9-]` only, not a reserved key
+    pub fn new(value: impl Into<String>) -> Result<Self, InvalidUserToolId> {
+        let value = value.into();
+        if value.is_empty()
+            || RESERVED_TOOL_KEYS.contains(&value.as_str())
+            || !value
+                .bytes()
+                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+        {
+            return Err(InvalidUserToolId(value));
+        }
+        Ok(Self(value))
+    }
+
+    /// The key as a string slice
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Display for UserToolId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl<'de> Deserialize<'de> for UserToolId {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        Self::new(value).map_err(serde::de::Error::custom)
+    }
+}
+
+/// The reason a string was not a valid [`UserToolId`]
+#[derive(Debug, Clone, Error, PartialEq, Eq)]
+#[error("invalid user tool id `{0}`")]
+pub struct InvalidUserToolId(String);
+
+/// A user configured launch target; derived game/F4SE targets are not persisted
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Executable {
-    /// Display name and lookup key (eg "FO4Edit")
+pub struct UserTool {
+    /// Stable lookup key, minted once and immutable across renames
+    pub id: UserToolId,
+    /// Display name, renameable
     pub name: String,
     /// Path to the executable
     pub path: Utf8PathBuf,
     /// Arguments passed on the command line
     #[serde(default)]
     pub args: Vec<String>,
+    /// The mod generated output routes into (inert until output routing lands)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_mod: Option<String>,
+}
+
+impl UserTool {
+    /// Create a user tool, minting a fresh id from the display name
+    pub fn new(name: impl Into<String>, path: impl Into<Utf8PathBuf>, args: Vec<String>) -> Self {
+        let name = name.into();
+        Self {
+            id: mint_tool_id(&name, &[]),
+            name,
+            path: path.into(),
+            args,
+            output_mod: None,
+        }
+    }
+}
+
+/// Turn a display name into a lowercase `[a-z0-9-]` slug, or "tool" when it has no usable characters
+fn slug_of(name: &str) -> String {
+    let mut slug = String::new();
+    let mut separator = false;
+    for byte in name.bytes() {
+        if byte.is_ascii_alphanumeric() {
+            if separator && !slug.is_empty() {
+                slug.push('-');
+            }
+            slug.push(byte.to_ascii_lowercase() as char);
+            separator = false;
+        } else {
+            separator = true;
+        }
+    }
+    if slug.is_empty() {
+        slug.push_str("tool");
+    }
+    slug
+}
+
+/// Derive a stable, unique tool key from a display name, avoiding reserved and existing keys
+pub fn mint_tool_id(name: &str, existing: &[UserToolId]) -> UserToolId {
+    let base = slug_of(name);
+    let is_free = |candidate: &str| {
+        !RESERVED_TOOL_KEYS.contains(&candidate)
+            && existing.iter().all(|id| id.as_str() != candidate)
+    };
+    if is_free(&base) {
+        return UserToolId(base);
+    }
+    // The base is taken, so use one past the highest `base-N` in use (always free)
+    let prefix = format!("{base}-");
+    let highest = existing
+        .iter()
+        .filter_map(|id| id.as_str().strip_prefix(&prefix))
+        .filter_map(|suffix| suffix.parse::<u32>().ok())
+        .max()
+        .unwrap_or(1);
+    UserToolId(format!("{base}-{}", highest + 1))
+}
+
+/// Why a tool mutation was rejected
+#[derive(Debug, Error, PartialEq, Eq)]
+pub enum ToolMutationError {
+    #[error("the derived tool `{0}` cannot be changed")]
+    Derived(String),
+    #[error("no user tool with id `{0}`")]
+    NotFound(String),
+    #[error("a launch target named `{0}` already exists")]
+    DuplicateName(String),
 }
 
 impl InstanceConfig {
-    /// The launch targets seeded into a fresh instance: game and script extender
-    pub fn default_executables(game: GameKind, game_dir: &Utf8Path) -> Vec<Executable> {
-        vec![
-            Executable {
-                name: "game".to_owned(),
-                path: game_dir.join(game.executable()),
-                args: Vec::new(),
-            },
-            Executable {
-                name: "script-extender".to_owned(),
-                path: game_dir.join(game.script_extender_loader()),
-                args: Vec::new(),
-            },
-        ]
+    /// Add a user tool, minting a unique id and rejecting a name clash with a derived or existing tool
+    pub fn add_tool(
+        &mut self,
+        name: String,
+        path: Utf8PathBuf,
+        args: Vec<String>,
+    ) -> Result<UserToolId, ToolMutationError> {
+        if DERIVED_TOOL_NAMES
+            .iter()
+            .any(|derived| derived.eq_ignore_ascii_case(&name))
+            || self
+                .tools
+                .iter()
+                .any(|tool| tool.name.eq_ignore_ascii_case(&name))
+        {
+            return Err(ToolMutationError::DuplicateName(name));
+        }
+        let ids: Vec<UserToolId> = self.tools.iter().map(|tool| tool.id.clone()).collect();
+        let id = mint_tool_id(&name, &ids);
+        self.tools.push(UserTool {
+            id: id.clone(),
+            name,
+            path,
+            args,
+            output_mod: None,
+        });
+        Ok(id)
+    }
+
+    /// Remove a user tool by key, refusing a derived tool
+    pub fn remove_tool(&mut self, key: &str) -> Result<UserTool, ToolMutationError> {
+        if RESERVED_TOOL_KEYS.contains(&key) {
+            return Err(ToolMutationError::Derived(key.to_owned()));
+        }
+        let index = self
+            .tools
+            .iter()
+            .position(|tool| tool.id.as_str() == key)
+            .ok_or_else(|| ToolMutationError::NotFound(key.to_owned()))?;
+        Ok(self.tools.remove(index))
+    }
+
+    /// Rename a user tool by key (id unchanged), refusing a derived tool or a name clash
+    pub fn rename_tool(&mut self, key: &str, name: String) -> Result<(), ToolMutationError> {
+        if RESERVED_TOOL_KEYS.contains(&key) {
+            return Err(ToolMutationError::Derived(key.to_owned()));
+        }
+        if DERIVED_TOOL_NAMES
+            .iter()
+            .any(|derived| derived.eq_ignore_ascii_case(&name))
+            || self.tools.iter().any(|tool| {
+                tool.id.as_str() != key && tool.name.eq_ignore_ascii_case(name.as_str())
+            })
+        {
+            return Err(ToolMutationError::DuplicateName(name));
+        }
+        let tool = self
+            .tools
+            .iter_mut()
+            .find(|tool| tool.id.as_str() == key)
+            .ok_or_else(|| ToolMutationError::NotFound(key.to_owned()))?;
+        tool.name = name;
+        Ok(())
+    }
+
+    /// Replace a user tool's launch args by key, refusing a derived tool
+    pub fn set_tool_args(&mut self, key: &str, args: Vec<String>) -> Result<(), ToolMutationError> {
+        if RESERVED_TOOL_KEYS.contains(&key) {
+            return Err(ToolMutationError::Derived(key.to_owned()));
+        }
+        let tool = self
+            .tools
+            .iter_mut()
+            .find(|tool| tool.id.as_str() == key)
+            .ok_or_else(|| ToolMutationError::NotFound(key.to_owned()))?;
+        tool.args = args;
+        Ok(())
     }
 }
 
@@ -100,7 +286,7 @@ impl Instance {
                 ini_dir: None,
                 default_profile: default_profile(),
                 deployer: DeployerKind::default(),
-                executables: Vec::new(),
+                tools: Vec::new(),
             },
         }
     }

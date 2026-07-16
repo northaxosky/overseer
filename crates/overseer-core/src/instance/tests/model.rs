@@ -87,7 +87,7 @@ fn config(game_dir: &str) -> InstanceConfig {
         ini_dir: None,
         default_profile: "Default".to_owned(),
         deployer: DeployerKind::default(),
-        executables: Vec::new(),
+        tools: Vec::new(),
     }
 }
 
@@ -115,11 +115,11 @@ fn init_then_load_round_trips_the_config() {
         ini_dir: None,
         default_profile: "Survival".to_owned(),
         deployer: DeployerKind::Usvfs,
-        executables: vec![Executable {
-            name: "xEdit".to_owned(),
-            path: Utf8PathBuf::from("C:/Tools/xEdit.exe"),
-            args: vec!["-FO4".to_owned()],
-        }],
+        tools: vec![UserTool::new(
+            "xEdit",
+            "C:/Tools/xEdit.exe",
+            vec!["-FO4".to_owned()],
+        )],
     };
     Instance::init(&root, cfg).expect("init");
 
@@ -132,26 +132,9 @@ fn init_then_load_round_trips_the_config() {
     assert_eq!(loaded.config.default_profile, "Survival");
     assert_eq!(loaded.config.deployer, DeployerKind::Usvfs);
     assert_eq!(loaded.config.game, GameKind::SkyrimSE);
-    assert_eq!(loaded.config.executables.len(), 1);
-    assert_eq!(loaded.config.executables[0].name, "xEdit");
-    assert_eq!(loaded.config.executables[0].args, ["-FO4"]);
-}
-
-#[test]
-fn default_executables_seed_the_game_and_script_extender() {
-    let exes =
-        InstanceConfig::default_executables(GameKind::SkyrimSE, Utf8Path::new("D:/SkyrimSE"));
-
-    assert_eq!(exes.len(), 2);
-    assert_eq!(exes[0].name, "game");
-    assert_eq!(exes[0].path, Utf8PathBuf::from("D:/SkyrimSE/SkyrimSE.exe"));
-    assert!(exes[0].args.is_empty());
-    assert_eq!(exes[1].name, "script-extender");
-    assert_eq!(
-        exes[1].path,
-        Utf8PathBuf::from("D:/SkyrimSE/skse64_loader.exe")
-    );
-    assert!(exes[1].args.is_empty());
+    assert_eq!(loaded.config.tools.len(), 1);
+    assert_eq!(loaded.config.tools[0].name, "xEdit");
+    assert_eq!(loaded.config.tools[0].args, ["-FO4"]);
 }
 
 #[test]
@@ -162,7 +145,30 @@ fn legacy_config_without_game_key_defaults_to_fallout4() {
     assert_eq!(cfg.default_profile, "Default");
     assert_eq!(cfg.deployer, DeployerKind::default());
     assert_eq!(cfg.local_dir, None);
-    assert!(cfg.executables.is_empty());
+    assert!(cfg.tools.is_empty());
+}
+
+#[test]
+fn mint_tool_ids_are_slugged_unique_and_reserved_safe() {
+    let first = mint_tool_id("FO4Edit", &[]);
+    assert_eq!(first.as_str(), "fo4edit");
+    assert_eq!(mint_tool_id("FO4Edit", &[first]).as_str(), "fo4edit-2");
+    assert_eq!(mint_tool_id("Game", &[]).as_str(), "game-2");
+    assert_eq!(mint_tool_id("日本語 !!!", &[]).as_str(), "tool");
+    assert_eq!(mint_tool_id("", &[]).as_str(), "tool");
+}
+
+#[test]
+fn user_tool_ids_validate_on_construction_and_deserialization() {
+    for invalid in ["", "Upper", "with space", "game", "script-extender"] {
+        assert!(UserToolId::new(invalid).is_err(), "{invalid}");
+        let text = format!("id = \"{invalid}\"\nname = \"Tool\"\npath = \"C:/tool.exe\"\n");
+        assert!(toml::from_str::<UserTool>(&text).is_err(), "{invalid}");
+    }
+    assert_eq!(
+        UserToolId::new("valid-tool-2").unwrap().as_str(),
+        "valid-tool-2"
+    );
 }
 
 #[test]

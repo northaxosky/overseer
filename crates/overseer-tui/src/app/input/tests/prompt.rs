@@ -651,9 +651,9 @@ fn submitting_a_path_adds_a_derived_launch_target() {
     match &app.modal {
         Some(Modal::Select(s)) => {
             let i = s
-                .items
+                .launch_rows
                 .iter()
-                .position(|p| p == "FO4Edit")
+                .position(|row| row.key == "fo4edit")
                 .expect("the derived target is listed");
             assert_eq!(s.state.index(), Some(i), "the new target is selected");
         }
@@ -663,7 +663,7 @@ fn submitting_a_path_adds_a_derived_launch_target() {
         overseer_core::instance::Instance::load(app.session.instance.root.clone()).unwrap();
     let names: Vec<_> = reloaded
         .config
-        .executables
+        .tools
         .iter()
         .map(|e| e.name.as_str())
         .collect();
@@ -693,11 +693,11 @@ fn submitting_a_duplicate_derived_name_keeps_the_prompt_with_an_error() {
     let (_tmp, instance) = overseer_core::test_support::temp_instance();
     let mut app = App::sample();
     app.session.instance = instance;
-    app.session.instance.config.executables = vec![Executable {
-        name: "FO4Edit".to_owned(),
-        path: camino::Utf8PathBuf::from("C:/old/FO4Edit.exe"),
-        args: Vec::new(),
-    }];
+    app.session.instance.config.tools = vec![overseer_core::instance::UserTool::new(
+        "FO4Edit",
+        "C:/old/FO4Edit.exe",
+        Vec::new(),
+    )];
 
     app.handle_key(key(KeyCode::Char('l')));
     app.handle_key(key(KeyCode::Char('a')));
@@ -734,7 +734,7 @@ fn a_relative_path_is_absolutized_before_it_is_stored() {
         .session
         .instance
         .config
-        .executables
+        .tools
         .iter()
         .find(|e| e.name == "MyTool")
         .expect("the target was added under its derived name");

@@ -154,7 +154,7 @@ is the sole public path that publishes a prepared tree under `mods/`.
 Profiles own MO2-compatible `modlist.txt` files, local-save settings, and the ordered mod state used
 by deployment.
 
-The module also validates names, resolves instance paths, stores configured executables, manages
+The module also validates names, resolves instance paths, stores configured tools, manages
 profile priority, and reconciles profile entries with installed staging directories. Reconciliation
 drops missing managed mods and appends newly discovered mods disabled at lowest priority.
 

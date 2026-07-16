@@ -25,6 +25,10 @@ fn l_opens_the_launcher_and_l_again_closes_it() {
         ),
         "l opens the launch select modal"
     );
+    if let Some(Modal::Select(select)) = &app.modal {
+        assert_eq!(select.launch_rows[0].key, "game");
+        assert_eq!(select.launch_rows[1].key, "script-extender");
+    }
     app.handle_key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE));
     assert!(app.modal.is_none(), "l again closes it");
 }
@@ -97,21 +101,7 @@ fn esc_closes_the_launch_modal() {
 
 #[test]
 fn launch_modal_navigates_and_clamps() {
-    use camino::Utf8PathBuf;
-    use overseer_core::instance::Executable;
     let mut app = App::sample();
-    app.session.instance.config.executables = vec![
-        Executable {
-            name: "game".to_owned(),
-            path: Utf8PathBuf::from("game.exe"),
-            args: Vec::new(),
-        },
-        Executable {
-            name: "script-extender".to_owned(),
-            path: Utf8PathBuf::from("f4se.exe"),
-            args: Vec::new(),
-        },
-    ];
     app.handle_key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE));
     assert_eq!(modal_selection(&app), Some(0), "opens on the first target");
     app.handle_key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
@@ -161,12 +151,14 @@ fn a_in_the_launch_picker_opens_the_add_exe_prompt() {
 #[test]
 fn x_in_the_launch_picker_confirms_removal_of_the_highlighted_target() {
     let mut app = App::sample();
-    app.session.instance.config.executables = vec![overseer_core::instance::Executable {
-        name: "FO4Edit".to_owned(),
-        path: Utf8PathBuf::from("C:/Tools/FO4Edit.exe"),
-        args: Vec::new(),
-    }];
+    app.session.instance.config.tools = vec![overseer_core::instance::UserTool::new(
+        "FO4Edit".to_owned(),
+        Utf8PathBuf::from("C:/Tools/FO4Edit.exe"),
+        Vec::new(),
+    )];
     app.handle_key(key(KeyCode::Char('l')));
+    app.handle_key(key(KeyCode::Char('j')));
+    app.handle_key(key(KeyCode::Char('j')));
     app.handle_key(key(KeyCode::Char('x')));
     match &app.modal {
         Some(Modal::Confirm(c)) => {
@@ -175,7 +167,7 @@ fn x_in_the_launch_picker_confirms_removal_of_the_highlighted_target() {
                 "the confirm names the target"
             );
             assert!(
-                matches!(&c.action, ConfirmAction::RemoveExe(n) if n == "FO4Edit"),
+                matches!(&c.action, ConfirmAction::RemoveExe(n) if n == "fo4edit"),
                 "x stages a RemoveExe confirm"
             );
         }
@@ -210,22 +202,17 @@ fn confirming_removal_deletes_the_target_and_reopens_the_picker() {
     let mut app = App::sample();
     app.session.instance = instance;
     std::fs::create_dir_all(&app.session.instance.root).unwrap();
-    app.session.instance.config.executables = vec![
-        overseer_core::instance::Executable {
-            name: "game".to_owned(),
-            path: Utf8PathBuf::from("game.exe"),
-            args: Vec::new(),
-        },
-        overseer_core::instance::Executable {
-            name: "FO4Edit".to_owned(),
-            path: Utf8PathBuf::from("C:/Tools/FO4Edit.exe"),
-            args: Vec::new(),
-        },
-    ];
+    app.session.instance.config.tools = vec![overseer_core::instance::UserTool::new(
+        "FO4Edit",
+        "C:/Tools/FO4Edit.exe",
+        Vec::new(),
+    )];
     app.session.instance.save().unwrap();
 
-    app.handle_key(key(KeyCode::Char('l'))); // picker opens on "game"
-    app.handle_key(key(KeyCode::Char('x'))); // confirm remove "game"
+    app.handle_key(key(KeyCode::Char('l')));
+    app.handle_key(key(KeyCode::Char('j')));
+    app.handle_key(key(KeyCode::Char('j'))); // user tool after derived rows
+    app.handle_key(key(KeyCode::Char('x')));
     app.handle_key(key(KeyCode::Char('y'))); // accept
 
     assert!(
@@ -242,17 +229,17 @@ fn confirming_removal_deletes_the_target_and_reopens_the_picker() {
         .session
         .instance
         .config
-        .executables
+        .tools
         .iter()
         .map(|e| e.name.as_str())
         .collect();
-    assert_eq!(names, vec!["FO4Edit"], "the target is gone from memory");
+    assert_eq!(names, Vec::<&str>::new(), "the target is gone from memory");
 
     let reloaded =
         overseer_core::instance::Instance::load(app.session.instance.root.clone()).unwrap();
     assert_eq!(
-        reloaded.config.executables.len(),
-        1,
+        reloaded.config.tools.len(),
+        0,
         "the removal is persisted to disk"
     );
 }
@@ -263,26 +250,28 @@ fn a_failed_save_on_removal_rolls_the_target_back_in_memory() {
     let mut app = App::sample();
     app.session.instance = instance;
     std::fs::create_dir_all(&app.session.instance.root).unwrap();
-    app.session.instance.config.executables = vec![overseer_core::instance::Executable {
-        name: "game".to_owned(),
-        path: Utf8PathBuf::from("game.exe"),
-        args: Vec::new(),
-    }];
+    app.session.instance.config.tools = vec![overseer_core::instance::UserTool::new(
+        "game".to_owned(),
+        Utf8PathBuf::from("game.exe"),
+        Vec::new(),
+    )];
     app.session.instance.save().unwrap();
     // Replace overseer.toml with a directory so the next atomic save fails
     let config = app.session.instance.root.join("overseer.toml");
     std::fs::remove_file(&config).unwrap();
     std::fs::create_dir(&config).unwrap();
 
-    app.handle_key(key(KeyCode::Char('l'))); // picker opens on "game"
-    app.handle_key(key(KeyCode::Char('x'))); // confirm remove "game"
+    app.handle_key(key(KeyCode::Char('l')));
+    app.handle_key(key(KeyCode::Char('j')));
+    app.handle_key(key(KeyCode::Char('j'))); // user tool after derived rows
+    app.handle_key(key(KeyCode::Char('x')));
     app.handle_key(key(KeyCode::Char('y'))); // accept → save fails
 
     assert_eq!(
         app.session
             .instance
             .config
-            .executables
+            .tools
             .iter()
             .map(|e| e.name.as_str())
             .collect::<Vec<_>>(),
@@ -367,11 +356,11 @@ fn instance_with_one_target() -> (tempfile::TempDir, crate::app::App) {
     let mut app = App::sample();
     app.session.instance = instance;
     std::fs::create_dir_all(&app.session.instance.root).unwrap();
-    app.session.instance.config.executables = vec![overseer_core::instance::Executable {
-        name: "FO4Edit".to_owned(),
-        path: Utf8PathBuf::from("C:/Tools/FO4Edit.exe"),
-        args: Vec::new(),
-    }];
+    app.session.instance.config.tools = vec![overseer_core::instance::UserTool::new(
+        "FO4Edit".to_owned(),
+        Utf8PathBuf::from("C:/Tools/FO4Edit.exe"),
+        Vec::new(),
+    )];
     app.session.instance.save().unwrap();
     (tmp, app)
 }
@@ -381,6 +370,8 @@ fn e_edits_a_targets_name_then_args_and_persists_both() {
     let (_tmp, mut app) = instance_with_one_target();
 
     app.handle_key(key(KeyCode::Char('l'))); // picker on FO4Edit
+    app.handle_key(key(KeyCode::Char('j')));
+    app.handle_key(key(KeyCode::Char('j')));
     app.handle_key(key(KeyCode::Char('e'))); // edit -> name step (prefilled)
     for _ in 0.."FO4Edit".len() {
         app.handle_key(key(KeyCode::Backspace));
@@ -396,7 +387,7 @@ fn e_edits_a_targets_name_then_args_and_persists_both() {
 
     let reloaded =
         overseer_core::instance::Instance::load(app.session.instance.root.clone()).unwrap();
-    let exe = &reloaded.config.executables[0];
+    let exe = &reloaded.config.tools[0];
     assert_eq!(exe.name, "xEdit", "the rename persisted");
     assert_eq!(
         exe.args,
@@ -405,7 +396,11 @@ fn e_edits_a_targets_name_then_args_and_persists_both() {
     );
     match &app.modal {
         Some(Modal::Select(s)) => {
-            let i = s.items.iter().position(|p| p == "xEdit").expect("listed");
+            let i = s
+                .launch_rows
+                .iter()
+                .position(|row| row.key == "fo4edit")
+                .expect("listed");
             assert_eq!(s.state.index(), Some(i), "the renamed target is selected");
         }
         _ => panic!("editing reopens the launch picker"),
@@ -418,16 +413,18 @@ fn editing_the_name_to_an_existing_target_keeps_the_prompt_with_an_error() {
     app.session
         .instance
         .config
-        .executables
-        .push(overseer_core::instance::Executable {
-            name: "game".to_owned(),
-            path: Utf8PathBuf::from("game.exe"),
-            args: Vec::new(),
-        });
+        .tools
+        .push(overseer_core::instance::UserTool::new(
+            "game".to_owned(),
+            Utf8PathBuf::from("game.exe"),
+            Vec::new(),
+        ));
     app.session.instance.save().unwrap();
 
     app.handle_key(key(KeyCode::Char('l')));
-    app.handle_key(key(KeyCode::Char('j'))); // move to "game"
+    app.handle_key(key(KeyCode::Char('j')));
+    app.handle_key(key(KeyCode::Char('j')));
+    app.handle_key(key(KeyCode::Char('j'))); // move to user tool "game"
     app.handle_key(key(KeyCode::Char('e'))); // edit "game"
     for _ in 0.."game".len() {
         app.handle_key(key(KeyCode::Backspace));
@@ -454,14 +451,16 @@ fn editing_args_to_empty_clears_them() {
     let mut app = App::sample();
     app.session.instance = instance;
     std::fs::create_dir_all(&app.session.instance.root).unwrap();
-    app.session.instance.config.executables = vec![overseer_core::instance::Executable {
-        name: "FO4Edit".to_owned(),
-        path: Utf8PathBuf::from("C:/Tools/FO4Edit.exe"),
-        args: vec!["-old".to_owned()],
-    }];
+    app.session.instance.config.tools = vec![overseer_core::instance::UserTool::new(
+        "FO4Edit".to_owned(),
+        Utf8PathBuf::from("C:/Tools/FO4Edit.exe"),
+        vec!["-old".to_owned()],
+    )];
     app.session.instance.save().unwrap();
 
     app.handle_key(key(KeyCode::Char('l')));
+    app.handle_key(key(KeyCode::Char('j')));
+    app.handle_key(key(KeyCode::Char('j')));
     app.handle_key(key(KeyCode::Char('e'))); // name step
     app.handle_key(key(KeyCode::Enter)); // keep the name -> args step (prefilled "-old")
     for _ in 0.."-old".len() {
@@ -472,15 +471,15 @@ fn editing_args_to_empty_clears_them() {
     let reloaded =
         overseer_core::instance::Instance::load(app.session.instance.root.clone()).unwrap();
     assert!(
-        reloaded.config.executables[0].args.is_empty(),
+        reloaded.config.tools[0].args.is_empty(),
         "clearing the args prompt removes all launch args"
     );
 }
 
 #[test]
-fn e_on_an_empty_launch_picker_just_notes_it() {
+fn e_on_a_derived_launch_target_refuses_to_edit_it() {
     let mut app = App::sample();
-    app.session.instance.config.executables = Vec::new();
+    app.session.instance.config.tools = Vec::new();
 
     app.handle_key(key(KeyCode::Char('l'))); // empty picker
     app.handle_key(key(KeyCode::Char('e')));
@@ -498,7 +497,7 @@ fn e_on_an_empty_launch_picker_just_notes_it() {
     assert!(
         app.message
             .as_ref()
-            .is_some_and(|n| n.text.contains("No launch target")),
-        "the user is told there is nothing to edit"
+            .is_some_and(|n| n.text.contains("cannot be edited")),
+        "the user is told derived targets cannot be edited"
     );
 }

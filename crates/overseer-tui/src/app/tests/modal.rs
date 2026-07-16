@@ -7,6 +7,7 @@ fn list_parts_routes_select_info_and_doctor() {
     let mut select = Modal::Select(Select {
         kind: SelectKind::Launch,
         items: vec!["one".to_owned(), "two".to_owned()],
+        launch_rows: Vec::new(),
         state: ListCursor::default(),
     });
     let mut info = Modal::Info(Info {

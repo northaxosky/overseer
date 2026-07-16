@@ -20,10 +20,5 @@ pub fn run(name: Option<String>, instance: &InstanceArgs) -> Result<()> {
 }
 
 fn list(instance: &Instance) {
-    let exes = &instance.config.executables;
-    if exes.is_empty() {
-        println!("No launch targets configured");
-        return;
-    }
-    print_launch_targets(exes);
+    print_launch_targets(&launch::tools(instance));
 }

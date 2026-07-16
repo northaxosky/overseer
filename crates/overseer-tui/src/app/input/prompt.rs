@@ -2,7 +2,7 @@
 
 use camino::{Utf8Path, Utf8PathBuf};
 use overseer_core::apply;
-use overseer_core::instance::{Executable, InstanceError, ModKind};
+use overseer_core::instance::{InstanceError, ModKind};
 use ratatui::crossterm::event::{KeyCode, KeyEvent};
 
 use crate::app::{
@@ -22,8 +22,8 @@ impl App {
                 Some(PromptKind::NewProfile) => self.submit_new_profile(),
                 Some(PromptKind::RenameProfile { old }) => self.submit_rename_profile(old),
                 Some(PromptKind::AddExe) => self.submit_add_exe(),
-                Some(PromptKind::EditExeArgs { index }) => self.submit_edit_exe_args(index),
-                Some(PromptKind::EditExeName { index }) => self.submit_edit_exe_name(index),
+                Some(PromptKind::EditExeArgs { key }) => self.submit_edit_exe_args(key),
+                Some(PromptKind::EditExeName { key }) => self.submit_edit_exe_name(key),
                 Some(PromptKind::RenameMod { old }) => self.submit_rename_mod(old),
                 Some(PromptKind::RenameSeparator { index, .. }) => {
                     self.submit_rename_separator(index)
@@ -134,27 +134,34 @@ impl App {
         }));
     }
 
-    /// Open the name step of editing the target at `index`, prefilled with curr name
-    pub(super) fn open_edit_exe_name(&mut self, index: usize) {
-        let Some(exe) = self.session.instance.config.executables.get(index) else {
+    /// Open the name step of editing a user target
+    pub(super) fn open_edit_exe_name(&mut self, key: String) {
+        let Some(exe) = self
+            .session
+            .instance
+            .config
+            .tools
+            .iter()
+            .find(|tool| tool.id.as_str() == key)
+        else {
             self.note("That launch target is gone");
             return;
         };
         self.modal = Some(Modal::Prompt(Prompt {
-            kind: PromptKind::EditExeName { index },
+            kind: PromptKind::EditExeName { key },
             input: exe.name.clone(),
             error: None,
         }));
     }
 
     /// Apply the new name, then advance to the args step; stay open on error
-    fn submit_edit_exe_name(&mut self, index: usize) {
+    fn submit_edit_exe_name(&mut self, key: String) {
         let Some(Modal::Prompt(prompt)) = self.modal.as_ref() else {
             return;
         };
         let name = prompt.input.trim().to_owned();
-        match self.rename_exe(index, &name) {
-            Ok(()) => self.open_edit_exe_args(index),
+        match self.rename_exe(&key, &name) {
+            Ok(()) => self.open_edit_exe_args(key),
             Err(msg) => self.set_prompt_error(msg),
         }
     }
@@ -177,67 +184,77 @@ impl App {
         self.start_operation(InstallJob::new(basename, name));
     }
 
-    /// Rename the target at `index`, validating uniqueness and persisting with rollback
-    fn rename_exe(&mut self, index: usize, name: &str) -> Result<(), String> {
+    /// Rename a user target, validating uniqueness and persisting with rollback
+    fn rename_exe(&mut self, key: &str, name: &str) -> Result<(), String> {
         validate_name(name)?;
-        let exes = &self.session.instance.config.executables;
-        if index >= exes.len() {
-            return Err("That launch target is gone".to_owned());
-        }
-        if exes
-            .iter()
-            .enumerate()
-            .any(|(i, e)| i != index && e.name == name)
-        {
-            return Err(format!("A launch target named {name} already exists"));
-        }
-        let prev = self.session.instance.config.executables[index].name.clone();
-        self.session.instance.config.executables[index].name = name.to_owned();
+        let snapshot = self.session.instance.config.tools.clone();
+        self.session
+            .instance
+            .config
+            .rename_tool(key, name.to_owned())
+            .map_err(|error| error.to_string())?;
         if let Err(e) = self.session.instance.save() {
-            self.session.instance.config.executables[index].name = prev;
+            self.session.instance.config.tools = snapshot;
             return Err(format!("Could not save instance: {e}"));
         }
         Ok(())
     }
 
-    /// Open the args step of editing the target at `index`, prefilled with curr args
-    fn open_edit_exe_args(&mut self, index: usize) {
-        let Some(exe) = self.session.instance.config.executables.get(index) else {
+    /// Open the args step of editing a user target
+    fn open_edit_exe_args(&mut self, key: String) {
+        let Some(exe) = self
+            .session
+            .instance
+            .config
+            .tools
+            .iter()
+            .find(|tool| tool.id.as_str() == key)
+        else {
             self.note("That launch target is gone");
             return;
         };
         self.modal = Some(Modal::Prompt(Prompt {
-            kind: PromptKind::EditExeArgs { index },
+            kind: PromptKind::EditExeArgs { key },
             input: exe.args.join(" "),
             error: None,
         }));
     }
 
     /// Apply the edited args, persist, and reopen picker
-    fn submit_edit_exe_args(&mut self, index: usize) {
+    fn submit_edit_exe_args(&mut self, key: String) {
         let Some(Modal::Prompt(prompt)) = self.modal.as_ref() else {
             return;
         };
         let args: Vec<String> = prompt.input.split_whitespace().map(str::to_owned).collect();
-        match self.set_exe_args(index, args) {
+        match self.set_exe_args(&key, args) {
             Ok(name) => {
-                self.reopen_select(SelectKind::Launch, &name);
+                self.reopen_select(SelectKind::Launch, &key);
                 self.ok(format!("Updated launch target: {name}"));
             }
             Err(msg) => self.set_prompt_error(msg),
         }
     }
 
-    /// Set the args on the target at `index`, persist on rollback, return name
-    fn set_exe_args(&mut self, index: usize, args: Vec<String>) -> Result<String, String> {
-        if index >= self.session.instance.config.executables.len() {
-            return Err("That launch target is gone".to_owned());
-        }
-        let prev = self.session.instance.config.executables[index].args.clone();
-        self.session.instance.config.executables[index].args = args;
-        let name = self.session.instance.config.executables[index].name.clone();
+    /// Set a user target's args, persist on rollback, return its name
+    fn set_exe_args(&mut self, key: &str, args: Vec<String>) -> Result<String, String> {
+        let snapshot = self.session.instance.config.tools.clone();
+        self.session
+            .instance
+            .config
+            .set_tool_args(key, args)
+            .map_err(|error| error.to_string())?;
+        let name = self
+            .session
+            .instance
+            .config
+            .tools
+            .iter()
+            .find(|tool| tool.id.as_str() == key)
+            .expect("updated tool exists")
+            .name
+            .clone();
         if let Err(e) = self.session.instance.save() {
-            self.session.instance.config.executables[index].args = prev;
+            self.session.instance.config.tools = snapshot;
             return Err(format!("Could not save instance: {e}"));
         }
         Ok(name)
@@ -325,8 +342,8 @@ impl App {
         let path = prompt.input.trim().to_owned();
 
         match self.add_named_exe(&path) {
-            Ok(name) => {
-                self.reopen_select(SelectKind::Launch, &name);
+            Ok((name, key)) => {
+                self.reopen_select(SelectKind::Launch, &key);
                 self.ok(format!("Added launch target: {name}"));
             }
             Err(msg) => self.set_prompt_error(msg),
@@ -334,7 +351,7 @@ impl App {
     }
 
     /// Derive a name from the path's file stem, then add + persist the target
-    fn add_named_exe(&mut self, path: &str) -> Result<String, String> {
+    fn add_named_exe(&mut self, path: &str) -> Result<(String, String), String> {
         if path.is_empty() {
             return Err("Path cannot be empty".to_owned());
         }
@@ -347,26 +364,17 @@ impl App {
             .ok_or_else(|| "Could not derive a name from that path".to_owned())?
             .to_owned();
         validate_name(&name)?;
-        if self
+        let id = self
             .session
             .instance
             .config
-            .executables
-            .iter()
-            .any(|e| e.name == name)
-        {
-            return Err(format!("A launch target named {name} already exists"));
-        }
-        self.session.instance.config.executables.push(Executable {
-            name: name.clone(),
-            path,
-            args: Vec::new(),
-        });
+            .add_tool(name.clone(), path, Vec::new())
+            .map_err(|error| error.to_string())?;
         if let Err(e) = self.session.instance.save() {
-            self.session.instance.config.executables.pop();
+            self.session.instance.config.tools.pop();
             return Err(format!("Could not save instance: {e}"));
         }
-        Ok(name)
+        Ok((name, id.to_string()))
     }
 
     /// Rename the selected mod to the name in the open prompt; stay open on any error
@@ -512,7 +520,11 @@ impl App {
     fn reopen_select(&mut self, kind: SelectKind, name: &str) {
         self.open_select(kind);
         if let Some(Modal::Select(s)) = self.modal.as_mut()
-            && let Some(i) = s.items.iter().position(|p| p == name)
+            && let Some(i) = if s.kind == SelectKind::Launch {
+                s.launch_rows.iter().position(|row| row.key == name)
+            } else {
+                s.items.iter().position(|item| item == name)
+            }
         {
             s.state.select(Some(i));
         }

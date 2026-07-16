@@ -683,14 +683,14 @@ fn doctor_modal_reports_all_clear_with_only_info_findings() {
 
 #[test]
 fn launch_modal_lists_targets_when_open() {
-    use overseer_core::instance::Executable;
+    use overseer_core::instance::UserTool;
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     let mut app = App::sample();
-    app.session.instance.config.executables = vec![Executable {
-        name: "FO4Edit".to_owned(),
-        path: camino::Utf8PathBuf::from("FO4Edit.exe"),
-        args: Vec::new(),
-    }];
+    app.session.instance.config.tools = vec![UserTool::new(
+        "FO4Edit".to_owned(),
+        camino::Utf8PathBuf::from("FO4Edit.exe"),
+        Vec::new(),
+    )];
     app.handle_key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE));
     let out = render(&mut app, 80, 24);
     assert!(out.contains("FO4Edit"), "modal lists the launch target");
@@ -698,14 +698,15 @@ fn launch_modal_lists_targets_when_open() {
 }
 
 #[test]
-fn launch_modal_shows_empty_state_with_no_targets() {
+fn launch_modal_always_shows_derived_targets() {
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     let mut app = App::sample(); // sample instance configures no exes
     app.handle_key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE));
     let out = render(&mut app, 80, 24);
+    assert!(out.contains("Game"), "modal shows the derived game target");
     assert!(
-        out.contains("No launch targets"),
-        "modal shows the empty state"
+        out.contains("Script Extender"),
+        "modal shows the derived script extender target"
     );
 }
 

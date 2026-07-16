@@ -130,7 +130,7 @@ fn exe_and_launch_manage_and_list_targets() {
     let inst = root.join("inst");
     let inst_s = inst.to_str().unwrap();
 
-    // init seeds `game` + `script-extender` as ordinary launch targets
+    // init reports the two derived launch targets
     overseer(&[
         "instance",
         "init",
@@ -165,12 +165,13 @@ fn exe_and_launch_manage_and_list_targets() {
     .success()
     .stdout(predicate::str::contains("Added launch target `FO4Edit`"));
 
-    // `exe list` shows it as installed, with its argument
+    // `exe list` shows derived and user tools with keys, availability, and args
     overseer(&["exe", "list", "--instance", inst_s])
         .success()
         .stdout(
             predicate::str::contains("FO4Edit")
-                .and(predicate::str::contains("installed"))
+                .and(predicate::str::contains("fo4edit"))
+                .and(predicate::str::contains("ready"))
                 .and(predicate::str::contains("-FO4")),
         );
 
@@ -188,8 +189,12 @@ fn exe_and_launch_manage_and_list_targets() {
     .failure()
     .stderr(predicate::str::contains("already exists"));
 
-    // Removing it drops it from the list (the seeded targets remain)
-    overseer(&["exe", "remove", "FO4Edit", "--instance", inst_s])
+    overseer(&["exe", "remove", "game", "--instance", inst_s])
+        .failure()
+        .stderr(predicate::str::contains("cannot be removed"));
+
+    // Removing by stable key drops the user tool while derived targets remain
+    overseer(&["exe", "remove", "fo4edit", "--instance", inst_s])
         .success()
         .stdout(predicate::str::contains("Removed launch target `FO4Edit`"));
     overseer(&["exe", "list", "--instance", inst_s])
@@ -214,10 +219,10 @@ fn launch_reports_missing_and_unknown_targets() {
     ])
     .success();
 
-    // `game` is seeded, but its executable isn't on disk
+    // `game` is derived, but its executable isn't on disk
     overseer(&["launch", "game", "--instance", inst_s])
         .failure()
-        .stderr(predicate::str::contains("not present"));
+        .stderr(predicate::str::contains("program is missing"));
 
     // An unknown target name is rejected
     overseer(&["launch", "bogus", "--instance", inst_s])

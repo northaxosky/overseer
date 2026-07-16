@@ -3,7 +3,7 @@
 use std::fmt::Display;
 
 use overseer_core::deploy::{ProgressEvent, ProgressSink};
-use overseer_core::instance::Executable;
+use overseer_core::launch::{Tool, ToolAvailability};
 pub use overseer_frontend::style::{Color, Role};
 use owo_colors::{OwoColorize, Stream::Stdout, Style};
 
@@ -122,20 +122,22 @@ pub fn check(label: &str, ok: bool) {
 }
 
 /// Print an instance's launch targets with installed/missing status, path, and args
-pub fn print_launch_targets(exes: &[Executable]) {
-    heading(format!("{} launch targets", exes.len()));
-    for exe in exes {
-        let status = if exe.path.exists() {
-            styled(Role::Success, "installed")
-        } else {
-            styled(Role::Warning, "missing")
+pub fn print_launch_targets(tools: &[Tool]) {
+    heading(format!("{} launch targets", tools.len()));
+    for tool in tools {
+        let (role, label) = match tool.availability {
+            ToolAvailability::Ready => (Role::Success, "ready"),
+            ToolAvailability::Missing => (Role::Warning, "missing"),
+            ToolAvailability::NotFile => (Role::Failure, "not a file"),
+            ToolAvailability::Inaccessible => (Role::Failure, "inaccessible"),
         };
-        println!("  {} [{status}]", exe.name);
-        println!("      {}", styled(Role::Muted, &exe.path));
-        if !exe.args.is_empty() {
+        let status = styled(role, label);
+        println!("  {} ({}) [{:?}, {status}]", tool.name, tool.key, tool.kind);
+        println!("      {}", styled(Role::Muted, &tool.program));
+        if !tool.args.is_empty() {
             println!(
                 "      {}",
-                styled(Role::Muted, format!("args: {}", exe.args.join(" ")))
+                styled(Role::Muted, format!("args: {}", tool.args.join(" ")))
             );
         }
     }

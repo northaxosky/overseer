@@ -8,6 +8,7 @@ use camino::Utf8PathBuf;
 use overseer_core::deploy::DeployerKind;
 use overseer_core::game::GameKind;
 use overseer_core::instance::{Instance, InstanceConfig};
+use overseer_core::launch;
 
 pub fn run(command: InstanceCommand) -> Result<()> {
     match command {
@@ -33,7 +34,6 @@ fn init(
 ) -> Result<()> {
     let path = absolutize(&path)?;
     let game_dir = absolutize(&game_dir)?;
-    let executables = InstanceConfig::default_executables(game, &game_dir);
     let config = InstanceConfig {
         game_dir,
         game,
@@ -41,7 +41,7 @@ fn init(
         ini_dir: ini_dir.map(|d| absolutize(&d)).transpose()?,
         default_profile: profile,
         deployer: DeployerKind::default(),
-        executables,
+        tools: Vec::new(),
     };
 
     let instance = Instance::init(&path, config).with_context(|| format!("initializing {path}"))?;
@@ -52,12 +52,8 @@ fn init(
     println!("  game:     {}", instance.config.game);
     println!("  game dir: {}", instance.config.game_dir);
     println!("  profile:  {}", instance.config.default_profile);
-    let targets: Vec<&str> = instance
-        .config
-        .executables
-        .iter()
-        .map(|e| e.name.as_str())
-        .collect();
+    let resolved = launch::tools(&instance);
+    let targets: Vec<&str> = resolved.iter().map(|tool| tool.key.as_str()).collect();
     println!("  targets:  {}", targets.join(", "));
     Ok(())
 }

@@ -1,8 +1,8 @@
-//! `overseer exe ...`: manage an instance's launch targets (executables).
+//! `overseer exe ...`: manage an instance's launch targets (tools).
 
 use anyhow::{Context, Result, bail};
 use camino::Utf8PathBuf;
-use overseer_core::instance::Executable;
+use overseer_core::launch::{self, ToolKind};
 
 use crate::cli::{ExeCommand, InstanceArgs};
 use crate::context::absolutize;
@@ -23,39 +23,53 @@ pub fn run(command: ExeCommand) -> Result<()> {
 
 fn list(instance: &InstanceArgs) -> Result<()> {
     let instance = instance.load_instance()?;
-    let exes = &instance.config.executables;
-    if exes.is_empty() {
-        println!("No launch targets configured");
-        return Ok(());
-    }
-    print_launch_targets(exes);
+    print_launch_targets(&launch::tools(&instance));
     Ok(())
 }
 
 fn add(name: String, path: Utf8PathBuf, args: Vec<String>, instance: &InstanceArgs) -> Result<()> {
     let mut instance = instance.load_instance()?;
-    if instance.config.executables.iter().any(|e| e.name == name) {
-        bail!("a launch target named `{name}` already exists");
-    }
-
     let path = absolutize(&path)?;
-    let exe = Executable { name, path, args };
-    let msg = format!("Added launch target `{}`", exe.name);
-    instance.config.executables.push(exe);
+    let id = instance
+        .config
+        .add_tool(name.clone(), path, args)
+        .map_err(anyhow::Error::msg)?;
     instance.save().context("saving instance config")?;
-    success(msg);
+    success(format!("Added launch target `{name}` ({id})"));
     Ok(())
 }
 
 fn remove(name: String, instance: &InstanceArgs) -> Result<()> {
     let mut instance = instance.load_instance()?;
-    let before = instance.config.executables.len();
-    instance.config.executables.retain(|e| e.name != name);
-    if instance.config.executables.len() == before {
-        bail!("no launch target named `{name}`");
+    let tool = launch::tools(&instance);
+    let key_matches: Vec<_> = tool.iter().filter(|tool| tool.key == name).collect();
+    let target = match key_matches.as_slice() {
+        [target] => *target,
+        [] => {
+            let name_matches: Vec<_> = tool
+                .iter()
+                .filter(|tool| tool.name.eq_ignore_ascii_case(&name))
+                .collect();
+            match name_matches.as_slice() {
+                [target] => *target,
+                [] => bail!("no launch target named `{name}`"),
+                _ => bail!("launch target `{name}` is ambiguous"),
+            }
+        }
+        _ => bail!("launch target `{name}` is ambiguous"),
+    };
+    if target.kind != ToolKind::User {
+        bail!(
+            "the derived launch target `{}` cannot be removed",
+            target.name
+        );
     }
+    let removed = instance
+        .config
+        .remove_tool(&target.key)
+        .map_err(anyhow::Error::msg)?;
 
     instance.save().context("saving instance config")?;
-    success(format!("Removed launch target `{name}`"));
+    success(format!("Removed launch target `{}`", removed.name));
     Ok(())
 }

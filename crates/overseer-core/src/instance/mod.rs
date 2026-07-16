@@ -6,5 +6,8 @@ mod profile;
 
 pub use error::InstanceError;
 pub(crate) use model::validate_mod_name;
-pub use model::{Executable, InstalledMod, Instance, InstanceConfig};
+pub use model::{
+    InstalledMod, Instance, InstanceConfig, InvalidUserToolId, ToolMutationError, UserTool,
+    UserToolId, mint_tool_id,
+};
 pub use profile::{ModKind, ModListEntry, Profile};

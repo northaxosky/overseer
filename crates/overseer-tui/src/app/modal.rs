@@ -1,6 +1,7 @@
 //! Modal surfaces: views that block the main view and end in submit or cancel
 
 use camino::Utf8PathBuf;
+use overseer_core::launch::ToolKind;
 use overseer_diagnostics::Report;
 
 use super::ListCursor;
@@ -34,8 +35,8 @@ pub(crate) enum PromptKind {
     RenameMod { old: String },
     RenameProfile { old: String },
     AddExe,
-    EditExeName { index: usize },
-    EditExeArgs { index: usize },
+    EditExeName { key: String },
+    EditExeArgs { key: String },
     InstallName { archive: Utf8PathBuf },
 }
 
@@ -89,7 +90,15 @@ impl PromptKind {
 pub(crate) struct Select {
     pub(crate) kind: SelectKind,
     pub(crate) items: Vec<String>,
+    pub(crate) launch_rows: Vec<LaunchRow>,
     pub(crate) state: ListCursor,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct LaunchRow {
+    pub(crate) key: String,
+    pub(crate) kind: ToolKind,
+    pub(crate) display_name: String,
 }
 
 /// Which selection a [`Select`] drives; its items and what submitting does
@@ -190,7 +199,7 @@ pub(crate) struct Confirm {
 pub(crate) enum ConfirmAction {
     /// Delete the `.fos` save at this path (and its script-extender co-save)
     DeleteSave(Utf8PathBuf),
-    /// Remove the launch target with this name from the instance config
+    /// Remove the launch target with this key from the instance config
     RemoveExe(String),
     /// Remove the managed mod with this name
     RemoveMod(String),

@@ -8,7 +8,7 @@ fn default_is_fallout4() {
 }
 
 #[test]
-fn executables_and_loaders_per_game() {
+fn tools_and_loaders_per_game() {
     assert_eq!(GameKind::Fallout4.executable(), "Fallout4.exe");
     assert_eq!(GameKind::SkyrimSE.executable(), "SkyrimSE.exe");
     assert_eq!(GameKind::Starfield.executable(), "Starfield.exe");

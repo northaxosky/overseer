@@ -101,7 +101,7 @@ pub enum Command {
         instance: InstanceArgs,
     },
 
-    /// Manage an instance's launch targets (executables)
+    /// Manage an instance's launch targets (tools)
     Exe {
         #[command(subcommand)]
         command: ExeCommand,
