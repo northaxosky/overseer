@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::app::input::test_helpers::key;
+use crate::app::{Select, SelectKind};
 use ratatui::crossterm::event::KeyCode;
 
 /// Foreign mod rows remain unchanged and explain why
@@ -502,4 +503,151 @@ fn uppercase_p_opens_purge_confirmation_without_running_work() {
         }))
     ));
     assert!(!app.operation_running(), "input only stages confirmation");
+}
+
+#[test]
+fn remove_and_replace_only_accept_managed_mod_rows() {
+    for (entry, expected) in [
+        (
+            separator("Group_separator"),
+            "Only managed mods can be removed",
+        ),
+        (foreign("BaseGame"), "Only managed mods can be removed"),
+    ] {
+        let mut app = App::sample();
+        app.session.profile.mods = vec![entry];
+        app.mods.reset(&app.session.profile.mods);
+
+        app.begin_remove_mod();
+
+        assert!(
+            app.modal.is_none(),
+            "non-managed rows do not open a confirm"
+        );
+        assert_eq!(
+            app.message.as_ref().map(|notice| notice.text.as_str()),
+            Some(expected)
+        );
+        app.begin_replace_mod();
+        assert!(app.modal.is_none(), "non-managed rows do not open a picker");
+        assert_eq!(
+            app.message.as_ref().map(|notice| notice.text.as_str()),
+            Some("Only managed mods can be replaced")
+        );
+    }
+}
+
+#[test]
+fn managed_mod_actions_open_their_respective_modal() {
+    let (_temp, instance) = overseer_core::test_support::temp_instance();
+    let mut app = App::sample();
+    app.session.instance = instance;
+
+    app.begin_remove_mod();
+    assert!(matches!(
+        app.modal,
+        Some(Modal::Confirm(Confirm {
+            action: ConfirmAction::RemoveMod(ref name),
+            ..
+        })) if name == "OffMod"
+    ));
+
+    app.modal = None;
+    overseer_core::test_support::write_zip(
+        &app.session.instance.downloads_dir().join("New.zip"),
+        &[("Textures/a.dds", b"replacement")],
+    );
+    app.begin_replace_mod();
+    assert!(matches!(
+        app.modal,
+        Some(Modal::Select(Select {
+            kind: SelectKind::ReplaceArchive { ref target },
+            ref items,
+            ..
+        })) if target == "OffMod" && items == &["New.zip"]
+    ));
+}
+
+fn app_with_live_deployment_status() -> (tempfile::TempDir, App) {
+    use overseer_core::deploy::NullSink;
+    use overseer_core::instance::Instance;
+    use overseer_core::test_support::{install_mod, save_profile, temp_instance};
+
+    let (temp, scaffold) = temp_instance();
+    let instance = Instance::init(scaffold.root.clone(), scaffold.config.clone())
+        .expect("initialize instance");
+    instance.create_profile("Default").expect("create profile");
+    install_mod(&instance, "Seed", &[("Textures/seed.dds", "texture")]);
+    save_profile(&instance, "Default", &[("Seed", true)]);
+    overseer_core::apply::deploy_profile(&instance, "Default", &NullSink).expect("deploy fixture");
+    let status = overseer_core::apply::status(&instance)
+        .expect("read deployment status")
+        .expect("live deployment");
+
+    let mut app = App::sample();
+    app.session.instance = instance;
+    app.session.status = Some(status);
+    (temp, app)
+}
+
+#[test]
+fn remove_confirmation_advises_only_when_a_deployment_is_live() {
+    let (_temp, mut live) = app_with_live_deployment_status();
+
+    live.begin_remove_mod();
+
+    assert!(matches!(
+        live.modal,
+        Some(Modal::Confirm(Confirm {
+            ref message,
+            action: ConfirmAction::RemoveMod(_),
+        })) if message.contains("a deployment looks live — this will fail unless you purge first")
+    ));
+
+    let mut idle = App::sample();
+    idle.begin_remove_mod();
+    assert!(matches!(
+        idle.modal,
+        Some(Modal::Confirm(Confirm {
+            ref message,
+            action: ConfirmAction::RemoveMod(_),
+        })) if !message.contains("a deployment looks live")
+    ));
+}
+
+#[test]
+fn replace_confirmation_advises_only_when_a_deployment_is_live() {
+    let (_temp, mut live) = app_with_live_deployment_status();
+    overseer_core::test_support::write_zip(
+        &live.session.instance.downloads_dir().join("New.zip"),
+        &[("Textures/a.dds", b"replacement")],
+    );
+
+    live.begin_replace_mod();
+    live.handle_key(key(KeyCode::Enter));
+
+    assert!(matches!(
+        live.modal,
+        Some(Modal::Confirm(Confirm {
+            ref message,
+            action: ConfirmAction::ReplaceMod { .. },
+        })) if message.contains("a deployment looks live — this will fail unless you purge first")
+    ));
+
+    let (_temp, instance) = overseer_core::test_support::temp_instance();
+    let mut idle = App::sample();
+    idle.session.instance = instance;
+    overseer_core::test_support::write_zip(
+        &idle.session.instance.downloads_dir().join("New.zip"),
+        &[("Textures/a.dds", b"replacement")],
+    );
+    idle.begin_replace_mod();
+    idle.handle_key(key(KeyCode::Enter));
+    assert!(matches!(
+        idle.modal,
+        Some(Modal::Confirm(Confirm {
+            ref message,
+            action: ConfirmAction::ReplaceMod { .. },
+        })) if !message.contains("a deployment looks live")
+    ));
 }

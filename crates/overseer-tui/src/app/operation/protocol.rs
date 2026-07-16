@@ -15,6 +15,8 @@ pub(crate) enum OperationKind {
     Deploy,
     Purge,
     Install,
+    Remove,
+    Replace,
     ScanConflicts,
     Doctor,
     RefreshSaves,
@@ -28,6 +30,8 @@ impl OperationKind {
             Self::Deploy => "Deploy",
             Self::Purge => "Purge",
             Self::Install => "Install",
+            Self::Remove => "Remove",
+            Self::Replace => "Replace",
             Self::ScanConflicts => "Conflicts",
             Self::Doctor => "Doctor",
             Self::RefreshSaves => "Saves refresh",
@@ -41,6 +45,8 @@ impl OperationKind {
             Self::Deploy => "deploy",
             Self::Purge => "purge",
             Self::Install => "install",
+            Self::Remove => "remove",
+            Self::Replace => "replace",
             Self::ScanConflicts => "conflicts",
             Self::Doctor => "doctor",
             Self::RefreshSaves => "saves",
@@ -50,7 +56,10 @@ impl OperationKind {
 
     /// Report whether this operation mutates instance state
     pub(crate) fn is_mutating(self) -> bool {
-        matches!(self, Self::Deploy | Self::Purge | Self::Install)
+        matches!(
+            self,
+            Self::Deploy | Self::Purge | Self::Install | Self::Remove | Self::Replace
+        )
     }
 
     /// Report whether this operation refreshes cached data
@@ -103,6 +112,8 @@ impl OperationPhase {
             OperationKind::Deploy => Self::PlanningDeploy,
             OperationKind::Purge => Self::PreparingPurge,
             OperationKind::Install => Self::ExtractingArchive,
+            OperationKind::Remove => Self::ReloadingSession,
+            OperationKind::Replace => Self::ExtractingArchive,
             OperationKind::ScanConflicts => Self::ScanningConflicts,
             OperationKind::Doctor => Self::RunningDiagnostics,
             OperationKind::RefreshSaves => Self::ReadingSaves,
@@ -128,7 +139,7 @@ impl OperationContext {
 }
 
 #[derive(Debug)]
-pub(crate) enum InstallState {
+pub(crate) enum LifecycleState {
     Refreshed {
         session: Box<Session>,
         downloads: Vec<DownloadEntry>,
@@ -152,7 +163,15 @@ pub(crate) enum OperationOutput {
     },
     Install {
         name: String,
-        state: InstallState,
+        state: LifecycleState,
+    },
+    Remove {
+        name: String,
+        state: LifecycleState,
+    },
+    Replace {
+        name: String,
+        state: LifecycleState,
     },
 }
 
@@ -167,6 +186,8 @@ impl OperationOutput {
             Self::Purge { .. } => OperationKind::Purge,
             Self::Deploy { .. } => OperationKind::Deploy,
             Self::Install { .. } => OperationKind::Install,
+            Self::Remove { .. } => OperationKind::Remove,
+            Self::Replace { .. } => OperationKind::Replace,
         }
     }
 }

@@ -65,6 +65,9 @@ impl App {
             return;
         }
         match key.code {
+            // Mods pane only keys
+            KeyCode::Char('m') if self.focus == Focus::Mods => self.begin_remove_mod(),
+            KeyCode::Char('e') if self.focus == Focus::Mods => self.begin_replace_mod(),
             // Modal-opening keys
             KeyCode::Char('?') => self.open_help(),
             KeyCode::Char('R') => self.open_rename_mod(),
@@ -215,6 +218,15 @@ impl App {
             | KeyCode::Down
             | KeyCode::Up
             | KeyCode::Tab => false,
+
+            KeyCode::Char('m') => {
+                self.note_blocked_operation(OperationKind::Remove);
+                true
+            }
+            KeyCode::Char('e') => {
+                self.note_blocked_operation(OperationKind::Replace);
+                true
+            }
 
             KeyCode::Char('D') => {
                 self.note_blocked_operation(OperationKind::Deploy);

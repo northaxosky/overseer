@@ -2,7 +2,7 @@
 
 use overseer_core::instance::{ModKind, Profile};
 
-use crate::app::{App, Confirm, ConfirmAction, Focus, ModPaneRow, Modal, Workspace};
+use crate::app::{App, Confirm, ConfirmAction, Focus, ModPaneRow, Modal, SelectKind, Workspace};
 
 impl App {
     /// Toggle the selected item in the focused pane & report the outcome
@@ -145,6 +145,59 @@ impl App {
             message: "Purge the live deployment?".to_owned(),
             action: ConfirmAction::Purge,
         }));
+    }
+
+    /// Ask before removing the selected managed mod
+    pub(super) fn begin_remove_mod(&mut self) {
+        let Some(name) = self.managed_mod_name("removed") else {
+            return;
+        };
+        let mut message = format!("Remove {name}?");
+        self.append_deployment_advisory(&mut message);
+        self.modal = Some(Modal::Confirm(Confirm {
+            message,
+            action: ConfirmAction::RemoveMod(name),
+        }));
+    }
+
+    /// Open the archive picker to replace the selected managed mod
+    pub(super) fn begin_replace_mod(&mut self) {
+        let Some(name) = self.managed_mod_name("replaced") else {
+            return;
+        };
+        self.open_select(SelectKind::ReplaceArchive { target: name });
+    }
+
+    /// Return the selected managed mod name or explain why it can't be changed
+    fn managed_mod_name(&mut self, verb: &str) -> Option<String> {
+        if self.focus != Focus::Mods {
+            self.note(format!("Only managed mods can be {verb}"));
+            return None;
+        }
+        let rows = self.mods.project(&self.session.profile.mods);
+        let row = self
+            .mods
+            .index()
+            .and_then(|index| rows.get(index))
+            .copied()?;
+        let ModPaneRow::Mod { model_index } = row else {
+            self.note(format!("Only managed mods can be {verb}"));
+            return None;
+        };
+        let entry = &self.session.profile.mods[model_index];
+        if entry.kind != ModKind::Managed {
+            self.note(format!("Only managed mods can be {verb}"));
+            return None;
+        }
+        Some(entry.name.clone())
+    }
+
+    /// Append the live-deployment advisory to a confirm message when one looks active
+    pub(super) fn append_deployment_advisory(&self, message: &mut String) {
+        if self.session.status.is_some() {
+            message
+                .push_str(" Note: a deployment looks live — this will fail unless you purge first");
+        }
     }
 }
 

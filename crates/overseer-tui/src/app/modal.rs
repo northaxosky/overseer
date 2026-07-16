@@ -93,11 +93,12 @@ pub(crate) struct Select {
 }
 
 /// Which selection a [`Select`] drives; its items and what submitting does
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum SelectKind {
     Launch,
     Profile,
     Instance,
+    ReplaceArchive { target: String },
 }
 
 impl SelectKind {
@@ -112,38 +113,41 @@ impl SelectKind {
     }
 
     /// Accelerator that opens this selection from the main view
-    pub(crate) fn toggle_key(self) -> char {
+    pub(crate) fn toggle_key(&self) -> char {
         match self {
             SelectKind::Launch => 'l',
             SelectKind::Profile => 'p',
             SelectKind::Instance => 's',
+            SelectKind::ReplaceArchive { .. } => '\0',
         }
     }
 
     /// Message shown when the list has no items to choose from
-    pub(crate) fn empty_message(self) -> &'static str {
+    pub(crate) fn empty_message(&self) -> &'static str {
         match self {
             SelectKind::Launch => "No launch targets. Add with `overseer exe add`.",
             SelectKind::Profile => "No profiles.",
             SelectKind::Instance => "No other instances.",
+            SelectKind::ReplaceArchive { .. } => "No archives in Downloads to replace with.",
         }
     }
 
     /// Verb naming what submitting does, shown in the hint line
-    pub(crate) fn action_verb(self) -> &'static str {
+    pub(crate) fn action_verb(&self) -> &'static str {
         match self {
             SelectKind::Launch => "launch",
             SelectKind::Profile => "switch",
             SelectKind::Instance => "switch",
+            SelectKind::ReplaceArchive { .. } => "replace",
         }
     }
 
     /// Extra hint appended after the close hint, for kinds with a side-action
-    pub(crate) fn extra_hint(self) -> &'static str {
+    pub(crate) fn extra_hint(&self) -> &'static str {
         match self {
             SelectKind::Launch => " · a add · e edit · x remove",
             SelectKind::Profile => " · n new · r rename",
-            SelectKind::Instance => "",
+            SelectKind::Instance | SelectKind::ReplaceArchive { .. } => "",
         }
     }
 }
@@ -183,6 +187,10 @@ pub(crate) enum ConfirmAction {
     DeleteSave(Utf8PathBuf),
     /// Remove the launch target with this name from the instance config
     RemoveExe(String),
+    /// Remove the managed mod with this name
+    RemoveMod(String),
+    /// Replace the managed mod with this archive
+    ReplaceMod { name: String, archive: String },
     /// Delete the mod-list separator at this index
     DeleteModSeparator { index: usize },
     /// Delete the plugin separator at this index

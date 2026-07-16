@@ -390,6 +390,8 @@ fn blocked_busy_key_table_covers_every_domain_action() {
         KeyCode::Char('L'),
         KeyCode::Char('D'),
         KeyCode::Char('P'),
+        KeyCode::Char('m'),
+        KeyCode::Char('e'),
         KeyCode::Char('l'),
         KeyCode::Char('p'),
         KeyCode::Char('s'),
@@ -486,6 +488,8 @@ fn quit_keys_are_allowed_for_read_only_and_blocked_for_mutating_jobs() {
         (OperationKind::Deploy, true),
         (OperationKind::Purge, true),
         (OperationKind::Install, true),
+        (OperationKind::Remove, true),
+        (OperationKind::Replace, true),
         (OperationKind::ScanConflicts, false),
         (OperationKind::Doctor, false),
         (OperationKind::RefreshSaves, false),
@@ -514,6 +518,38 @@ fn quit_keys_are_allowed_for_read_only_and_blocked_for_mutating_jobs() {
                 .is_some_and(|notice| notice.text.contains("running"))
         );
         release_and_finish(&mut app, release);
+    }
+}
+
+#[test]
+fn remove_and_replace_keys_and_quit_are_blocked_while_they_run() {
+    for (kind, key_code, message) in [
+        (
+            OperationKind::Remove,
+            KeyCode::Char('m'),
+            "Remove already running",
+        ),
+        (
+            OperationKind::Replace,
+            KeyCode::Char('e'),
+            "Replace already running",
+        ),
+    ] {
+        let mut app = App::sample();
+        app.operation = OperationState::Running(event_running(kind));
+
+        app.handle_key(key(key_code));
+
+        assert_eq!(
+            app.message.as_ref().map(|notice| notice.text.as_str()),
+            Some(message)
+        );
+        app.handle_key(key(KeyCode::Char('q')));
+        assert!(!app.should_quit, "{kind:?} blocks quit");
+        let OperationState::Running(running) = &mut app.operation else {
+            panic!("operation remains running")
+        };
+        running.handle.take().expect("handle").join().expect("join");
     }
 }
 #[test]

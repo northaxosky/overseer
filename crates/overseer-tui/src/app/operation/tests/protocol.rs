@@ -54,7 +54,7 @@ fn typed_outputs_map_to_their_operation_kinds() {
         (
             OperationOutput::Install {
                 name: "Mod".to_owned(),
-                state: InstallState::Refreshed {
+                state: LifecycleState::Refreshed {
                     session: install_session,
                     downloads: Vec::new(),
                 },
@@ -62,9 +62,26 @@ fn typed_outputs_map_to_their_operation_kinds() {
             OperationKind::Install,
         ),
         (
+            OperationOutput::Remove {
+                name: "Mod".to_owned(),
+                state: LifecycleState::Refreshed {
+                    session: Box::new(App::sample().session),
+                    downloads: Vec::new(),
+                },
+            },
+            OperationKind::Remove,
+        ),
+        (
+            OperationOutput::Replace {
+                name: "Mod".to_owned(),
+                state: LifecycleState::CommittedWithResidue(Utf8PathBuf::from("pending")),
+            },
+            OperationKind::Replace,
+        ),
+        (
             OperationOutput::Install {
                 name: "Residue".to_owned(),
-                state: InstallState::CommittedWithResidue(Utf8PathBuf::from("pending")),
+                state: LifecycleState::CommittedWithResidue(Utf8PathBuf::from("pending")),
             },
             OperationKind::Install,
         ),
@@ -126,6 +143,8 @@ fn planned_operation_labels_are_complete() {
         (OperationKind::Deploy, "Deploy"),
         (OperationKind::Purge, "Purge"),
         (OperationKind::Install, "Install"),
+        (OperationKind::Remove, "Remove"),
+        (OperationKind::Replace, "Replace"),
         (OperationKind::ScanConflicts, "Conflicts"),
         (OperationKind::Doctor, "Doctor"),
         (OperationKind::RefreshSaves, "Saves refresh"),

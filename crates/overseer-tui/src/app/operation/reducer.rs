@@ -3,8 +3,8 @@
 use super::super::sort::{sort_downloads, sort_saves};
 use super::super::{App, ConflictsStatus, DoctorReport, ListCursor, Modal, Session};
 use super::protocol::{
-    InstallState, OperationContext, OperationOutput, OperationRecovery, WorkerCompletion,
-    WorkerEvent,
+    LifecycleState, OperationContext, OperationKind, OperationOutput, OperationRecovery,
+    WorkerCompletion, WorkerEvent,
 };
 use super::runner::{CompletedOperation, OperationProgress, OperationState, RunningOperation};
 use overseer_core::deploy::ConflictSnapshot;
@@ -14,11 +14,7 @@ use overseer_diagnostics::Report;
 
 impl App {
     /// Validate and apply one typed worker completion
-    pub(super) fn apply_completion(
-        &mut self,
-        kind: super::OperationKind,
-        completion: WorkerCompletion,
-    ) {
+    pub(super) fn apply_completion(&mut self, kind: OperationKind, completion: WorkerCompletion) {
         if !self.context_matches(&completion.context) {
             tracing::warn!(
                 captured_root = %completion.context.instance_root,
@@ -58,13 +54,41 @@ impl App {
                     }
                     OperationOutput::Install { name, state } => {
                         let message = match state {
-                            InstallState::Refreshed { session, downloads } => {
+                            LifecycleState::Refreshed { session, downloads } => {
                                 self.accept_install_session(*session);
                                 self.accept_downloads(downloads);
                                 format!("Installed {name}")
                             }
-                            InstallState::CommittedWithResidue(path) => {
+                            LifecycleState::CommittedWithResidue(path) => {
                                 format!("Installed {name}; resolve pending residue at {path}")
+                            }
+                        };
+                        self.operation =
+                            OperationState::Completed(CompletedOperation::succeeded(kind, message));
+                    }
+                    OperationOutput::Remove { name, state } => {
+                        let message = match state {
+                            LifecycleState::Refreshed { session, downloads } => {
+                                self.accept_install_session(*session);
+                                self.accept_downloads(downloads);
+                                format!("Removed {name}")
+                            }
+                            LifecycleState::CommittedWithResidue(path) => {
+                                format!("Removed {name}; resolve pending residue at {path}")
+                            }
+                        };
+                        self.operation =
+                            OperationState::Completed(CompletedOperation::succeeded(kind, message));
+                    }
+                    OperationOutput::Replace { name, state } => {
+                        let message = match state {
+                            LifecycleState::Refreshed { session, downloads } => {
+                                self.accept_install_session(*session);
+                                self.accept_downloads(downloads);
+                                format!("Replaced {name}")
+                            }
+                            LifecycleState::CommittedWithResidue(path) => {
+                                format!("Replaced {name}; resolve pending residue at {path}")
                             }
                         };
                         self.operation =
@@ -91,12 +115,15 @@ impl App {
 
                 match (kind, failure.recovery) {
                     (
-                        super::OperationKind::Deploy | super::OperationKind::Purge,
+                        OperationKind::Deploy | OperationKind::Purge,
                         Some(OperationRecovery::DeploymentStatus(status)),
                     ) => {
                         self.session.status = status.map(|status| *status);
                     }
-                    (super::OperationKind::Install, Some(OperationRecovery::Session(session))) => {
+                    (
+                        OperationKind::Install | OperationKind::Remove | OperationKind::Replace,
+                        Some(OperationRecovery::Session(session)),
+                    ) => {
                         self.accept_install_session(*session);
                     }
                     _ => {}

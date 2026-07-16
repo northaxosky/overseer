@@ -1,4 +1,4 @@
-//! Background archive installation
+//! Background mod removal
 
 use super::super::protocol::{
     LifecycleState, OperationContext, OperationFailure, OperationKind, OperationOutput,
@@ -6,38 +6,38 @@ use super::super::protocol::{
 };
 use super::super::runner::{BackgroundJob, OperationReporter};
 use crate::app::Session;
-use overseer_core::install::{self, InstallError};
+use camino::Utf8PathBuf;
+use overseer_core::install;
 use overseer_core::instance::Instance;
 use overseer_core::lifecycle::{self, LifecycleError};
 
 #[derive(Debug)]
-pub(crate) struct InstallJob {
-    archive: String,
+pub(crate) struct RemoveJob {
     name: String,
 }
 
-impl InstallJob {
-    /// Capture the archive and destination name for worker execution
-    pub(crate) fn new(archive: String, name: String) -> Self {
-        Self { archive, name }
+impl RemoveJob {
+    /// Capture the managed mod name for worker execution
+    pub(crate) fn new(name: String) -> Self {
+        Self { name }
     }
 
-    /// Report a committed install without reading guarded state
+    /// Report a committed removal without reading guarded state
     fn committed_with_residue(
         self,
-        path: camino::Utf8PathBuf,
+        path: Utf8PathBuf,
     ) -> Result<OperationOutput, OperationFailure> {
-        Ok(OperationOutput::Install {
+        Ok(OperationOutput::Remove {
             name: self.name,
             state: LifecycleState::CommittedWithResidue(path),
         })
     }
 }
 
-impl BackgroundJob for InstallJob {
-    const KIND: OperationKind = OperationKind::Install;
+impl BackgroundJob for RemoveJob {
+    const KIND: OperationKind = OperationKind::Remove;
 
-    /// Install through the guarded lifecycle and refresh owned results
+    /// Remove through the guarded lifecycle and refresh owned results
     fn run(
         self,
         context: &OperationContext,
@@ -45,26 +45,23 @@ impl BackgroundJob for InstallJob {
     ) -> Result<OperationOutput, OperationFailure> {
         let instance = Instance::load(context.instance_root.clone()).map_err(|error| {
             OperationFailure::with_session_recovery(
-                format!("Could not load instance for install: {error}"),
+                format!("Could not load instance for removal: {error}"),
                 context,
             )
         })?;
-        reporter.phase(OperationPhase::ExtractingArchive);
-
-        let report = lifecycle::install(&instance, &self.archive, &self.name).map_err(|error| {
+        let report = lifecycle::remove(&instance, &self.name).map_err(|error| {
             let message = match error {
-                LifecycleError::Install(InstallError::Fomod) => {
-                    "FOMOD installers aren't supported yet".to_owned()
+                LifecycleError::DeploymentExists { .. } => {
+                    format!("Purge the live deployment before removing {}", self.name)
                 }
-                error => format!("Install failed: {error}"),
+                error => format!("Remove failed: {error}"),
             };
-
             OperationFailure::with_session_recovery(message, context)
         })?;
         if let Some(path) = report.residue_warning {
             return self.committed_with_residue(path);
         }
-        let committed = format!("Installed {}", self.name);
+        let committed = format!("Removed {}", self.name);
 
         reporter.phase(OperationPhase::ReloadingSession);
         let session =
@@ -86,7 +83,7 @@ impl BackgroundJob for InstallJob {
             }
         };
 
-        Ok(OperationOutput::Install {
+        Ok(OperationOutput::Remove {
             name: self.name,
             state: LifecycleState::Refreshed {
                 session: Box::new(session),
@@ -97,5 +94,5 @@ impl BackgroundJob for InstallJob {
 }
 
 #[cfg(test)]
-#[path = "tests/install.rs"]
+#[path = "tests/remove.rs"]
 mod tests;

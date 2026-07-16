@@ -4,6 +4,13 @@ use super::*;
 use crate::app::input::test_helpers::*;
 use ratatui::crossterm::event::KeyModifiers;
 
+fn app_with_temp_instance() -> (tempfile::TempDir, App) {
+    let (temp, instance) = overseer_core::test_support::temp_instance();
+    let mut app = App::sample();
+    app.session.instance = instance;
+    (temp, app)
+}
+
 #[test]
 fn l_opens_the_launcher_and_l_again_closes_it() {
     let mut app = App::sample();
@@ -29,6 +36,54 @@ fn launching_with_no_targets_notes_and_closes() {
     app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
     assert!(app.modal.is_none(), "picker closes");
     assert!(app.message.is_some(), "user is told there are none");
+}
+
+#[test]
+fn empty_replace_picker_explains_that_downloads_have_no_archives() {
+    let (_temp, mut app) = app_with_temp_instance();
+
+    app.begin_replace_mod();
+
+    match &app.modal {
+        Some(Modal::Select(select)) => {
+            assert!(select.items.is_empty(), "there is no actionable archive");
+            assert_eq!(
+                select.kind.empty_message(),
+                "No archives in Downloads to replace with."
+            );
+        }
+        _ => panic!("replace opens its archive picker"),
+    }
+}
+
+#[test]
+fn replace_picker_confirms_the_selected_archive() {
+    let (_temp, mut app) = app_with_temp_instance();
+    overseer_core::test_support::write_zip(
+        &app.session.instance.downloads_dir().join("New.zip"),
+        &[("Textures/a.dds", b"replacement")],
+    );
+
+    app.begin_replace_mod();
+    assert!(matches!(
+        app.modal,
+        Some(Modal::Select(Select {
+            ref items,
+            ..
+        })) if items == &["New.zip"]
+    ));
+    app.handle_key(key(KeyCode::Enter));
+
+    assert!(matches!(
+        app.modal,
+        Some(Modal::Confirm(Confirm {
+            action: ConfirmAction::ReplaceMod {
+                ref name,
+                ref archive,
+            },
+            ..
+        })) if name == "OffMod" && archive == "New.zip"
+    ));
 }
 
 #[test]

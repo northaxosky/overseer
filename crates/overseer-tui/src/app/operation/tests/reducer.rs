@@ -312,7 +312,7 @@ fn install_success_accepts_session_and_downloads_without_resetting_other_panes()
         &app,
         Ok(OperationOutput::Install {
             name: "Installed".to_owned(),
-            state: InstallState::Refreshed {
+            state: LifecycleState::Refreshed {
                 session: Box::new(session_with_mod("Installed")),
                 downloads: vec![download_entry("Installed.zip", 2, 2)],
             },
@@ -356,7 +356,7 @@ fn committed_install_residue_preserves_cached_state_and_reports_success() {
         &app,
         Ok(OperationOutput::Install {
             name: "Installed".to_owned(),
-            state: InstallState::CommittedWithResidue(pending.clone()),
+            state: LifecycleState::CommittedWithResidue(pending.clone()),
         }),
     );
 
@@ -375,6 +375,48 @@ fn committed_install_residue_preserves_cached_state_and_reports_success() {
             "Installed Installed; resolve pending residue at {pending}"
         )
     ));
+}
+
+#[test]
+fn committed_remove_and_replace_residue_preserve_cached_state_and_report_success() {
+    let pending = Utf8PathBuf::from(r"state\pending-mod-operation");
+    for (kind, output, expected) in [
+        (
+            OperationKind::Remove,
+            OperationOutput::Remove {
+                name: "Removed".to_owned(),
+                state: LifecycleState::CommittedWithResidue(pending.clone()),
+            },
+            format!("Removed Removed; resolve pending residue at {pending}"),
+        ),
+        (
+            OperationKind::Replace,
+            OperationOutput::Replace {
+                name: "Replaced".to_owned(),
+                state: LifecycleState::CommittedWithResidue(pending.clone()),
+            },
+            format!("Replaced Replaced; resolve pending residue at {pending}"),
+        ),
+    ] {
+        let mut app = App::sample();
+        app.downloads.entries = vec![download_entry("Cached.zip", 1, 1)];
+        let profile_before = app.session.profile.mods.clone();
+        let downloads_before = app.downloads.entries.clone();
+        let result = completion(&app, Ok(output));
+
+        app.apply_completion(kind, result);
+
+        assert_eq!(app.session.profile.mods, profile_before);
+        assert_eq!(app.downloads.entries, downloads_before);
+        assert!(matches!(
+            app.operation,
+            OperationState::Completed(CompletedOperation {
+                succeeded: true,
+                ref message,
+                ..
+            }) if message == &expected
+        ));
+    }
 }
 
 #[test]
@@ -406,6 +448,36 @@ fn failed_install_accepts_session_recovery_and_keeps_primary_failure() {
             ref message,
         }) if message == "Install failed: primary"
     ));
+}
+
+#[test]
+fn failed_remove_and_replace_accept_session_recovery() {
+    for (kind, name) in [
+        (OperationKind::Remove, "RecoveredRemove"),
+        (OperationKind::Replace, "RecoveredReplace"),
+    ] {
+        let mut app = App::sample();
+        let result = completion(
+            &app,
+            Err(OperationFailure {
+                message: format!("{kind:?} failed: primary"),
+                recovery: Some(OperationRecovery::Session(Box::new(session_with_mod(name)))),
+                recovery_error: None,
+            }),
+        );
+
+        app.apply_completion(kind, result);
+
+        assert_eq!(app.session.profile.mods[0].name, name);
+        assert!(matches!(
+            app.operation,
+            OperationState::Completed(CompletedOperation {
+                kind: actual,
+                succeeded: false,
+                ..
+            }) if actual == kind
+        ));
+    }
 }
 
 #[test]

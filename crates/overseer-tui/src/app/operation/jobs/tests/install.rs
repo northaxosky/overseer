@@ -194,7 +194,7 @@ fn committed_residue_builds_success_without_guarded_refresh_data() {
         output,
         OperationOutput::Install {
             name,
-            state: InstallState::CommittedWithResidue(residue),
+            state: LifecycleState::CommittedWithResidue(residue),
         } if name == "CoolMod" && residue == path
     ));
 }

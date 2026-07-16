@@ -2,6 +2,7 @@
 
 use anyhow::Result;
 use camino::Utf8PathBuf;
+use overseer_core::install;
 use overseer_core::launch;
 use ratatui::crossterm::event::{KeyCode, KeyEvent};
 
@@ -34,7 +35,7 @@ impl App {
 
     /// Open a Select modal of `kind`, selecting its first item
     pub(super) fn open_select(&mut self, kind: SelectKind) {
-        match self.load_select_items(kind) {
+        match self.load_select_items(&kind) {
             Ok(items) => {
                 let state = ListCursor::first(items.len());
                 self.modal = Some(Modal::Select(Select { kind, items, state }));
@@ -44,7 +45,7 @@ impl App {
     }
 
     /// Load a kind's items; fallible so a real listing error surfaces
-    fn load_select_items(&self, kind: SelectKind) -> Result<Vec<String>> {
+    fn load_select_items(&self, kind: &SelectKind) -> Result<Vec<String>> {
         Ok(match kind {
             SelectKind::Launch => launch::targets(&self.session.instance),
             SelectKind::Profile => self.session.instance.profiles()?,
@@ -58,6 +59,10 @@ impl App {
                         .eq_ignore_ascii_case(self.session.instance.root.as_str())
                 })
                 .map(camino::Utf8PathBuf::to_string)
+                .collect(),
+            SelectKind::ReplaceArchive { .. } => install::list_downloads(&self.session.instance)?
+                .into_iter()
+                .map(|entry| entry.name)
                 .collect(),
         })
     }
@@ -83,6 +88,7 @@ impl App {
             SelectKind::Launch => self.launch(chosen),
             SelectKind::Profile => self.switch_profile(chosen),
             SelectKind::Instance => self.switch_instance(chosen),
+            SelectKind::ReplaceArchive { target } => self.replace_mod(target, chosen),
         }
     }
 
@@ -113,6 +119,23 @@ impl App {
         self.modal = Some(Modal::Confirm(Confirm {
             message: format!("Remove launch target {name}?"),
             action: ConfirmAction::RemoveExe(name),
+        }));
+    }
+
+    /// Confirm replacement after choosing an archive basename
+    fn replace_mod(&mut self, target: String, chosen: Option<String>) {
+        let Some(archive) = chosen else {
+            self.note("No archive selected to replace with");
+            return;
+        };
+        let mut message = format!("Replace {target} with {archive}?");
+        self.append_deployment_advisory(&mut message);
+        self.modal = Some(Modal::Confirm(Confirm {
+            message,
+            action: ConfirmAction::ReplaceMod {
+                name: target,
+                archive,
+            },
         }));
     }
 

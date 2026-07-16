@@ -13,7 +13,7 @@ pub(crate) use modal::{
 };
 pub(crate) use operation::{
     DeployJob, DoctorJob, InstallJob, OperationKind, OperationProgress, OperationState, PurgeJob,
-    RefreshDownloadsJob, RefreshSavesJob, ScanConflictsJob,
+    RefreshDownloadsJob, RefreshSavesJob, RemoveJob, ReplaceJob, ScanConflictsJob,
 };
 pub(crate) use pane::{ModPaneRow, ModsPane, PluginPaneRow, PluginsPane};
 pub(crate) use sort::{downloads_sort_label, saves_sort_label};
@@ -42,6 +42,7 @@ pub(crate) const HELP_ENTRIES: &[(&str, &str)] = &[
     ("L", "toggle local saves"),
     ("J / K", "reorder mod (priority)"),
     ("R", "rename mod / separator"),
+    ("m / e", "remove / replace managed mod"),
     ("A", "add separator"),
     ("x / Del", "delete separator"),
     ("1 / 2 / 3 / 4", "switch workspace"),
