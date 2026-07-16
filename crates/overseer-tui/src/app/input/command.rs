@@ -114,7 +114,7 @@ impl App {
             Command::DeleteSeparator => self.begin_delete_separator(),
             Command::ToggleLocalSaves => self.toggle_local_saves(),
             Command::FilterConflicts => self.filter_conflicts_to_selection(),
-            Command::JumpToProvider => self.jump_to_provider(),
+            Command::JumpToProvider => self.reveal_provider(),
             Command::RemoveMod if self.focus == Focus::Mods => self.begin_remove_mod(),
             Command::ReplaceMod if self.focus == Focus::Mods => self.begin_replace_mod(),
             // no-op outside the Mods pane, but recognized focus-free so busy-state still notes

@@ -13,12 +13,13 @@ mod select;
 
 use super::sort::{DownloadsPane, SavesPane};
 use super::{
-    App, ConflictsStatus, Focus, ListCursor, Modal, OperationKind, ScanConflictsJob, SelectKind,
-    Workspace,
+    App, ConflictsStatus, Focus, ListCursor, Modal, OperationKind, PluginPaneRow, ScanConflictsJob,
+    SelectKind, Workspace,
 };
 use command::{BusyPolicy, Context};
 use overseer_core::deploy::ProviderOrigin;
 use overseer_core::instance::ModKind;
+use overseer_core::plugins::plugin_provider;
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 #[derive(Clone, Copy)]
@@ -220,11 +221,17 @@ impl App {
         self.focus = Focus::Mods;
     }
 
-    /// Jump from the selected conflict to one of its managed providers
-    fn jump_to_provider(&mut self) {
-        if self.workspace != Workspace::Conflicts {
-            return;
+    /// Jump from the active workspace row to its deployed provider
+    fn reveal_provider(&mut self) {
+        match self.workspace {
+            Workspace::Conflicts => self.reveal_conflict_provider(),
+            Workspace::Plugins => self.reveal_plugin_provider(),
+            Workspace::Downloads | Workspace::Saves => {}
         }
+    }
+
+    /// Jump from the selected conflict to one of its managed providers
+    fn reveal_conflict_provider(&mut self) {
         let Some(conflict) = self.conflicts.selected() else {
             return;
         };
@@ -244,6 +251,43 @@ impl App {
                 self.reveal_mod(&name);
             }
             _ => self.open_select(SelectKind::JumpProvider { providers: names }),
+        }
+    }
+
+    /// Jump from the selected plugin to its winning deployment source
+    fn reveal_plugin_provider(&mut self) {
+        if let Some(active) = self.running_operation_kind()
+            && matches!(
+                active,
+                OperationKind::Install | OperationKind::Remove | OperationKind::Replace
+            )
+        {
+            self.note(format!(
+                "{} is running; wait to resolve plugin providers",
+                active.label()
+            ));
+            return;
+        }
+        let rows = self
+            .plugins
+            .project(&self.session.order.plugins, &self.session.plugin_separators);
+        let Some(PluginPaneRow::Plugin { plugin_index }) = self
+            .plugins
+            .index()
+            .and_then(|index| rows.get(index))
+            .copied()
+        else {
+            return;
+        };
+        let name = self.session.order.plugins[plugin_index].name.clone();
+
+        match plugin_provider(&self.session.instance, &self.session.profile, &name) {
+            Ok(Some(ProviderOrigin::Mod { name: mod_name })) => self.reveal_mod(&mod_name),
+            Ok(Some(ProviderOrigin::Overwrite)) => {
+                self.note(format!("{name} is deployed from the Overwrite bucket"))
+            }
+            Ok(None) => self.note(format!("{name} is not from a managed mod")),
+            Err(error) => self.fail(format!("Could not resolve provider: {error}")),
         }
     }
 }

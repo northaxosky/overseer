@@ -6,6 +6,7 @@ mod error;
 mod gamestate;
 mod load_order;
 mod metadata;
+mod provider;
 mod separator;
 
 pub use carrier::carrier_for;
@@ -17,4 +18,5 @@ pub use gamestate::{
 };
 pub use load_order::{PluginEntry, PluginLoadOrder};
 pub use metadata::{PluginMeta, is_master, is_plugin_file, read_metadata};
+pub use provider::plugin_provider;
 pub use separator::{PluginRow, PluginSeparators, Separator, SeparatorError, merge_rows};

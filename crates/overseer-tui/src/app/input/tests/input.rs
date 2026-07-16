@@ -980,9 +980,186 @@ fn jumping_preserves_active_conflict_filter_and_workspace() {
     assert_eq!(app.workspace, Workspace::Conflicts);
 }
 
-#[test]
-fn g_outside_conflicts_is_a_no_op() {
+fn plugin_jump_app(
+    mods: Vec<overseer_core::instance::ModListEntry>,
+    plugins: &[&str],
+) -> (tempfile::TempDir, App) {
+    let (temp, instance) = overseer_core::test_support::temp_instance();
     let mut app = App::sample();
+    app.session.instance = instance;
+    app.session.profile.mods = mods;
+    app.session.order.plugins = plugins
+        .iter()
+        .map(|name| overseer_core::plugins::PluginEntry {
+            name: (*name).to_owned(),
+            active: true,
+        })
+        .collect();
+    app.session.plugin_separators = overseer_core::plugins::PluginSeparators::default();
+    app.mods.reset(&app.session.profile.mods);
+    app.plugins
+        .reset(&app.session.order.plugins, &app.session.plugin_separators);
+    app.workspace = Workspace::Plugins;
+    app.focus = Focus::Workspace;
+    (temp, app)
+}
+
+#[test]
+fn g_in_plugins_routes_to_the_lazy_managed_provider() {
+    let (_temp, mut app) = plugin_jump_app(vec![managed_row("Target")], &["Target.esp"]);
+    overseer_core::test_support::install_mod(
+        &app.session.instance,
+        "Target",
+        &[("Target.esp", "plugin")],
+    );
+    app.conflicts.status =
+        ConflictsStatus::Ready(overseer_core::deploy::ConflictSnapshot::from_entries(vec![
+            jump_entry(
+                "Data/shared.dds",
+                vec![overseer_core::deploy::ProviderOrigin::Overwrite],
+            ),
+        ]));
+    app.conflicts.list.select(Some(0));
+
+    app.handle_key(key(KeyCode::Char('g')));
+
+    assert_eq!(app.focus, Focus::Mods);
+    assert_eq!(selected_mod_name(&app), Some("Target"));
+    assert!(app.message.is_none());
+}
+
+#[test]
+fn overwrite_plugin_provider_notes_without_jumping() {
+    let (_temp, mut app) = plugin_jump_app(vec![managed_row("Managed")], &["Shared.esp"]);
+    overseer_core::test_support::install_mod(
+        &app.session.instance,
+        "Managed",
+        &[("Shared.esp", "managed")],
+    );
+    std::fs::create_dir_all(app.session.instance.overwrite_dir()).expect("create overwrite");
+    std::fs::write(
+        app.session.instance.overwrite_dir().join("Shared.esp"),
+        b"overwrite",
+    )
+    .expect("write overwrite plugin");
+
+    app.handle_key(key(KeyCode::Char('g')));
+
+    assert_eq!(app.focus, Focus::Workspace);
+    assert_eq!(
+        app.message.as_ref().map(|notice| notice.text.as_str()),
+        Some("Shared.esp is deployed from the Overwrite bucket")
+    );
+}
+
+#[test]
+fn unmanaged_plugin_provider_notes_without_jumping() {
+    let (_temp, mut app) = plugin_jump_app(vec![managed_row("Other")], &["Base.esm"]);
+
+    app.handle_key(key(KeyCode::Char('g')));
+
+    assert_eq!(app.focus, Focus::Workspace);
+    assert_eq!(
+        app.message.as_ref().map(|notice| notice.text.as_str()),
+        Some("Base.esm is not from a managed mod")
+    );
+}
+
+#[test]
+fn plugin_provider_jump_is_inert_on_a_separator_row() {
+    let (_temp, mut app) = plugin_jump_app(vec![managed_row("Target")], &["Target.esp"]);
+    app.session
+        .plugin_separators
+        .items
+        .push(overseer_core::plugins::Separator {
+            name: "Group".to_owned(),
+            anchor: Some("Target.esp".to_owned()),
+        });
+    app.plugins
+        .reset(&app.session.order.plugins, &app.session.plugin_separators);
+    app.plugins.select(Some(0));
+
+    app.handle_key(key(KeyCode::Char('g')));
+
+    assert_eq!(app.focus, Focus::Workspace);
+    assert!(app.message.is_none());
+}
+
+#[test]
+fn plugin_provider_jump_is_safe_without_a_plugin_selection() {
+    let (_temp, mut unselected) = plugin_jump_app(vec![managed_row("Target")], &["Target.esp"]);
+    unselected.plugins.select(None);
+
+    let (_empty_temp, mut empty) = plugin_jump_app(Vec::new(), &[]);
+
+    for app in [&mut unselected, &mut empty] {
+        app.handle_key(key(KeyCode::Char('g')));
+        assert_eq!(app.focus, Focus::Workspace);
+        assert!(app.message.is_none());
+    }
+}
+
+#[test]
+fn plugin_provider_jump_reveals_a_mod_in_a_collapsed_group() {
+    let (_temp, mut app) = plugin_jump_app(
+        vec![managed_row("Target"), separator_row("Group")],
+        &["Target.esp"],
+    );
+    overseer_core::test_support::install_mod(
+        &app.session.instance,
+        "Target",
+        &[("Target.esp", "plugin")],
+    );
+    app.mods.toggle_separator(0);
+    assert_eq!(selected_mod_name(&app), Some("Group"));
+
+    app.handle_key(key(KeyCode::Char('g')));
+
+    assert_eq!(app.focus, Focus::Mods);
+    assert_eq!(selected_mod_name(&app), Some("Target"));
+    assert!(
+        app.mods
+            .project(&app.session.profile.mods)
+            .iter()
+            .any(|row| matches!(
+                row,
+                ModPaneRow::Separator {
+                    collapsed: false,
+                    ..
+                }
+            ))
+    );
+}
+
+#[test]
+fn plugin_provider_jump_waits_for_mod_directory_mutation() {
+    use crate::app::InstallJob;
+
+    let (_temp, mut app) = plugin_jump_app(vec![managed_row("Target")], &["Target.esp"]);
+    overseer_core::test_support::install_mod(
+        &app.session.instance,
+        "Target",
+        &[("Target.esp", "plugin")],
+    );
+    app.start_operation(InstallJob::new(
+        "Missing.zip".to_owned(),
+        "Installing".to_owned(),
+    ));
+
+    app.handle_key(key(KeyCode::Char('g')));
+
+    assert_eq!(app.focus, Focus::Workspace);
+    assert_eq!(
+        app.message.as_ref().map(|notice| notice.text.as_str()),
+        Some("Install is running; wait to resolve plugin providers")
+    );
+    app.finish_operation_after_terminal();
+}
+
+#[test]
+fn g_outside_provider_workspaces_is_a_no_op() {
+    let mut app = App::sample();
+    app.workspace = Workspace::Downloads;
     let initial_selection = app.mods.index();
 
     app.handle_key(key(KeyCode::Char('g')));
