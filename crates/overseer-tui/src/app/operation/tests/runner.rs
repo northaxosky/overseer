@@ -537,6 +537,7 @@ fn remove_and_replace_keys_and_quit_are_blocked_while_they_run() {
     ] {
         let mut app = App::sample();
         app.operation = OperationState::Running(event_running(kind));
+        app.focus = Focus::Workspace;
 
         app.handle_key(key(key_code));
 

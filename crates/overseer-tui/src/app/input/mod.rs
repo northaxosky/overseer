@@ -1,6 +1,7 @@
 //! Keyboard handling and the actions it drives on [`App`].
 
 mod actions;
+mod command;
 mod confirm;
 mod doctor;
 mod downloads;
@@ -15,6 +16,7 @@ use super::{
     App, ConflictsStatus, Focus, ListCursor, Modal, OperationKind, ScanConflictsJob, SelectKind,
     Workspace,
 };
+use command::{BusyPolicy, Context};
 use overseer_core::instance::ModKind;
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
@@ -36,12 +38,19 @@ impl App {
 
     /// Handle one key press. Input is read by the run loop in `main`
     pub(crate) fn handle_main_key(&mut self, key: KeyEvent) {
+        // Enter dismisses a finished operation's completion banner first
         if key.code == KeyCode::Enter && self.dismiss_completed_operation() {
             return;
         }
-        if self.handle_busy_main_key(key) {
+        // A mutating operation blocks quit before anything else consumes the key
+        if let Some(active) = self.running_operation_kind()
+            && is_quit(key)
+            && active.is_mutating()
+        {
+            self.note_busy();
             return;
         }
+        // Esc clears an active Conflicts filter before it can quit
         if key.code == KeyCode::Esc
             && self.workspace == Workspace::Conflicts
             && self.conflicts.filter.is_some()
@@ -55,65 +64,29 @@ impl App {
             self.should_quit = true;
             return;
         }
-        // Any key stroke clears the last message, toggle sets a fresh one
-        self.message = None;
-        // A toggle key opens its Select modal, resolved once before the literal-key match
-        if let KeyCode::Char(c) = key.code
-            && let Some(kind) = SelectKind::from_toggle_key(c)
-        {
-            self.open_select(kind);
-            return;
+        let command = self.command_for(key);
+        // Busy-gate a recognized command before clearing the notice
+        if let (Some(command), Some(_active)) = (command.as_ref(), self.running_operation_kind()) {
+            let ctx = Context {
+                focus: self.focus,
+                workspace: self.workspace,
+            };
+            match command.busy_policy(ctx) {
+                BusyPolicy::Allowed => {}
+                BusyPolicy::Blocked(kind) => {
+                    self.note_blocked_operation(kind);
+                    return;
+                }
+                BusyPolicy::BlockedGeneric => {
+                    self.note_busy();
+                    return;
+                }
+            }
         }
-        match key.code {
-            // Mods pane only keys
-            KeyCode::Char('m') if self.focus == Focus::Mods => self.begin_remove_mod(),
-            KeyCode::Char('e') if self.focus == Focus::Mods => self.begin_replace_mod(),
-            // Modal-opening keys
-            KeyCode::Char('?') => self.open_help(),
-            KeyCode::Char('R') => self.open_rename_mod(),
-            KeyCode::Char('A') => self.open_new_separator(),
-
-            // Workspace view related controls
-            KeyCode::Char('d') => self.open_doctor(),
-            KeyCode::Char(']') => self.switch_workspace(self.workspace.cycle(1)),
-            KeyCode::Char('[') => self.switch_workspace(self.workspace.cycle(-1)),
-            KeyCode::Char(c) if Workspace::from_key(c).is_some() => {
-                let ws = Workspace::from_key(c).expect("guard ensured a workspace key");
-                self.switch_workspace(ws);
-            }
-            // `r` refreshes the active workspace's data; inert in Plugins
-            KeyCode::Char('r') => {
-                let ws = self.workspace;
-                ws.refresh(self, RefreshCause::Explicit);
-            }
-            KeyCode::Char('o') => {
-                let ws = self.workspace;
-                ws.cycle_sort(self);
-            }
-            KeyCode::Char('O') => {
-                let ws = self.workspace;
-                ws.toggle_sort_dir(self);
-            }
-
-            // `X` deletes the selected save; self-guards to the focused Saves pane
-            KeyCode::Char('X') => self.begin_delete_selected_save(),
-            // `x` / `Del` delete the selected separator in the focused Mods or Plugins pane
-            KeyCode::Char('x') | KeyCode::Delete => self.begin_delete_selected_separator(),
-            // `L` toggles the profile's LocalSaves; self-guards to the focused Saves pane
-            KeyCode::Char('L') => self.toggle_local_saves(),
-            // 'f' filters conflicts by the selected mod
-            KeyCode::Char('f') => self.filter_conflicts_to_selection(),
-
-            // Main view related controls
-            KeyCode::Char(' ') | KeyCode::Enter => self.toggle_selected(),
-            KeyCode::Tab => self.toggle_focus(),
-            KeyCode::Down | KeyCode::Char('j') => self.move_main_selection(1),
-            KeyCode::Up | KeyCode::Char('k') => self.move_main_selection(-1),
-            KeyCode::Char('J') => self.reorder_selected(1),
-            KeyCode::Char('K') => self.reorder_selected(-1),
-            KeyCode::Char('D') => self.begin_deploy(),
-            KeyCode::Char('P') => self.begin_purge(),
-            _ => {}
+        // Any accepted key clears the last notice, even when it maps to no command
+        self.message = None;
+        if let Some(command) = command {
+            self.execute(command);
         }
     }
 
@@ -189,98 +162,6 @@ impl App {
             return;
         };
         selection.move_by(len, delta);
-    }
-
-    /// Apply the running operation's main-view input policy
-    fn handle_busy_main_key(&mut self, key: KeyEvent) -> bool {
-        let Some(active) = self.running_operation_kind() else {
-            return false;
-        };
-
-        if is_quit(key) {
-            if active.is_mutating() {
-                self.note_busy();
-                return true;
-            }
-
-            return false;
-        }
-
-        match key.code {
-            KeyCode::Char('?')
-            | KeyCode::Char('o')
-            | KeyCode::Char('O')
-            | KeyCode::Char('1'..='4')
-            | KeyCode::Char('[')
-            | KeyCode::Char(']')
-            | KeyCode::Char('j')
-            | KeyCode::Char('k')
-            | KeyCode::Down
-            | KeyCode::Up
-            | KeyCode::Tab => false,
-
-            KeyCode::Char('m') => {
-                self.note_blocked_operation(OperationKind::Remove);
-                true
-            }
-            KeyCode::Char('e') => {
-                self.note_blocked_operation(OperationKind::Replace);
-                true
-            }
-
-            KeyCode::Char('D') => {
-                self.note_blocked_operation(OperationKind::Deploy);
-                true
-            }
-            KeyCode::Char('P') => {
-                self.note_blocked_operation(OperationKind::Purge);
-                true
-            }
-            KeyCode::Char('d') => {
-                self.note_blocked_operation(OperationKind::Doctor);
-                true
-            }
-            KeyCode::Char('r') => {
-                let requested = match self.workspace {
-                    Workspace::Plugins => None,
-                    Workspace::Conflicts => Some(OperationKind::ScanConflicts),
-                    Workspace::Downloads => Some(OperationKind::RefreshDownloads),
-                    Workspace::Saves => Some(OperationKind::RefreshSaves),
-                };
-
-                if let Some(requested) = requested {
-                    self.note_blocked_operation(requested);
-                } else {
-                    self.note_busy();
-                }
-
-                true
-            }
-            KeyCode::Char(' ') | KeyCode::Enter => {
-                if self.focus == Focus::Workspace && self.workspace == Workspace::Downloads {
-                    self.note_blocked_operation(OperationKind::Install);
-                } else {
-                    self.note_busy();
-                }
-
-                true
-            }
-            KeyCode::Char('J')
-            | KeyCode::Char('K')
-            | KeyCode::Char('R')
-            | KeyCode::Char('A')
-            | KeyCode::Char('x')
-            | KeyCode::Delete
-            | KeyCode::Char('X')
-            | KeyCode::Char('L')
-            | KeyCode::Char('l')
-            | KeyCode::Char('p')
-            | KeyCode::Char('s') => {
-                self.note_busy();
-                true
-            }
-            _ => false,
-        }
     }
 
     /// Filter the Conflicts list to the managed mod selected in the Mods pane
