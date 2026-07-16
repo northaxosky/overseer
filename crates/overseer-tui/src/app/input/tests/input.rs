@@ -2,7 +2,7 @@
 
 use super::test_helpers::key;
 use super::*;
-use crate::app::ModPaneRow;
+use crate::app::{ModPaneRow, Select};
 use crate::test_support::{download_entry, save_info};
 use overseer_core::settings::{
     DownloadsSort, DownloadsSortKey, SavesSort, SavesSortKey, Settings, SortDir,
@@ -663,4 +663,331 @@ fn an_open_modal_swallows_main_view_keys() {
         matches!(app.modal, Some(Modal::Confirm(_))),
         "the confirm stays open, unaffected by main-view keys"
     );
+}
+
+fn jump_entry(
+    destination: &str,
+    origins: Vec<overseer_core::deploy::ProviderOrigin>,
+) -> overseer_core::deploy::DestinationEntry {
+    use overseer_core::deploy::{DestinationEntry, Provider};
+
+    DestinationEntry {
+        destination: camino::Utf8PathBuf::from(destination),
+        providers: origins
+            .into_iter()
+            .enumerate()
+            .map(|(index, origin)| Provider {
+                origin,
+                source: camino::Utf8PathBuf::from(format!("provider-{index}")),
+            })
+            .collect(),
+    }
+}
+
+fn mod_origin(name: &str) -> overseer_core::deploy::ProviderOrigin {
+    overseer_core::deploy::ProviderOrigin::Mod {
+        name: name.to_owned(),
+    }
+}
+
+fn foreign_row(name: &str) -> overseer_core::instance::ModListEntry {
+    overseer_core::instance::ModListEntry {
+        name: name.to_owned(),
+        enabled: true,
+        kind: overseer_core::instance::ModKind::Foreign,
+    }
+}
+
+fn jump_app(
+    mods: Vec<overseer_core::instance::ModListEntry>,
+    conflict: overseer_core::deploy::DestinationEntry,
+) -> App {
+    let mut app = App::sample();
+    app.session.profile.mods = mods;
+    app.mods.reset(&app.session.profile.mods);
+    app.workspace = Workspace::Conflicts;
+    app.focus = Focus::Workspace;
+    app.conflicts.status =
+        ConflictsStatus::Ready(overseer_core::deploy::ConflictSnapshot::from_entries(vec![
+            conflict,
+        ]));
+    app.conflicts.list.select(Some(0));
+    app
+}
+
+fn selected_mod_name(app: &App) -> Option<&str> {
+    let rows = app.mods.project(&app.session.profile.mods);
+    app.mods
+        .index()
+        .and_then(|index| rows.get(index))
+        .map(|row| app.session.profile.mods[row.model_index()].name.as_str())
+}
+
+#[test]
+fn g_opens_provider_picker_in_winner_first_order() {
+    let mut app = jump_app(
+        vec![
+            managed_row("Low"),
+            managed_row("Middle"),
+            managed_row("Winner"),
+        ],
+        jump_entry(
+            "Data/shared.dds",
+            vec![
+                mod_origin("Low"),
+                mod_origin("Middle"),
+                mod_origin("Winner"),
+            ],
+        ),
+    );
+
+    app.handle_key(key(KeyCode::Char('g')));
+
+    assert!(matches!(
+        &app.modal,
+        Some(Modal::Select(Select {
+            kind: SelectKind::JumpProvider { providers },
+            items,
+            ..
+        })) if providers == &["Winner", "Middle", "Low"]
+            && items == &["Winner", "Middle", "Low"]
+    ));
+}
+
+#[test]
+fn submitting_provider_picker_reveals_the_chosen_mod() {
+    let mut app = jump_app(
+        vec![managed_row("Low"), managed_row("Winner")],
+        jump_entry(
+            "Data/shared.dds",
+            vec![mod_origin("Low"), mod_origin("Winner")],
+        ),
+    );
+
+    app.handle_key(key(KeyCode::Char('g')));
+    app.handle_key(key(KeyCode::Char('j')));
+    app.handle_key(key(KeyCode::Enter));
+
+    assert!(app.modal.is_none());
+    assert_eq!(app.focus, Focus::Mods);
+    assert_eq!(selected_mod_name(&app), Some("Low"));
+}
+
+#[test]
+fn overwrite_and_one_managed_provider_jump_without_a_picker() {
+    let mut app = jump_app(
+        vec![managed_row("Winner")],
+        jump_entry(
+            "Data/shared.dds",
+            vec![
+                overseer_core::deploy::ProviderOrigin::Overwrite,
+                mod_origin("Winner"),
+            ],
+        ),
+    );
+
+    app.handle_key(key(KeyCode::Char('g')));
+
+    assert!(app.modal.is_none());
+    assert_eq!(app.focus, Focus::Mods);
+    assert_eq!(selected_mod_name(&app), Some("Winner"));
+}
+
+#[test]
+fn overwrite_only_conflict_notes_without_jumping() {
+    let mut app = jump_app(
+        vec![managed_row("Unrelated")],
+        jump_entry(
+            "Data/shared.dds",
+            vec![
+                overseer_core::deploy::ProviderOrigin::Overwrite,
+                overseer_core::deploy::ProviderOrigin::Overwrite,
+            ],
+        ),
+    );
+
+    app.handle_key(key(KeyCode::Char('g')));
+
+    assert!(app.modal.is_none());
+    assert_eq!(app.focus, Focus::Workspace);
+    assert_eq!(
+        app.message.as_ref().map(|notice| notice.text.as_str()),
+        Some("No mod provider to jump to")
+    );
+}
+
+#[test]
+fn jumping_expands_only_the_owning_separator_group() {
+    let mut app = jump_app(
+        vec![
+            managed_row("Target"),
+            separator_row("Target_separator"),
+            managed_row("Other"),
+            separator_row("Other_separator"),
+        ],
+        jump_entry("Data/shared.dds", vec![mod_origin("Target")]),
+    );
+    app.mods.toggle_separator(0);
+    app.mods.toggle_separator(1);
+
+    app.handle_key(key(KeyCode::Char('g')));
+
+    let rows = app.mods.project(&app.session.profile.mods);
+    assert!(rows.iter().any(|row| matches!(
+        row,
+        ModPaneRow::Separator {
+            separator_index: 0,
+            collapsed: false,
+            ..
+        }
+    )));
+    assert!(rows.iter().any(|row| matches!(
+        row,
+        ModPaneRow::Separator {
+            separator_index: 1,
+            collapsed: true,
+            ..
+        }
+    )));
+    assert_eq!(selected_mod_name(&app), Some("Target"));
+}
+
+#[test]
+fn jumping_to_ungrouped_mod_preserves_unrelated_collapse_state() {
+    let mut app = jump_app(
+        vec![
+            managed_row("Grouped"),
+            separator_row("Group_separator"),
+            managed_row("Target"),
+        ],
+        jump_entry("Data/shared.dds", vec![mod_origin("Target")]),
+    );
+    app.mods.toggle_separator(0);
+
+    app.handle_key(key(KeyCode::Char('g')));
+
+    assert!(
+        app.mods
+            .project(&app.session.profile.mods)
+            .iter()
+            .any(|row| matches!(
+                row,
+                ModPaneRow::Separator {
+                    separator_index: 0,
+                    collapsed: true,
+                    ..
+                }
+            ))
+    );
+    assert_eq!(selected_mod_name(&app), Some("Target"));
+}
+
+#[test]
+fn provider_name_matching_is_case_insensitive() {
+    let mut app = jump_app(
+        vec![managed_row("Target")],
+        jump_entry("Data/shared.dds", vec![mod_origin("tArGeT")]),
+    );
+
+    app.handle_key(key(KeyCode::Char('g')));
+
+    assert_eq!(app.focus, Focus::Mods);
+    assert_eq!(selected_mod_name(&app), Some("Target"));
+}
+
+#[test]
+fn missing_or_non_managed_provider_names_do_not_jump() {
+    for mods in [Vec::new(), vec![foreign_row("Target")]] {
+        let mut app = jump_app(
+            mods,
+            jump_entry("Data/shared.dds", vec![mod_origin("Target")]),
+        );
+
+        app.handle_key(key(KeyCode::Char('g')));
+
+        assert!(app.modal.is_none());
+        assert_eq!(app.focus, Focus::Workspace);
+        assert_eq!(
+            app.message.as_ref().map(|notice| notice.text.as_str()),
+            Some("Target is not in the mod list")
+        );
+    }
+}
+
+#[test]
+fn duplicate_managed_provider_names_are_rejected_as_ambiguous() {
+    let mut app = jump_app(
+        vec![managed_row("Target"), managed_row("target")],
+        jump_entry("Data/shared.dds", vec![mod_origin("TARGET")]),
+    );
+
+    app.handle_key(key(KeyCode::Char('g')));
+
+    assert_eq!(app.focus, Focus::Workspace);
+    assert_eq!(
+        app.message.as_ref().map(|notice| notice.text.as_str()),
+        Some("TARGET matches multiple mods")
+    );
+}
+
+#[test]
+fn unavailable_conflict_selections_are_safe_no_ops() {
+    let mut stale = App::sample();
+    stale.workspace = Workspace::Conflicts;
+    stale.focus = Focus::Workspace;
+    stale.conflicts.list.select(None);
+
+    let mut empty = App::sample();
+    empty.workspace = Workspace::Conflicts;
+    empty.focus = Focus::Workspace;
+    empty.conflicts.status = ConflictsStatus::Ready(
+        overseer_core::deploy::ConflictSnapshot::from_entries(Vec::new()),
+    );
+    empty.conflicts.list.select(None);
+
+    let mut filtered_empty = jump_app(
+        vec![managed_row("Target")],
+        jump_entry("Data/shared.dds", vec![mod_origin("Target")]),
+    );
+    filtered_empty.conflicts.filter = Some("Absent".to_owned());
+    filtered_empty.conflicts.list.select(None);
+
+    for app in [&mut stale, &mut empty, &mut filtered_empty] {
+        app.handle_key(key(KeyCode::Char('g')));
+        assert!(app.modal.is_none());
+        assert!(app.message.is_none());
+        assert_eq!(app.focus, Focus::Workspace);
+    }
+}
+
+#[test]
+fn jumping_preserves_active_conflict_filter_and_workspace() {
+    let mut app = jump_app(
+        vec![managed_row("FilterMod"), managed_row("Target")],
+        jump_entry(
+            "Data/shared.dds",
+            vec![mod_origin("FilterMod"), mod_origin("Target")],
+        ),
+    );
+    app.conflicts.filter = Some("FilterMod".to_owned());
+
+    app.handle_key(key(KeyCode::Char('g')));
+    app.handle_key(key(KeyCode::Enter));
+
+    assert_eq!(app.focus, Focus::Mods);
+    assert_eq!(selected_mod_name(&app), Some("Target"));
+    assert_eq!(app.conflicts.filter.as_deref(), Some("FilterMod"));
+    assert_eq!(app.workspace, Workspace::Conflicts);
+}
+
+#[test]
+fn g_outside_conflicts_is_a_no_op() {
+    let mut app = App::sample();
+    let initial_selection = app.mods.index();
+
+    app.handle_key(key(KeyCode::Char('g')));
+
+    assert!(app.modal.is_none());
+    assert_eq!(app.focus, Focus::Mods);
+    assert_eq!(app.mods.index(), initial_selection);
 }

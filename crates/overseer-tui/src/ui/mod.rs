@@ -123,8 +123,9 @@ pub(crate) fn draw_main(app: &mut App, frame: &mut Frame) {
     let status_width = status_text.chars().count();
     let status = Paragraph::new(status_text).style(theme::style(status_role));
     frame.render_widget(status, rows[4]);
-    let full_hint = "1–4 workspace · o sort · s instance · d doctor · ? help · q quit ";
-    let compact_hint = "1–4 workspace · s instance · d doctor · ? help · q quit ";
+    let full_hint =
+        "1–4 ws · f filter · g jump · o sort · s instance · d doctor · ? help · q quit ";
+    let compact_hint = "f filter · g jump · s instance · d doctor · ? help · q quit ";
     let hint = if status_width + full_hint.chars().count() < rows[4].width as usize {
         full_hint
     } else {
@@ -278,13 +279,10 @@ fn render_conflicts(app: &mut App, frame: &mut Frame, area: Rect) {
             ))
         })
         .collect();
-    let sel = app
-        .conflicts
-        .list
-        .index()
-        .unwrap_or(0)
-        .min(indices.len() - 1);
-    let detail_lines = conflict_detail_lines(&conflicts[indices[sel]], panes[1].width as usize);
+    let Some(conflict) = app.conflicts.selected() else {
+        return;
+    };
+    let detail_lines = conflict_detail_lines(conflict, panes[1].width as usize);
 
     let mut list = List::new(rows);
     if focused {

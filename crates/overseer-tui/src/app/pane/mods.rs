@@ -101,6 +101,23 @@ impl ModsPane {
         self.separators.remove(separator_index);
     }
 
+    /// Expand the separator group that owns `model_index`
+    pub(crate) fn reveal_group(&mut self, mods: &[ModListEntry], model_index: usize) {
+        let Some(owner) = mods
+            .iter()
+            .enumerate()
+            .skip(model_index + 1)
+            .find_map(|(index, entry)| (entry.kind == ModKind::Separator).then_some(index))
+        else {
+            return;
+        };
+        let separator_index = mods[..owner]
+            .iter()
+            .filter(|entry| entry.kind == ModKind::Separator)
+            .count();
+        self.separators.expand(separator_index);
+    }
+
     /// Project profile entries into complete visible semantic rows
     pub(crate) fn project(&self, mods: &[ModListEntry]) -> Vec<ModPaneRow> {
         let separator_count = separator_count(mods);

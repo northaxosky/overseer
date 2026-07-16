@@ -33,6 +33,11 @@ impl SeparatorUiState {
         self.collapsed[separator_index] = !self.collapsed[separator_index];
     }
 
+    /// Ensure `separator_index` is expanded
+    pub(super) fn expand(&mut self, separator_index: usize) {
+        self.collapsed[separator_index] = false;
+    }
+
     /// Report whether `separator_index` is collapsed
     pub(super) fn is_collapsed(&self, separator_index: usize) -> bool {
         self.collapsed[separator_index]

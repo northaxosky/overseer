@@ -64,6 +64,7 @@ impl App {
                 .into_iter()
                 .map(|entry| entry.name)
                 .collect(),
+            SelectKind::JumpProvider { providers } => providers.clone(),
         })
     }
 
@@ -89,6 +90,11 @@ impl App {
             SelectKind::Profile => self.switch_profile(chosen),
             SelectKind::Instance => self.switch_instance(chosen),
             SelectKind::ReplaceArchive { target } => self.replace_mod(target, chosen),
+            SelectKind::JumpProvider { .. } => {
+                if let Some(name) = chosen {
+                    self.reveal_mod(&name);
+                }
+            }
         }
     }
 

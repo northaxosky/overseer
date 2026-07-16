@@ -21,7 +21,7 @@ pub(crate) use sort::{downloads_sort_label, saves_sort_label};
 use anyhow::Result;
 use camino::Utf8Path;
 use overseer_core::apply::{self, DeploymentStatus};
-use overseer_core::deploy::{ConflictSnapshot, ProviderOrigin};
+use overseer_core::deploy::{ConflictSnapshot, DestinationEntry, ProviderOrigin};
 use overseer_core::install::DownloadEntry;
 use overseer_core::instance::{Instance, Profile};
 use overseer_core::plugins::{PluginLoadOrder, PluginMeta, PluginSeparators, discover_plugins};
@@ -48,6 +48,7 @@ pub(crate) const HELP_ENTRIES: &[(&str, &str)] = &[
     ("1 / 2 / 3 / 4", "switch workspace"),
     ("[ / ]", "cycle workspace"),
     ("r", "scan conflicts · refresh downloads"),
+    ("f / g", "filter conflicts · jump to provider"),
     ("o / O", "cycle sort key · toggle direction"),
     ("D / P", "deploy / purge"),
     ("l", "launch a target"),
@@ -142,6 +143,19 @@ impl ConflictsState {
         }
             })
             .collect()
+    }
+
+    /// Return the selected visible conflict
+    pub(crate) fn selected(&self) -> Option<&DestinationEntry> {
+        let ConflictsStatus::Ready(snapshot) = &self.status else {
+            return None;
+        };
+        let visible = self.visible_indices();
+        if visible.is_empty() {
+            return None;
+        }
+        let sel = self.list.index().unwrap_or(0).min(visible.len() - 1);
+        snapshot.conflicts().get(visible[sel])
     }
 }
 

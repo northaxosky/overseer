@@ -99,6 +99,7 @@ pub(crate) enum SelectKind {
     Profile,
     Instance,
     ReplaceArchive { target: String },
+    JumpProvider { providers: Vec<String> },
 }
 
 impl SelectKind {
@@ -118,7 +119,7 @@ impl SelectKind {
             SelectKind::Launch => 'l',
             SelectKind::Profile => 'p',
             SelectKind::Instance => 's',
-            SelectKind::ReplaceArchive { .. } => '\0',
+            SelectKind::ReplaceArchive { .. } | SelectKind::JumpProvider { .. } => '\0',
         }
     }
 
@@ -129,6 +130,7 @@ impl SelectKind {
             SelectKind::Profile => "No profiles.",
             SelectKind::Instance => "No other instances.",
             SelectKind::ReplaceArchive { .. } => "No archives in Downloads to replace with.",
+            SelectKind::JumpProvider { .. } => "No mod providers.",
         }
     }
 
@@ -139,6 +141,7 @@ impl SelectKind {
             SelectKind::Profile => "switch",
             SelectKind::Instance => "switch",
             SelectKind::ReplaceArchive { .. } => "replace",
+            SelectKind::JumpProvider { .. } => "jump",
         }
     }
 
@@ -147,7 +150,9 @@ impl SelectKind {
         match self {
             SelectKind::Launch => " · a add · e edit · x remove",
             SelectKind::Profile => " · n new · r rename",
-            SelectKind::Instance | SelectKind::ReplaceArchive { .. } => "",
+            SelectKind::Instance
+            | SelectKind::ReplaceArchive { .. }
+            | SelectKind::JumpProvider { .. } => "",
         }
     }
 }

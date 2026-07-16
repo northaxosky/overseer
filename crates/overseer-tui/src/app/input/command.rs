@@ -24,6 +24,7 @@ pub(super) enum Command {
     DeleteSeparator,
     ToggleLocalSaves,
     FilterConflicts,
+    JumpToProvider,
     RemoveMod,
     ReplaceMod,
     Deploy,
@@ -74,6 +75,7 @@ impl App {
             KeyCode::Char('x') | KeyCode::Delete => Some(Command::DeleteSeparator),
             KeyCode::Char('L') => Some(Command::ToggleLocalSaves),
             KeyCode::Char('f') => Some(Command::FilterConflicts),
+            KeyCode::Char('g') => Some(Command::JumpToProvider),
             KeyCode::Char('m') => Some(Command::RemoveMod),
             KeyCode::Char('e') => Some(Command::ReplaceMod),
             KeyCode::Char('D') => Some(Command::Deploy),
@@ -112,6 +114,7 @@ impl App {
             Command::DeleteSeparator => self.begin_delete_separator(),
             Command::ToggleLocalSaves => self.toggle_local_saves(),
             Command::FilterConflicts => self.filter_conflicts_to_selection(),
+            Command::JumpToProvider => self.jump_to_provider(),
             Command::RemoveMod if self.focus == Focus::Mods => self.begin_remove_mod(),
             Command::ReplaceMod if self.focus == Focus::Mods => self.begin_replace_mod(),
             // no-op outside the Mods pane, but recognized focus-free so busy-state still notes
@@ -133,7 +136,8 @@ impl Command {
             | Self::OpenHelp
             | Self::CycleSort
             | Self::ToggleSortDir
-            | Self::FilterConflicts => BusyPolicy::Allowed,
+            | Self::FilterConflicts
+            | Self::JumpToProvider => BusyPolicy::Allowed,
             Self::Deploy => BusyPolicy::Blocked(OperationKind::Deploy),
             Self::Purge => BusyPolicy::Blocked(OperationKind::Purge),
             Self::OpenDoctor => BusyPolicy::Blocked(OperationKind::Doctor),

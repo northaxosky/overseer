@@ -59,6 +59,7 @@ fn key_table_maps_every_main_command() {
         (KeyCode::Delete, Command::DeleteSeparator),
         (KeyCode::Char('L'), Command::ToggleLocalSaves),
         (KeyCode::Char('f'), Command::FilterConflicts),
+        (KeyCode::Char('g'), Command::JumpToProvider),
         (KeyCode::Char('m'), Command::RemoveMod),
         (KeyCode::Char('e'), Command::ReplaceMod),
         (KeyCode::Char('D'), Command::Deploy),
@@ -98,6 +99,7 @@ fn busy_policy_covers_every_command() {
         Command::DeleteSeparator,
         Command::ToggleLocalSaves,
         Command::FilterConflicts,
+        Command::JumpToProvider,
         Command::RemoveMod,
         Command::ReplaceMod,
         Command::Deploy,
@@ -111,7 +113,8 @@ fn busy_policy_covers_every_command() {
             | Command::OpenHelp
             | Command::CycleSort
             | Command::ToggleSortDir
-            | Command::FilterConflicts => BusyPolicy::Allowed,
+            | Command::FilterConflicts
+            | Command::JumpToProvider => BusyPolicy::Allowed,
             Command::OpenDoctor => BusyPolicy::Blocked(OperationKind::Doctor),
             Command::RemoveMod => BusyPolicy::Blocked(OperationKind::Remove),
             Command::ReplaceMod => BusyPolicy::Blocked(OperationKind::Replace),

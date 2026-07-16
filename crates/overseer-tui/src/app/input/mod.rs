@@ -17,6 +17,7 @@ use super::{
     Workspace,
 };
 use command::{BusyPolicy, Context};
+use overseer_core::deploy::ProviderOrigin;
 use overseer_core::instance::ModKind;
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
@@ -181,6 +182,69 @@ impl App {
         self.conflicts.filter = Some(entry.name.clone());
         let len = self.conflicts.visible_indices().len();
         self.conflicts.list.select_first(len);
+    }
+
+    /// Select a unique managed mod by name and reveal its owning group
+    fn reveal_mod(&mut self, name: &str) {
+        let matches: Vec<usize> = self
+            .session
+            .profile
+            .mods
+            .iter()
+            .enumerate()
+            .filter_map(|(index, entry)| {
+                (entry.kind == ModKind::Managed && entry.name.eq_ignore_ascii_case(name))
+                    .then_some(index)
+            })
+            .collect();
+        let model_index = match matches.len() {
+            0 => {
+                self.note(format!("{name} is not in the mod list"));
+                return;
+            }
+            1 => matches[0],
+            _ => {
+                self.note(format!("{name} matches multiple mods"));
+                return;
+            }
+        };
+
+        self.mods
+            .reveal_group(&self.session.profile.mods, model_index);
+        let display = self
+            .mods
+            .project(&self.session.profile.mods)
+            .iter()
+            .position(|row| row.model_index() == model_index);
+        self.mods.select(display);
+        self.focus = Focus::Mods;
+    }
+
+    /// Jump from the selected conflict to one of its managed providers
+    fn jump_to_provider(&mut self) {
+        if self.workspace != Workspace::Conflicts {
+            return;
+        }
+        let Some(conflict) = self.conflicts.selected() else {
+            return;
+        };
+        let names: Vec<String> = conflict
+            .providers
+            .iter()
+            .rev()
+            .filter_map(|provider| match &provider.origin {
+                ProviderOrigin::Mod { name } => Some(name.clone()),
+                ProviderOrigin::Overwrite => None,
+            })
+            .collect();
+        match names.len() {
+            0 => self.note("No mod provider to jump to"),
+            1 => {
+                let name = names[0].clone();
+                self.reveal_mod(&name);
+            }
+            _ => self.open_select(SelectKind::JumpProvider { providers: names }),
+        }
     }
 }
 
