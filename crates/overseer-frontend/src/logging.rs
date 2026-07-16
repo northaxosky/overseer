@@ -1,13 +1,16 @@
 //! File logging for Overseer's front end
 
+use crate::error::LoggingError;
 use camino::Utf8PathBuf;
-use std::io;
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
-/// Install the file logging subscriber; call once at startup. Returns an error if it can't start
-pub fn init(default_filter: &str) -> io::Result<()> {
+/// Install the file logging subscriber; call once at startup
+pub fn init(default_filter: &str) -> Result<(), LoggingError> {
     let dir = log_dir();
-    std::fs::create_dir_all(&dir)?;
+    std::fs::create_dir_all(&dir).map_err(|source| LoggingError::CreateDir {
+        path: dir.clone(),
+        source,
+    })?;
     let appender = tracing_appender::rolling::daily(&dir, "overseer.log");
     let filter =
         EnvFilter::try_from_env("OVERSEER_LOG").unwrap_or_else(|_| EnvFilter::new(default_filter));
@@ -16,7 +19,7 @@ pub fn init(default_filter: &str) -> io::Result<()> {
         .with(filter)
         .with(fmt::layer().with_ansi(false).with_writer(appender))
         .try_init()
-        .map_err(io::Error::other)
+        .map_err(LoggingError::Install)
 }
 
 /// Resolve the log directory: `OVERSEER_LOG_DIR`, else `%LOCALAPPDATA%\Overseer\logs`

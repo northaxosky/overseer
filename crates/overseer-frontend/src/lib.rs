@@ -9,7 +9,7 @@ pub mod logging;
 pub mod style;
 
 mod error;
-pub use error::AbsolutizeError;
+pub use error::{AbsolutizeError, LoggingError};
 
 use camino::{Utf8Path, Utf8PathBuf};
 
