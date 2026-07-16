@@ -365,12 +365,8 @@ pub enum PatchCommand {
         /// Target edition: `og` (v1) or `ng` (v8)
         #[arg(long, value_name = "og|ae", hide_possible_values = true)]
         to: GenerationArg,
-        /// Show what would change without writing
-        #[arg(long)]
-        dry_run: bool,
-        /// Patch a whole directory without the preview confirmation
-        #[arg(long)]
-        yes: bool,
+        #[command(flatten)]
+        gate: ApplyGate,
     },
     /// Convert a Fallout 4 install between verified binary generations
     Convert {

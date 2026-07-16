@@ -17,12 +17,7 @@ use std::collections::{HashMap, HashSet};
 
 pub fn run(command: PatchCommand) -> Result<()> {
     match command {
-        PatchCommand::Ba2 {
-            path,
-            to,
-            dry_run,
-            yes,
-        } => ba2(&path, to, dry_run, yes),
+        PatchCommand::Ba2 { path, to, gate } => ba2(&path, to, gate.gate()),
         PatchCommand::Convert {
             to,
             source,
@@ -528,7 +523,7 @@ fn print_plan_line(
     println!("{}", styled(role, msg));
 }
 
-fn ba2(path: &Utf8Path, to: GenerationArg, dry_run: bool, yes: bool) -> Result<()> {
+fn ba2(path: &Utf8Path, to: GenerationArg, gate: Gate) -> Result<()> {
     if !path.exists() {
         bail!("no such file or directory: {path}")
     }
@@ -544,12 +539,8 @@ fn ba2(path: &Utf8Path, to: GenerationArg, dry_run: bool, yes: bool) -> Result<(
         return Ok(());
     }
 
-    let writing = !dry_run && (!is_dir || yes);
-    if dry_run {
-        heading("Dry run - nothing will be written");
-    } else if is_dir && !yes {
-        heading(format!("Preview of {path} - re-run with --yes to apply"));
-    }
+    let writing = gate == Gate::Apply;
+    preview_heading(gate);
 
     let generation = to.into_core();
     let target = Ba2Edition::from_generation(generation);

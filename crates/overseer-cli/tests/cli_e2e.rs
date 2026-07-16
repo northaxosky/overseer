@@ -352,8 +352,8 @@ fn patch_ba2_downgrades_a_single_file_and_preserves_the_body() {
         "dry run must not write"
     );
 
-    // The real patch flips only the version byte
-    overseer(&["patch", "ba2", file_s, "--to", "og"])
+    // The real patch (with --yes) flips only the version byte
+    overseer(&["patch", "ba2", file_s, "--to", "og", "--yes"])
         .success()
         .stdout(predicate::str::contains("patched v8").and(predicate::str::contains("v1")));
     let patched = std::fs::read(&file).unwrap();
@@ -378,7 +378,7 @@ fn patch_ba2_upgrades_a_single_file_to_ae() {
     std::fs::write(&file, &original).unwrap();
     let file_s = file.to_str().unwrap();
 
-    overseer(&["patch", "ba2", file_s, "--to", "ae"])
+    overseer(&["patch", "ba2", file_s, "--to", "ae", "--yes"])
         .success()
         .stdout(predicate::str::contains("patched v1").and(predicate::str::contains("v8")));
     let patched = std::fs::read(&file).unwrap();
