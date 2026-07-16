@@ -4,6 +4,3 @@ overseer-manifest.json
 
 # Local harness/test config (machine-specific paths)
 .env
-
-# Test scratch instance created by App::sample()'s relative path
-/crates/overseer-tui/test-instance/

@@ -10,13 +10,25 @@ use overseer_core::instance::{Instance, ModKind, ModListEntry, Profile};
 use overseer_core::plugins::{PluginEntry, PluginLoadOrder, PluginMeta, PluginSeparators};
 use overseer_core::saves::{SaveInfo, SaveMeta};
 use overseer_core::settings::Settings;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, SystemTime};
 
+/// A unique temp root for a sample instance, so a persisting test never writes into the source tree
+fn sample_instance_root() -> Utf8PathBuf {
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let unique = COUNTER.fetch_add(1, Ordering::Relaxed);
+    let dir = std::env::temp_dir().join(format!(
+        "overseer-tui-sample-{}-{unique}",
+        std::process::id()
+    ));
+    Utf8PathBuf::from_path_buf(dir).expect("temp dir is valid UTF-8")
+}
+
 impl App {
-    /// A small in-memory fixture for tests (no disk access)
+    /// A small fixture for tests; a persisting write lands in a unique temp dir, never the source tree
     pub(crate) fn sample() -> Self {
         let session = Session {
-            instance: Instance::new("test-instance", "test-game"),
+            instance: Instance::new(sample_instance_root(), "test-game"),
             profile: Profile {
                 name: "Default".to_owned(),
                 mods: vec![
