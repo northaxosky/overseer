@@ -36,18 +36,18 @@ impl App {
     }
 
     /// Delete key dispatcher: act on the focused pane's separator, else note
-    pub(super) fn begin_delete_selected_separator(&mut self) {
+    pub(super) fn begin_delete_separator(&mut self) {
         if self.focus == Focus::Mods {
-            self.begin_delete_selected_mod_separator();
+            self.begin_delete_mod_separator();
         } else if self.on_plugins_pane() {
-            self.begin_delete_selected_plugin_separator();
+            self.begin_delete_plugin_separator();
         } else {
             self.note("Switch to the mods or plugins pane to delete a separator");
         }
     }
 
     /// Confirm deleting the selected mod separator; noop unless the focused Mods row is a separator
-    fn begin_delete_selected_mod_separator(&mut self) {
+    fn begin_delete_mod_separator(&mut self) {
         let rows = self.mods.project(&self.session.profile.mods);
         let Some(row) = self.mods.index().and_then(|index| rows.get(index)).copied() else {
             return;

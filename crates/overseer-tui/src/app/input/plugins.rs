@@ -202,7 +202,7 @@ impl App {
     }
 
     /// Confirm deleting the selected plugin separator; note when the row is a plugin
-    pub(super) fn begin_delete_selected_plugin_separator(&mut self) {
+    pub(super) fn begin_delete_plugin_separator(&mut self) {
         let rows = self
             .plugins
             .project(&self.session.order.plugins, &self.session.plugin_separators);

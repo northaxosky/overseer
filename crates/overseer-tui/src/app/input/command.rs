@@ -108,8 +108,8 @@ impl App {
                 let workspace = self.workspace;
                 workspace.toggle_sort_dir(self);
             }
-            Command::DeleteSave => self.begin_delete_selected_save(),
-            Command::DeleteSeparator => self.begin_delete_selected_separator(),
+            Command::DeleteSave => self.begin_delete_save(),
+            Command::DeleteSeparator => self.begin_delete_separator(),
             Command::ToggleLocalSaves => self.toggle_local_saves(),
             Command::FilterConflicts => self.filter_conflicts_to_selection(),
             Command::RemoveMod if self.focus == Focus::Mods => self.begin_remove_mod(),

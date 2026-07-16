@@ -16,7 +16,7 @@ impl App {
     }
 
     /// Act on Enter/Space in the downloads pane: prompt for the install name
-    pub(super) fn begin_install_selected(&mut self) {
+    pub(super) fn begin_install_download(&mut self) {
         let Some(entry) = self.selected_download() else {
             return;
         };

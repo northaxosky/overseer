@@ -210,7 +210,7 @@ impl Workspace {
                 app.note("Conflicts are read-only");
             }
             Workspace::Downloads => {
-                app.begin_install_selected();
+                app.begin_install_download();
             }
             Workspace::Saves => {
                 app.note("Press X to delete a save");
