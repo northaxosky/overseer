@@ -79,7 +79,7 @@ fn backup_round_trips_raw_bytes() {
     let backup = read_plugins_txt(&local).expect("read").expect("present");
     assert_eq!(backup, original);
 
-    // Restoring rewrites the exact bytes...
+    // Restoring rewrites the exact bytes
     std::fs::write(local.join("Plugins.txt"), b"clobbered").expect("clobber");
     restore_plugins_txt(&local, Some(&backup)).expect("restore");
     assert_eq!(

@@ -212,7 +212,7 @@ fn rooted_plan_sends_root_content_to_the_game_root() {
 
     let plan = DeployPlan::from_rooted_mods(&game, &[ModSource::new("M", &m)]).expect("plan");
     let relatives: Vec<&Utf8Path> = plan.files().iter().map(|f| f.relative.as_path()).collect();
-    // The loose loader lands directly in the game root...
+    // The loose loader lands directly in the game root
     assert!(relatives.contains(&Utf8Path::new("f4se_loader.exe")));
     // ...and subfolders under Root/ are preserved verbatim
     assert!(relatives.contains(&Utf8Path::new("enbseries").join("enb.ini").as_path()));

@@ -48,7 +48,7 @@ pub fn run(ctx: &GameContext) -> Vec<Finding> {
     findings
 }
 
-/// compare on binary against the expected generation, returning a warning if it doesn't fit
+/// Compare one binary against the expected generation, returning a warning if it doesn't fit
 fn inspect(binary: &BinaryScan, expected: Generation) -> Option<Finding> {
     if !binary.present {
         return Some(

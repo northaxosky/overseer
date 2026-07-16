@@ -1,4 +1,4 @@
-//! Overseer CLI: argument parsing and dispatch. Command logic lives in `commands/`;
+//! Overseer CLI: argument parsing and dispatch. Command logic lives in `commands/`
 
 mod cli;
 mod commands;

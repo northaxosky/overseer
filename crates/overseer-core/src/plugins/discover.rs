@@ -63,7 +63,7 @@ fn discover_plugin_paths(
         for found in find_plugin_files(&mod_dir)? {
             let name = found
                 .file_name()
-                .expect("Walked plugin file always has a name")
+                .expect("walked plugin file always has a name")
                 .to_owned();
             if seen.iter().any(|s| s.eq_ignore_ascii_case(&name)) {
                 continue;

@@ -261,7 +261,7 @@ impl GameContext {
         let sadd_records = scan_sadd(&plan, &active_plugins);
         let archives = scan_archives(&plan);
 
-        // What the engine force loads (base + dlc + cc)
+        // What the engine force loads (base + DLC + CC)
         let data_dir = instance.config.game_dir.join(DATA_DIR);
         let plugin_id = instance.config.game.plugin_id();
         let mut loaded_plugins: Vec<PluginMeta> = Vec::new();
@@ -526,7 +526,7 @@ fn dominant_provider<'a>(candidates: &[(&str, &'a str)]) -> Option<&'a str> {
     }
 }
 
-///The filename if `relative` is a top-level `Data/Scripts/<name>.pex` naming a base script
+/// The filename if `relative` is a top-level `Data/Scripts/<name>.pex` naming a base script
 fn base_script_pex_name(relative: &Utf8Path) -> Option<&str> {
     let mut components = relative.components();
     let data = components.next()?;
@@ -694,7 +694,7 @@ fn file_revision_state(game_dir: &Utf8Path, rel: &str) -> Option<bool> {
     let target = dlc::dlc_target(rel)?;
     let path = game_dir.join(rel);
     if rel.to_ascii_lowercase().ends_with(".ba2") {
-        // Textures/archives: size is 2K vs 4K; dont hash GB
+        // Textures/archives: size is 2K vs 4K; don't hash GB
         let size = std::fs::metadata(&path).ok()?.len();
         Some(size == target.expected.size)
     } else {

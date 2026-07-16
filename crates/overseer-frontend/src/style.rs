@@ -11,11 +11,11 @@ pub enum Role {
     Failure,
     /// Caution: something missing or removed the user should notice
     Warning,
-    /// Secondary info: counts, hints, disables...
+    /// Secondary info: counts, hints, disables
     Muted,
     /// Deployed / added entry
     Added,
-    /// Removed Entry
+    /// Removed entry
     Removed,
 }
 
@@ -33,7 +33,7 @@ pub enum Color {
 /// The canonical styling for a role: an optional colour plus emphasis flags
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct RoleStyle {
-    /// Optional colour; `None` inherits the terminal default
+    /// Optional color; `None` inherits the terminal default
     pub color: Option<Color>,
     /// Bold emphasis
     pub bold: bool,

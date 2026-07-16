@@ -141,7 +141,7 @@ pub fn print_launch_targets(exes: &[Executable]) {
     }
 }
 
-/// Prints CLI-friendly progress lines for deploy/undeploy
+/// Print CLI-friendly progress lines for deploy/undeploy
 pub struct CliProgress;
 
 impl ProgressSink for CliProgress {

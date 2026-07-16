@@ -127,7 +127,7 @@ pub(crate) struct ConflictsState {
 }
 
 impl ConflictsState {
-    /// Snapshot-conflict indices that pass teh active mod filter (empty unless ready)
+    /// Snapshot-conflict indices that pass the active mod filter (empty unless ready)
     pub(crate) fn visible_indices(&self) -> Vec<usize> {
         let ConflictsStatus::Ready(snapshot) = &self.status else {
             return Vec::new();

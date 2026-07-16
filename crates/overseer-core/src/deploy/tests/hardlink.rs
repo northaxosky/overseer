@@ -203,7 +203,7 @@ fn deploy_backs_up_preexisting_file() {
     HardlinkDeployer::new()
         .deploy(&record, &NullSink)
         .expect("deploy");
-    // The deployed link wins at the destination...
+    // The deployed link wins at the destination
     assert_eq!(fs::read_to_string(&dest).unwrap(), "ours");
     // ...and the original is preserved verbatim under the backup root
     let backup = record.backup_root.join("sub/x.txt");
@@ -221,7 +221,7 @@ fn undeploy_restores_a_clobbered_preexisting_file() {
     assert_eq!(fs::read_to_string(&dest).unwrap(), "ours");
     let report = d.undeploy(&record, &NullSink);
     assert!(report.is_fully_resolved());
-    // The user's original file is back, byte for byte...
+    // The user's original file is back, byte for byte
     assert_eq!(fs::read_to_string(&dest).unwrap(), "preexisting");
     // ...and the backup root is swept clean
     assert!(

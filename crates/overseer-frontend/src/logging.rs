@@ -4,7 +4,7 @@ use camino::Utf8PathBuf;
 use std::io;
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
-/// Install the file logging subscriber; call once at startup. Returns an error if it cant start
+/// Install the file logging subscriber; call once at startup. Returns an error if it can't start
 pub fn init(default_filter: &str) -> io::Result<()> {
     let dir = log_dir();
     std::fs::create_dir_all(&dir)?;

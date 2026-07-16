@@ -289,7 +289,7 @@ fn purge_captures_a_generated_file_from_a_mod_created_dir() {
 
     purge(&instance, &NullSink).expect("purge");
 
-    // Captured into overwrite/ in staging layout (the Data/ prefix is stripped)...
+    // Captured into overwrite/ in staging layout (the Data/ prefix is stripped)
     let captured = instance.overwrite_dir().join("F4SE/Plugins/Buffout4.log");
     assert_eq!(
         std::fs::read_to_string(&captured).expect("captured file"),

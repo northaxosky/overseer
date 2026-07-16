@@ -1,13 +1,13 @@
-//! Active plugins whose masters aren't present; the game wont load
+//! Active plugins whose masters aren't present; the game won't load
 
 use crate::context::GameContext;
 use crate::finding::Finding;
 use overseer_core::plugins::PluginMeta;
 use std::collections::BTreeSet;
 
-/// Flag any active plugin that depends on a master which isn't present
+/// Flags any active plugin that depends on a master which isn't present
 pub fn run(ctx: &GameContext) -> Vec<Finding> {
-    // A master is satisfied only if its provider is actually loaded: the active; mod plugins plus the base/DLC/CC the engine force-loads (not merely on disk)
+    // A master is satisfied only if its provider is actually loaded: the active mod plugins plus the base/DLC/CC the engine force-loads (not merely on disk)
     let loaded: BTreeSet<String> = ctx
         .loaded_plugins
         .iter()

@@ -212,7 +212,7 @@ fn create_profile_makes_an_empty_profile_on_disk() {
 
     assert_eq!(profile.name, "Survival");
     assert!(profile.mods.is_empty());
-    // The directory and an (empty) modlist are persisted...
+    // The directory and an (empty) modlist are persisted
     assert!(instance.profile_dir("Survival").is_dir());
     assert!(
         instance

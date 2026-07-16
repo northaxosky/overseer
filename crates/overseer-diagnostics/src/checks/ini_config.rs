@@ -58,7 +58,7 @@ pub fn run(ctx: &GameContext) -> Vec<Finding> {
         }
     }
 
-    // `sTestFile*` entries make FO4 drive load order from plugin timestamps instead; of `Plugins.txt`, which Overseer's deploy/purge doesn't manage
+    // `sTestFile*` entries make FO4 drive load order from plugin timestamps instead of `Plugins.txt`, which Overseer's deploy/purge doesn't manage
     if (1..=10).any(|n| {
         settings
             .get("General", &format!("sTestFile{n}"))

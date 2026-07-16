@@ -1,4 +1,4 @@
-//! The setup health checks: the `Checkspec` registry and every check that implements it
+//! The setup health checks: the `CheckSpec` registry and every check that implements it
 
 mod archive_names;
 mod archives;

@@ -44,7 +44,7 @@ impl BinaryEdition {
 pub(crate) struct BinaryScan {
     /// The file name, e.g. `steam_api64.dll`
     pub name: &'static str,
-    /// the generation it was classified as, if recognized
+    /// The generation it was classified as, if recognized
     pub edition: Option<BinaryEdition>,
     /// Whether the file exists in the game folder
     pub present: bool,

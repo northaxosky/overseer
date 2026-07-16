@@ -65,7 +65,7 @@ fn missing_keys_and_sections_return_none() {
 fn merge_lets_the_other_file_win() {
     let mut base = Ini::parse("[Archive]\nsResourceDataDirsFinal=STRINGS\\\nbKeep=1\n");
     base.merge(Ini::parse("[Archive]\nsResourceDataDirsFinal=\n"));
-    // The shared key is overridden...
+    // The shared key is overridden
     assert_eq!(base.get("archive", "sResourceDataDirsFinal"), Some(""));
     // ...but a key the other file doesn't mention is left alone
     assert_eq!(base.get("archive", "bKeep"), Some("1"));
