@@ -1,6 +1,7 @@
 //! Pure validation for plugin load-order constraints
 
-use super::{PluginLoadOrder, PluginMeta, is_master};
+use super::graph::DependencyGraph;
+use super::{PluginLoadOrder, PluginMeta};
 use std::collections::{HashMap, HashSet};
 
 /// Severity of a plugin order violation
@@ -22,41 +23,26 @@ pub enum PluginViolation {
     DuplicatePlugin(String),
     /// An order entry names a plugin that is not discovered
     OrderReferencesMissing(String),
+    /// Plugins contain a declared dependency cycle
+    CyclicDependency(Vec<String>),
 }
 
 impl PluginViolation {
+    /// The severity this violation is reported at.
     pub fn severity(&self) -> Severity {
         match self {
             Self::OrderReferencesMissing(_) => Severity::Warning,
             Self::DependencyAfterDependant { .. }
             | Self::MasterAfterNormal(_)
-            | Self::DuplicatePlugin(_) => Severity::Error,
+            | Self::DuplicatePlugin(_)
+            | Self::CyclicDependency(_) => Severity::Error,
         }
     }
 }
 
 /// Report order-dependent plugin problems without reading or writing state
 pub fn validate_order(order: &PluginLoadOrder, discovered: &[PluginMeta]) -> Vec<PluginViolation> {
-    let positions: HashMap<String, usize> =
-        order
-            .plugins
-            .iter()
-            .enumerate()
-            .fold(HashMap::new(), |mut positions, (index, entry)| {
-                positions
-                    .entry(entry.name.to_ascii_lowercase())
-                    .or_insert(index);
-                positions
-            });
-    let metadata: HashMap<String, &PluginMeta> =
-        discovered
-            .iter()
-            .fold(HashMap::new(), |mut metadata, meta| {
-                metadata
-                    .entry(meta.name.to_ascii_lowercase())
-                    .or_insert(meta);
-                metadata
-            });
+    let graph = DependencyGraph::build(&order.plugins, discovered);
     let counts: HashMap<String, usize> =
         order
             .plugins
@@ -66,26 +52,43 @@ pub fn validate_order(order: &PluginLoadOrder, discovered: &[PluginMeta]) -> Vec
                 counts
             });
 
-    let mut violations = Vec::new();
-    let mut saw_normal = false;
+    let cycles = graph.cyclic_components();
+    let cyclic_plugins: HashSet<_> = cycles
+        .iter()
+        .flat_map(|component| component.iter())
+        .map(|&index| graph.key(index).to_owned())
+        .collect();
+    let mut violations: Vec<_> = cycles
+        .into_iter()
+        .map(|component| {
+            PluginViolation::CyclicDependency(
+                component
+                    .into_iter()
+                    .map(|index| order.plugins[index].name.clone())
+                    .collect(),
+            )
+        })
+        .collect();
+    let mut pending_normals = HashSet::new();
     let mut dependency_pairs = HashSet::new();
     let mut reported_masters = HashSet::new();
     let mut reported_duplicates = HashSet::new();
     let mut reported_missing = HashSet::new();
 
-    for entry in &order.plugins {
+    for (index, entry) in order.plugins.iter().enumerate() {
         let key = entry.name.to_ascii_lowercase();
-        let master = is_master(&entry.name, discovered);
+        let master = graph.master_flags[index];
 
         if entry.active
-            && let Some(meta) = metadata.get(&key)
+            && !cyclic_plugins.contains(&key)
+            && let Some(meta) = graph.metadata(index)
         {
-            let plugin_pos = positions[&key];
+            let plugin_pos = graph.node_index(&key).expect("entry has a node");
             for dependency in &meta.masters {
                 let dependency_key = dependency.to_ascii_lowercase();
-                if positions
-                    .get(&dependency_key)
-                    .is_some_and(|position| *position > plugin_pos)
+                if graph
+                    .node_index(&dependency_key)
+                    .is_some_and(|position| position > plugin_pos)
                     && dependency_pairs.insert((key.clone(), dependency_key))
                 {
                     violations.push(PluginViolation::DependencyAfterDependant {
@@ -97,16 +100,21 @@ pub fn validate_order(order: &PluginLoadOrder, discovered: &[PluginMeta]) -> Vec
         }
 
         if master {
-            if saw_normal && reported_masters.insert(key.clone()) {
+            if let Some(meta) = graph.metadata(index) {
+                for dependency in &meta.masters {
+                    pending_normals.remove(&dependency.to_ascii_lowercase());
+                }
+            }
+            if !pending_normals.is_empty() && reported_masters.insert(key.clone()) {
                 violations.push(PluginViolation::MasterAfterNormal(entry.name.clone()));
             }
         } else {
-            saw_normal = true;
+            pending_normals.insert(key.clone());
         }
         if counts[&key] > 1 && reported_duplicates.insert(key.clone()) {
             violations.push(PluginViolation::DuplicatePlugin(entry.name.clone()));
         }
-        if !metadata.contains_key(&key) && reported_missing.insert(key) {
+        if graph.metadata(index).is_none() && reported_missing.insert(key) {
             violations.push(PluginViolation::OrderReferencesMissing(entry.name.clone()));
         }
     }

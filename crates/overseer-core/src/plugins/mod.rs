@@ -4,6 +4,7 @@ mod carrier;
 mod discover;
 mod error;
 mod gamestate;
+mod graph;
 mod load_order;
 mod metadata;
 mod provider;

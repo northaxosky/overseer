@@ -8,6 +8,10 @@ fn meta(name: &str, is_master: bool) -> PluginMeta {
     crate::test_support::plugin_meta(name, is_master, false, &[])
 }
 
+fn meta_with_masters(name: &str, is_master: bool, masters: &[&str]) -> PluginMeta {
+    crate::test_support::plugin_meta(name, is_master, false, masters)
+}
+
 fn order_of(lo: &PluginLoadOrder) -> Vec<&str> {
     lo.plugins.iter().map(|e| e.name.as_str()).collect()
 }
@@ -195,4 +199,117 @@ fn reconcile_reports_no_change_when_in_sync_and_sorted() {
     let mut order = lo("P", vec![active("Core.esm"), active("Patch.esp")]);
     let discovered = [meta("Core.esm", true), meta("Patch.esp", false)];
     assert!(!order.reconcile(&discovered));
+}
+
+#[test]
+fn reconcile_orders_normal_plugin_before_its_normal_dependant() {
+    let mut order = lo("P", vec![active("Patch.esp"), active("Armor.esp")]);
+    let discovered = [
+        meta_with_masters("Patch.esp", false, &["Armor.esp"]),
+        meta("Armor.esp", false),
+    ];
+
+    assert!(order.reconcile(&discovered));
+    assert_eq!(order_of(&order), ["Armor.esp", "Patch.esp"]);
+}
+
+#[test]
+fn reconcile_orders_master_before_its_master_dependant() {
+    let mut order = lo("P", vec![active("B.esm"), active("A.esm")]);
+    let discovered = [
+        meta_with_masters("B.esm", true, &["A.esm"]),
+        meta("A.esm", true),
+    ];
+
+    assert!(order.reconcile(&discovered));
+    assert_eq!(order_of(&order), ["A.esm", "B.esm"]);
+}
+
+#[test]
+fn reconcile_hoists_normal_dependency_before_master() {
+    let mut order = lo("P", vec![active("A.esm"), active("N.esp")]);
+    let discovered = [
+        meta_with_masters("A.esm", true, &["N.esp"]),
+        meta("N.esp", false),
+    ];
+
+    assert!(order.reconcile(&discovered));
+    assert_eq!(order_of(&order), ["N.esp", "A.esm"]);
+}
+
+#[test]
+fn reconcile_uses_master_flag_to_break_independent_ties() {
+    let mut order = lo("P", vec![active("Patch.esp"), active("Core.esm")]);
+    let discovered = [meta("Patch.esp", false), meta("Core.esm", true)];
+
+    assert!(order.reconcile(&discovered));
+    assert_eq!(order_of(&order), ["Core.esm", "Patch.esp"]);
+}
+
+#[test]
+fn reconcile_ignores_base_master_absent_from_managed_order() {
+    let mut order = lo("P", vec![active("Patch.esp")]);
+    let discovered = [meta_with_masters("Patch.esp", false, &["Fallout4.esm"])];
+
+    assert!(!order.reconcile(&discovered));
+    assert_eq!(order_of(&order), ["Patch.esp"]);
+}
+
+#[test]
+fn reconcile_dependency_correct_order_is_idempotent() {
+    let mut order = lo("P", vec![active("Armor.esp"), inactive("Patch.esp")]);
+    let discovered = [
+        meta("Armor.esp", false),
+        meta_with_masters("Patch.esp", false, &["Armor.esp"]),
+    ];
+
+    assert!(!order.reconcile(&discovered));
+    assert_eq!(order.plugins, [active("Armor.esp"), inactive("Patch.esp")]);
+}
+
+#[test]
+fn reconcile_breaks_cycles_with_the_same_deterministic_tie_break() {
+    let mut order = lo("P", vec![active("B.esp"), active("A.esm")]);
+    let discovered = [
+        meta_with_masters("B.esp", false, &["A.esm"]),
+        meta_with_masters("A.esm", true, &["B.esp"]),
+    ];
+
+    assert!(order.reconcile(&discovered));
+    assert_eq!(order_of(&order), ["A.esm", "B.esp"]);
+}
+
+#[test]
+fn reconcile_counts_duplicate_declared_masters_once() {
+    let mut order = lo(
+        "P",
+        vec![active("A.esp"), active("Patch.esp"), active("Other.esp")],
+    );
+    let discovered = [
+        meta("A.esp", false),
+        meta_with_masters("Patch.esp", false, &["A.esp", "A.ESP"]),
+        meta("Other.esp", false),
+    ];
+
+    assert!(!order.reconcile(&discovered));
+    assert_eq!(order_of(&order), ["A.esp", "Patch.esp", "Other.esp"]);
+}
+
+#[test]
+fn reconcile_orders_plugins_blocked_downstream_of_a_cycle() {
+    let mut order = lo(
+        "P",
+        vec![active("Patch.esp"), active("A.esp"), active("B.esp")],
+    );
+    let discovered = [
+        meta_with_masters("A.esp", false, &["B.esp"]),
+        meta_with_masters("B.esp", false, &["A.esp"]),
+        meta_with_masters("Patch.esp", false, &["A.esp"]),
+    ];
+
+    assert!(order.reconcile(&discovered));
+    assert!(
+        order.position("Patch.esp").expect("Patch is present")
+            > order.position("A.esp").expect("A is present")
+    );
 }

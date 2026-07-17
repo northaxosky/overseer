@@ -1,9 +1,12 @@
 //! A profile's managed plugin load order: names and active flags
 
 use super::error::PluginError;
-use super::metadata::{PluginMeta, is_master};
+use super::graph::DependencyGraph;
+use super::metadata::PluginMeta;
 use crate::fs;
 use crate::instance::Instance;
+use std::cmp::Reverse;
+use std::collections::BinaryHeap;
 
 /// One line of a profile's plugin load order: plugin name and whether it's active
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -119,17 +122,58 @@ impl PluginLoadOrder {
         });
         changed |= self.plugins.len() != pre_dedup;
 
-        // Stable sort masters before normal plugins, only when not already ordered
-        if !self
-            .plugins
-            .is_sorted_by_key(|e| !is_master(&e.name, discovered))
-        {
-            self.plugins
-                .sort_by_key(|e| !is_master(&e.name, discovered));
-            changed = true;
-        }
+        let previous = std::mem::take(&mut self.plugins);
+        let previous_snapshot = previous.clone();
+        self.plugins = topological_order(previous, discovered);
+        changed |= self.plugins != previous_snapshot;
         changed
     }
+}
+
+/// Stable topological sort using SCC-external readiness, then master flag and original order.
+fn topological_order(entries: Vec<PluginEntry>, discovered: &[PluginMeta]) -> Vec<PluginEntry> {
+    let graph = DependencyGraph::build(&entries, discovered);
+    let mut external_indegrees = vec![0; entries.len()];
+    for (dependency, successors) in graph.successors.iter().enumerate() {
+        for &dependant in successors {
+            if !graph.same_scc(dependency, dependant) {
+                external_indegrees[dependant] += 1;
+            }
+        }
+    }
+    let mut ready = BinaryHeap::new();
+    let mut emitted = vec![false; entries.len()];
+    let mut order = Vec::with_capacity(entries.len());
+
+    for (index, &external_indegree) in external_indegrees.iter().enumerate() {
+        if external_indegree == 0 {
+            ready.push(Reverse((u8::from(!graph.master_flags[index]), index)));
+        }
+    }
+
+    while order.len() < entries.len() {
+        let Reverse((_, next)) = ready.pop().expect("SCC condensation leaves a ready node");
+        emitted[next] = true;
+        order.push(next);
+        for &successor in &graph.successors[next] {
+            if graph.same_scc(next, successor) || emitted[successor] {
+                continue;
+            }
+            external_indegrees[successor] -= 1;
+            if external_indegrees[successor] == 0 {
+                ready.push(Reverse((
+                    u8::from(!graph.master_flags[successor]),
+                    successor,
+                )));
+            }
+        }
+    }
+
+    let mut entries: Vec<_> = entries.into_iter().map(Some).collect();
+    order
+        .into_iter()
+        .map(|index| entries[index].take().expect("entry emitted once"))
+        .collect()
 }
 
 /// Parse `plugins.txt`

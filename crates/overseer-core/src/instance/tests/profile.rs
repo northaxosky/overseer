@@ -452,11 +452,11 @@ fn commit_load_order_persists_order_and_returns_derived_state() {
 }
 
 #[test]
-fn commit_load_order_returns_non_blocking_order_violations() {
+fn commit_load_order_returns_non_blocking_cycle_violations() {
     let (_tmp, instance) = temp_instance();
     let mod_dir = instance.mods_dir().join("ModA");
     write_plugin(&mod_dir, "Patch.esp", 0, &["Armor.esp"]);
-    write_plugin(&mod_dir, "Armor.esp", 0, &[]);
+    write_plugin(&mod_dir, "Armor.esp", 0, &["Patch.esp"]);
     let profile = profile_of(&["ModA"]);
     let profile_dir = instance.profile_dir(&profile.name);
     std::fs::create_dir_all(&profile_dir).expect("create profile");
@@ -477,10 +477,10 @@ fn commit_load_order_returns_non_blocking_order_violations() {
     );
     assert_eq!(
         outcome.violations,
-        vec![crate::plugins::PluginViolation::DependencyAfterDependant {
-            plugin: "Patch.esp".to_owned(),
-            dependency: "Armor.esp".to_owned(),
-        }]
+        vec![crate::plugins::PluginViolation::CyclicDependency(vec![
+            "Patch.esp".to_owned(),
+            "Armor.esp".to_owned(),
+        ])]
     );
     let saved = PluginLoadOrder::load(&instance, &profile.name).expect("load saved");
     assert_eq!(saved.plugins, outcome.order.plugins);

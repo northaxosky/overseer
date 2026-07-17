@@ -27,6 +27,9 @@ fn finding(violation: PluginViolation) -> Finding {
         PluginViolation::OrderReferencesMissing(name) => {
             format!("Load order references missing plugin `{name}`")
         }
+        PluginViolation::CyclicDependency(members) => {
+            format!("Dependency cycle: {}", members.join(", "))
+        }
     };
     Finding::new(severity, title)
 }

@@ -76,6 +76,33 @@ fn master_after_normal_is_an_error() {
 }
 
 #[test]
+fn hoisted_master_after_its_declared_normal_is_not_flagged() {
+    let order = order(&[("N.esp", true), ("A.esm", true)]);
+    let discovered = [
+        plugin_meta("A.esm", true, false, &["N.esp"]),
+        plugin_meta("N.esp", false, false, &[]),
+    ];
+
+    assert!(validate_order(&order, &discovered).is_empty());
+}
+
+#[test]
+fn unhoisted_master_after_normal_is_still_flagged() {
+    let order = order(&[("N.esp", true), ("M.esm", true)]);
+    let discovered = [
+        plugin_meta("M.esm", true, false, &[]),
+        plugin_meta("N.esp", false, false, &[]),
+    ];
+
+    let violations = validate_order(&order, &discovered);
+    assert_eq!(
+        violations,
+        vec![PluginViolation::MasterAfterNormal("M.esm".to_owned())]
+    );
+    assert_eq!(violations[0].severity(), Severity::Error);
+}
+
+#[test]
 fn masters_before_normals_are_valid() {
     let order = order(&[("Core.esm", true), ("Patch.esp", true)]);
     let discovered = [
@@ -132,4 +159,55 @@ fn discovered_order_reference_is_not_missing() {
     let discovered = [plugin_meta("present.ESP", false, false, &[])];
 
     assert!(validate_order(&order, &discovered).is_empty());
+}
+
+#[test]
+fn self_dependency_is_a_cycle() {
+    let order = order(&[("A.esp", true)]);
+    let discovered = [plugin_meta("A.esp", false, false, &["A.esp"])];
+
+    assert_eq!(
+        validate_order(&order, &discovered),
+        vec![PluginViolation::CyclicDependency(vec!["A.esp".to_owned()])]
+    );
+}
+
+#[test]
+fn mutual_dependency_is_one_cycle_without_order_violations() {
+    let order = order(&[("A.esp", true), ("B.esp", true)]);
+    let discovered = [
+        plugin_meta("A.esp", false, false, &["B.esp"]),
+        plugin_meta("B.esp", false, false, &["A.esp"]),
+    ];
+
+    let violations = validate_order(&order, &discovered);
+    assert_eq!(
+        violations,
+        vec![PluginViolation::CyclicDependency(vec![
+            "A.esp".to_owned(),
+            "B.esp".to_owned(),
+        ])]
+    );
+    assert!(
+        !violations
+            .iter()
+            .any(|violation| matches!(violation, PluginViolation::DependencyAfterDependant { .. }))
+    );
+}
+
+#[test]
+fn inactive_dependency_cycle_is_reported() {
+    let order = order(&[("A.esp", false), ("B.esp", false)]);
+    let discovered = [
+        plugin_meta("A.esp", false, false, &["B.esp"]),
+        plugin_meta("B.esp", false, false, &["A.esp"]),
+    ];
+
+    assert_eq!(
+        validate_order(&order, &discovered),
+        vec![PluginViolation::CyclicDependency(vec![
+            "A.esp".to_owned(),
+            "B.esp".to_owned(),
+        ])]
+    );
 }
