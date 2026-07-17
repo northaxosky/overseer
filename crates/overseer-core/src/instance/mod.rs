@@ -10,4 +10,4 @@ pub use model::{
     InstalledMod, Instance, InstanceConfig, InvalidUserToolId, ToolMutationError, UserTool,
     UserToolId, mint_tool_id,
 };
-pub use profile::{ModKind, ModListEntry, Profile};
+pub use profile::{CommitOutcome, ModKind, ModListEntry, Profile};

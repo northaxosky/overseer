@@ -19,6 +19,7 @@ fn the_registry_lists_every_check_in_display_order() {
         vec![
             "plugins",
             "plugin-count",
+            "plugin-order",
             "missing-masters",
             "race-subgraphs",
             "loose-files",

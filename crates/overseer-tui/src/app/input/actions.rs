@@ -1,6 +1,6 @@
 //! Main-view mutations: toggling, reordering, deploying, and purging.
 
-use overseer_core::instance::{ModKind, Profile};
+use overseer_core::instance::{CommitOutcome, ModKind, Profile};
 
 use crate::app::{App, Confirm, ConfirmAction, Focus, ModPaneRow, Modal, SelectKind, Workspace};
 
@@ -116,8 +116,14 @@ impl App {
                 self.session.profile = profile;
                 self.mark_conflicts_stale();
 
-                match self.session.profile.sync_plugins(&self.session.instance) {
-                    Ok((discovered, order)) => {
+                match self
+                    .session
+                    .profile
+                    .commit_load_order(&self.session.instance)
+                {
+                    Ok(CommitOutcome {
+                        discovered, order, ..
+                    }) => {
                         self.session.discovered = discovered;
                         self.session.order = order;
                         self.clamp_plugins_selection();

@@ -59,6 +59,10 @@ pub(crate) struct GameContext {
     pub game: GameKind,
     /// The active mod plugins to inspect (with their masters)
     pub active_plugins: Vec<PluginMeta>,
+    /// The full set of plugins discovered in enabled mods
+    pub discovered_plugins: Vec<PluginMeta>,
+    /// The profile's reconciled plugin load order
+    pub plugin_order: PluginLoadOrder,
     /// The real load-order budget: active mod plugins plus force-loaded base/DLC/Creation Club plugins
     pub loaded_plugins: Vec<PluginMeta>,
     /// Mod and force-loaded plugins that could not be parsed during inspection
@@ -241,8 +245,9 @@ impl GameContext {
         order.reconcile(&discovered);
 
         let active_plugins: Vec<PluginMeta> = discovered
-            .into_iter()
+            .iter()
             .filter(|p| order.is_active(&p.name))
+            .cloned()
             .collect();
 
         // The files this profile would actually deploy, conflict-resolved
@@ -329,6 +334,8 @@ impl GameContext {
         Ok(Self {
             game: instance.config.game,
             active_plugins,
+            discovered_plugins: discovered,
+            plugin_order: order,
             data_files,
             ccc: read_ccc(instance),
             inis,

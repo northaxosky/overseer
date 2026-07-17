@@ -4,7 +4,9 @@ use super::error::InstanceError;
 use super::model::Instance;
 use crate::deploy::ModSource;
 use crate::fs;
-use crate::plugins::{PluginError, PluginLoadOrder, PluginMeta, discover_plugins};
+use crate::plugins::{
+    PluginError, PluginLoadOrder, PluginMeta, PluginViolation, discover_plugins, validate_order,
+};
 use camino::{Utf8Path, Utf8PathBuf};
 
 /// What kind of `modlist.txt` line an entry is
@@ -32,6 +34,17 @@ pub struct Profile {
     pub name: String,
     pub mods: Vec<ModListEntry>,
     pub local_saves: bool,
+}
+
+/// The persisted result of deriving a profile's plugin load order
+#[derive(Debug, Clone)]
+pub struct CommitOutcome {
+    /// All plugins discovered from the enabled mods
+    pub discovered: Vec<PluginMeta>,
+    /// The reconciled and persisted load order
+    pub order: PluginLoadOrder,
+    /// Non-blocking problems found in the persisted order
+    pub violations: Vec<PluginViolation>,
 }
 
 impl Profile {
@@ -318,14 +331,16 @@ impl Profile {
         Ok((discovered, order))
     }
 
-    /// Discover, reconcile, and persist this profile's load order
-    pub fn sync_plugins(
-        &self,
-        instance: &Instance,
-    ) -> Result<(Vec<PluginMeta>, PluginLoadOrder), PluginError> {
+    /// Discover, reconcile, validate, and persist this profile's load order
+    pub fn commit_load_order(&self, instance: &Instance) -> Result<CommitOutcome, PluginError> {
         let (discovered, order) = self.resolve_plugins(instance)?;
+        let violations = validate_order(&order, &discovered);
         order.save(instance)?;
-        Ok((discovered, order))
+        Ok(CommitOutcome {
+            discovered,
+            order,
+            violations,
+        })
     }
 }
 

@@ -174,6 +174,23 @@ fn reconcile_preserves_active_state_of_existing() {
 }
 
 #[test]
+fn reconcile_removes_duplicates_and_keeps_the_first_occurrence() {
+    let mut order = lo(
+        "P",
+        vec![
+            inactive("Patch.esp"),
+            active("PATCH.ESP"),
+            active("Other.esp"),
+        ],
+    );
+    let discovered = [meta("Patch.esp", false), meta("Other.esp", false)];
+
+    assert!(order.reconcile(&discovered));
+    assert_eq!(order_of(&order), ["Patch.esp", "Other.esp"]);
+    assert!(!order.is_active("patch.esp"));
+}
+
+#[test]
 fn reconcile_reports_no_change_when_in_sync_and_sorted() {
     let mut order = lo("P", vec![active("Core.esm"), active("Patch.esp")]);
     let discovered = [meta("Core.esm", true), meta("Patch.esp", false)];

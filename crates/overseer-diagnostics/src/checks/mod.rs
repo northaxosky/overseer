@@ -12,6 +12,7 @@ mod loose_files;
 mod loose_folders;
 mod missing_masters;
 mod plugin_count;
+mod plugin_order;
 mod plugins;
 mod race_subgraphs;
 mod script_overrides;
@@ -40,6 +41,10 @@ pub const CHECKS: &[CheckSpec] = &[
     CheckSpec {
         id: "plugin-count",
         run: plugin_count::run,
+    },
+    CheckSpec {
+        id: "plugin-order",
+        run: plugin_order::run,
     },
     CheckSpec {
         id: "missing-masters",

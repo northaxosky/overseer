@@ -430,24 +430,60 @@ fn local_saves_defaults_to_false_without_a_settings_ini() {
 }
 
 #[test]
-fn sync_plugins_persists_changed_order_and_returns_discovered_state() {
+fn commit_load_order_persists_order_and_returns_derived_state() {
     let (_tmp, instance) = temp_instance();
     write_plugin(&instance.mods_dir().join("ModA"), "Patch.esp", 0, &[]);
     let profile = profile_of(&["ModA"]);
 
-    let (discovered, order) = profile.sync_plugins(&instance).expect("sync");
+    let outcome = profile.commit_load_order(&instance).expect("commit");
 
-    assert_eq!(discovered.len(), 1);
-    assert_eq!(discovered[0].name, "Patch.esp");
+    assert_eq!(outcome.discovered.len(), 1);
+    assert_eq!(outcome.discovered[0].name, "Patch.esp");
+    assert!(outcome.violations.is_empty());
     assert_eq!(
-        order.plugins,
+        outcome.order.plugins,
         vec![crate::plugins::PluginEntry {
             name: "Patch.esp".to_owned(),
             active: true,
         }]
     );
     let loaded = PluginLoadOrder::load(&instance, &profile.name).expect("load");
-    assert_eq!(loaded.plugins, order.plugins);
+    assert_eq!(loaded.plugins, outcome.order.plugins);
+}
+
+#[test]
+fn commit_load_order_returns_non_blocking_order_violations() {
+    let (_tmp, instance) = temp_instance();
+    let mod_dir = instance.mods_dir().join("ModA");
+    write_plugin(&mod_dir, "Patch.esp", 0, &["Armor.esp"]);
+    write_plugin(&mod_dir, "Armor.esp", 0, &[]);
+    let profile = profile_of(&["ModA"]);
+    let profile_dir = instance.profile_dir(&profile.name);
+    std::fs::create_dir_all(&profile_dir).expect("create profile");
+    std::fs::write(profile_dir.join("plugins.txt"), "*Patch.esp\n*Armor.esp\n")
+        .expect("seed order");
+
+    let outcome = profile.commit_load_order(&instance).expect("commit");
+
+    assert_eq!(outcome.discovered.len(), 2);
+    assert_eq!(
+        outcome
+            .order
+            .plugins
+            .iter()
+            .map(|entry| entry.name.as_str())
+            .collect::<Vec<_>>(),
+        ["Patch.esp", "Armor.esp"]
+    );
+    assert_eq!(
+        outcome.violations,
+        vec![crate::plugins::PluginViolation::DependencyAfterDependant {
+            plugin: "Patch.esp".to_owned(),
+            dependency: "Armor.esp".to_owned(),
+        }]
+    );
+    let saved = PluginLoadOrder::load(&instance, &profile.name).expect("load saved");
+    assert_eq!(saved.plugins, outcome.order.plugins);
 }
 
 #[test]
@@ -480,7 +516,7 @@ fn resolve_plugins_reconciles_in_memory_without_persisting() {
 }
 
 #[test]
-fn pending_mod_state_blocks_plugin_sync_before_order_mutation() {
+fn pending_mod_state_blocks_load_order_commit_before_order_mutation() {
     let (_tmp, instance) = temp_instance();
     write_plugin(&instance.mods_dir().join("ModA"), "Patch.esp", 0, &[]);
     let profile = profile_of(&["ModA"]);
@@ -493,7 +529,9 @@ fn pending_mod_state_blocks_plugin_sync_before_order_mutation() {
     std::fs::create_dir_all(instance.state_dir()).expect("create state");
     std::fs::write(&pending, "pending").expect("write residue");
 
-    let error = profile.sync_plugins(&instance).expect_err("blocked sync");
+    let error = profile
+        .commit_load_order(&instance)
+        .expect_err("blocked commit");
 
     assert!(matches!(
         error,

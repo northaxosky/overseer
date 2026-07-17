@@ -902,11 +902,7 @@ fn prepare_load_order(
     instance: &Instance,
     profile: &Profile,
 ) -> Result<PluginLoadOrder, ApplyError> {
-    let discovered = plugins::discover_plugins(instance, profile)?;
-    let mut order = PluginLoadOrder::load(instance, &profile.name)?;
-    order.reconcile(&discovered);
-    order.save(instance)?;
-    Ok(order)
+    Ok(profile.commit_load_order(instance)?.order)
 }
 
 /// Compute this profile's custom INI and saves directory

@@ -13,7 +13,7 @@ pub struct PluginEntry {
 }
 
 /// A profile's plugin load order, persisted as `plugins.txt`
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct PluginLoadOrder {
     pub profile: String,
     pub plugins: Vec<PluginEntry>,
@@ -103,6 +103,21 @@ impl PluginLoadOrder {
                 changed = true;
             }
         }
+
+        let pre_dedup = self.plugins.len();
+        let mut seen = Vec::<String>::new();
+        self.plugins.retain(|entry| {
+            if seen
+                .iter()
+                .any(|name| name.eq_ignore_ascii_case(&entry.name))
+            {
+                false
+            } else {
+                seen.push(entry.name.clone());
+                true
+            }
+        });
+        changed |= self.plugins.len() != pre_dedup;
 
         // Stable sort masters before normal plugins, only when not already ordered
         if !self

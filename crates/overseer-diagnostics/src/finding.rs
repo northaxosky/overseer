@@ -11,6 +11,16 @@ pub enum Severity {
     Error,
 }
 
+impl From<overseer_core::plugins::Severity> for Severity {
+    fn from(value: overseer_core::plugins::Severity) -> Self {
+        match value {
+            overseer_core::plugins::Severity::Info => Self::Info,
+            overseer_core::plugins::Severity::Warning => Self::Warning,
+            overseer_core::plugins::Severity::Error => Self::Error,
+        }
+    }
+}
+
 /// One thing a check noticed about the setup
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {

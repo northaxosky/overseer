@@ -8,6 +8,7 @@ mod load_order;
 mod metadata;
 mod provider;
 mod separator;
+pub mod validate;
 
 pub use carrier::carrier_for;
 pub use discover::{UnreadablePlugin, discover_plugins, discover_plugins_lenient};
@@ -20,3 +21,4 @@ pub use load_order::{PluginEntry, PluginLoadOrder};
 pub use metadata::{PluginMeta, is_master, is_plugin_file, read_metadata};
 pub use provider::plugin_provider;
 pub use separator::{PluginRow, PluginSeparators, Separator, SeparatorError, merge_rows};
+pub use validate::{PluginViolation, Severity, validate_order};
