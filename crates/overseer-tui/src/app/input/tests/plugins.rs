@@ -2,7 +2,9 @@
 
 use super::*;
 use crate::app::input::test_helpers::key;
-use overseer_core::plugins::{PluginEntry, PluginLoadOrder, PluginSeparators, Separator};
+use overseer_core::plugins::{
+    PluginEntry, PluginLoadOrder, PluginMeta, PluginSeparators, Separator,
+};
 use ratatui::crossterm::event::KeyCode;
 
 /// An app on a temp instance with two plugins, focused on the Plugins pane
@@ -82,6 +84,31 @@ fn add_separator(app: &mut App, name: &str, anchor: Option<&str>) {
         anchor: anchor.map(str::to_owned),
     });
     sync_plugins(app);
+}
+
+/// Replace discovered metadata for a reorder fixture
+fn set_metadata(app: &mut App, entries: &[(&str, bool, &[&str])]) {
+    app.session.discovered = entries
+        .iter()
+        .map(|(name, is_master, masters)| PluginMeta {
+            name: (*name).to_owned(),
+            is_master: *is_master,
+            is_light: false,
+            masters: masters.iter().map(|name| (*name).to_owned()).collect(),
+            header_version: None,
+        })
+        .collect();
+}
+
+/// Return the selected plugin name, if the cursor is on a plugin
+fn selected_plugin_name(app: &App) -> Option<&str> {
+    let rows = app
+        .plugins
+        .project(&app.session.order.plugins, &app.session.plugin_separators);
+    let PluginPaneRow::Plugin { plugin_index } = *rows.get(app.plugins.index()?)? else {
+        return None;
+    };
+    Some(&app.session.order.plugins[plugin_index].name)
 }
 
 /// Select a separator by sidecar index
@@ -592,6 +619,306 @@ fn plugin_toggle_succeeds_when_only_modlist_is_obstructed() {
         app.message.as_ref().map(|notice| notice.text.as_str()),
         Some("Saved")
     );
+}
+
+/// J and K swap adjacent plugins, persist, and keep the cursor on the moved plugin
+#[test]
+fn plugin_reorder_down_and_up_round_trips_and_reselects_by_identity() {
+    let (_tmp, mut app) = app_with_plugins();
+    set_metadata(
+        &mut app,
+        &[("Alpha.esp", false, &[]), ("Beta.esp", false, &[])],
+    );
+
+    app.handle_key(key(KeyCode::Char('J')));
+
+    assert_eq!(
+        app.session
+            .order
+            .plugins
+            .iter()
+            .map(|plugin| plugin.name.as_str())
+            .collect::<Vec<_>>(),
+        ["Beta.esp", "Alpha.esp"]
+    );
+    assert_eq!(selected_plugin_name(&app), Some("Alpha.esp"));
+    let loaded = PluginLoadOrder::load(&app.session.instance, "Default").expect("reload");
+    assert_eq!(loaded.plugins, app.session.order.plugins);
+
+    app.handle_key(key(KeyCode::Char('K')));
+
+    assert_eq!(
+        app.session
+            .order
+            .plugins
+            .iter()
+            .map(|plugin| plugin.name.as_str())
+            .collect::<Vec<_>>(),
+        ["Alpha.esp", "Beta.esp"]
+    );
+    assert_eq!(selected_plugin_name(&app), Some("Alpha.esp"));
+    let loaded = PluginLoadOrder::load(&app.session.instance, "Default").expect("reload");
+    assert_eq!(loaded.plugins, app.session.order.plugins);
+}
+
+/// Declared masters gate adjacent swaps even when both plugins are inactive
+#[test]
+fn plugin_reorder_cannot_put_an_inactive_patch_before_its_master() {
+    let (_tmp, mut app) = app_with_plugins();
+    app.session.order.plugins = vec![
+        PluginEntry {
+            name: "Armor.esm".to_owned(),
+            active: false,
+        },
+        PluginEntry {
+            name: "Patch.esp".to_owned(),
+            active: false,
+        },
+    ];
+    set_metadata(
+        &mut app,
+        &[
+            ("Armor.esm", true, &[]),
+            ("Patch.esp", false, &["Armor.esm"]),
+        ],
+    );
+    sync_plugins(&mut app);
+    app.plugins.select(Some(0));
+    let before = app.session.order.plugins.clone();
+
+    app.reorder_selected(1);
+
+    assert_eq!(app.session.order.plugins, before);
+    assert_eq!(
+        app.message.as_ref().map(|notice| notice.text.as_str()),
+        Some("Masters and dependencies must stay in load order")
+    );
+}
+
+/// Master hoisting blocks normal plugins unless the master declares that plugin
+#[test]
+fn plugin_reorder_enforces_master_hoisting_with_a_dependency_exception() {
+    let (_tmp, mut blocked) = app_with_plugins();
+    blocked.session.order.plugins[0].name = "Master.esm".to_owned();
+    blocked.session.order.plugins[1].name = "Normal.esp".to_owned();
+    set_metadata(
+        &mut blocked,
+        &[("Master.esm", true, &[]), ("Normal.esp", false, &[])],
+    );
+    sync_plugins(&mut blocked);
+
+    blocked.reorder_selected(1);
+
+    assert_eq!(
+        blocked
+            .session
+            .order
+            .plugins
+            .iter()
+            .map(|plugin| plugin.name.as_str())
+            .collect::<Vec<_>>(),
+        ["Master.esm", "Normal.esp"]
+    );
+    assert_eq!(
+        blocked.message.as_ref().map(|notice| notice.text.as_str()),
+        Some("Masters and dependencies must stay in load order")
+    );
+
+    let (_tmp, mut allowed) = app_with_plugins();
+    allowed.session.order.plugins[0].name = "Master.esm".to_owned();
+    allowed.session.order.plugins[1].name = "Normal.esp".to_owned();
+    set_metadata(
+        &mut allowed,
+        &[
+            ("Master.esm", true, &["Normal.esp"]),
+            ("Normal.esp", false, &[]),
+        ],
+    );
+    sync_plugins(&mut allowed);
+
+    allowed.reorder_selected(1);
+
+    assert_eq!(
+        allowed
+            .session
+            .order
+            .plugins
+            .iter()
+            .map(|plugin| plugin.name.as_str())
+            .collect::<Vec<_>>(),
+        ["Normal.esp", "Master.esm"]
+    );
+    assert_eq!(selected_plugin_name(&allowed), Some("Master.esm"));
+}
+
+/// Candidate topology catches a third master leapfrogging two swapped normals
+#[test]
+fn plugin_reorder_refuses_a_third_plugin_topology_snap() {
+    let (_tmp, mut app) = app_with_plugins();
+    app.session.order.plugins = vec![
+        PluginEntry {
+            name: "A.esp".to_owned(),
+            active: true,
+        },
+        PluginEntry {
+            name: "B.esp".to_owned(),
+            active: true,
+        },
+        PluginEntry {
+            name: "J.esm".to_owned(),
+            active: true,
+        },
+    ];
+    set_metadata(
+        &mut app,
+        &[
+            ("J.esm", true, &["B.esp"]),
+            ("A.esp", false, &[]),
+            ("B.esp", false, &[]),
+        ],
+    );
+    sync_plugins(&mut app);
+    assert!(
+        app.session
+            .order
+            .is_dependency_ordered(&app.session.discovered)
+    );
+    let before = app.session.order.plugins.clone();
+
+    app.reorder_selected(1);
+
+    assert_eq!(app.session.order.plugins, before);
+    assert_eq!(
+        app.message.as_ref().map(|notice| notice.text.as_str()),
+        Some("Masters and dependencies must stay in load order")
+    );
+}
+
+/// Crossing an expanded separator re-anchors it without changing plugin order
+#[test]
+fn plugin_reorder_crosses_an_expanded_separator_and_persists_both_files() {
+    let (_tmp, mut app) = app_with_plugins();
+    add_separator(&mut app, "Group", Some("Beta.esp"));
+    app.session
+        .plugin_separators
+        .save(&app.session.instance.profile_dir("Default"))
+        .expect("seed separators");
+    app.plugins.select(Some(plugin_display_index(&app, 0)));
+
+    app.reorder_selected(1);
+
+    assert_eq!(
+        app.session.plugin_separators.items[0].anchor.as_deref(),
+        Some("Alpha.esp")
+    );
+    assert_eq!(
+        app.session
+            .order
+            .plugins
+            .iter()
+            .map(|plugin| plugin.name.as_str())
+            .collect::<Vec<_>>(),
+        ["Alpha.esp", "Beta.esp"]
+    );
+    assert_eq!(selected_plugin_name(&app), Some("Alpha.esp"));
+    assert_eq!(app.plugins.index(), Some(1));
+
+    let loaded_order =
+        PluginLoadOrder::load(&app.session.instance, "Default").expect("reload order");
+    assert_eq!(loaded_order.plugins, app.session.order.plugins);
+    let loaded_separators = PluginSeparators::load(&app.session.instance.profile_dir("Default"))
+        .expect("reload separators");
+    assert_eq!(
+        loaded_separators.items[0].anchor.as_deref(),
+        Some("Alpha.esp")
+    );
+}
+
+/// Unrelated plugin reorders preserve separator anchors parked on absent plugins
+#[test]
+fn plugin_reorder_preserves_a_parked_separator_anchor() {
+    let (_tmp, mut app) = app_with_plugins();
+    set_metadata(
+        &mut app,
+        &[("Alpha.esp", false, &[]), ("Beta.esp", false, &[])],
+    );
+    add_separator(&mut app, "Parked", Some("Gone.esp"));
+    app.session
+        .plugin_separators
+        .save(&app.session.instance.profile_dir("Default"))
+        .expect("seed separators");
+    app.plugins.select(Some(plugin_display_index(&app, 0)));
+
+    app.reorder_selected(1);
+
+    assert_eq!(
+        app.session
+            .order
+            .plugins
+            .iter()
+            .map(|plugin| plugin.name.as_str())
+            .collect::<Vec<_>>(),
+        ["Beta.esp", "Alpha.esp"]
+    );
+    assert_eq!(
+        app.session.plugin_separators.items[0].anchor.as_deref(),
+        Some("Gone.esp")
+    );
+    let loaded = PluginSeparators::load(&app.session.instance.profile_dir("Default"))
+        .expect("reload separators");
+    assert_eq!(loaded.items[0].anchor.as_deref(), Some("Gone.esp"));
+}
+
+/// Collapsed groups must be expanded before a plugin can cross their separator
+#[test]
+fn plugin_reorder_refuses_to_cross_a_collapsed_separator() {
+    let (_tmp, mut app) = app_with_plugins();
+    add_separator(&mut app, "Group", Some("Beta.esp"));
+    select_separator(&mut app, 0);
+    app.toggle_selected_plugin_row();
+    app.plugins.select(Some(plugin_display_index(&app, 0)));
+    let order_before = app.session.order.plugins.clone();
+    let separators_before = app.session.plugin_separators.items.clone();
+
+    app.reorder_selected(1);
+
+    assert_eq!(app.session.order.plugins, order_before);
+    assert_eq!(app.session.plugin_separators.items, separators_before);
+    assert_eq!(
+        app.message.as_ref().map(|notice| notice.text.as_str()),
+        Some("Expand the group to move past it")
+    );
+}
+
+/// Reorder is inert at either end of the plugin display
+#[test]
+fn plugin_reorder_is_a_noop_at_display_ends() {
+    let (_tmp, mut app) = app_with_plugins();
+    let before = app.session.order.plugins.clone();
+
+    app.plugins.select(Some(0));
+    app.reorder_selected(-1);
+    assert_eq!(app.session.order.plugins, before);
+    assert!(app.message.is_none());
+
+    app.plugins.select(Some(1));
+    app.reorder_selected(1);
+    assert_eq!(app.session.order.plugins, before);
+    assert!(app.message.is_none());
+}
+
+/// Separator rows are not reorder sources
+#[test]
+fn plugin_separator_reorder_is_a_noop() {
+    let (_tmp, mut app) = app_with_plugins();
+    add_separator(&mut app, "Group", Some("Beta.esp"));
+    select_separator(&mut app, 0);
+    let before = app.session.plugin_separators.items.clone();
+
+    app.reorder_selected(-1);
+
+    assert_eq!(app.session.plugin_separators.items, before);
+    assert!(app.message.is_none());
 }
 
 /// Failed insertion restores sidecar and collapse alignment

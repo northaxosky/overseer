@@ -54,6 +54,11 @@ impl PluginLoadOrder {
         out
     }
 
+    /// Whether the plugin order already satisfies dependency ordering (reconcile's topological sort)
+    pub fn is_dependency_ordered(&self, discovered: &[PluginMeta]) -> bool {
+        topological_order(self.plugins.clone(), discovered) == self.plugins
+    }
+
     pub fn position(&self, name: &str) -> Option<usize> {
         self.plugins
             .iter()

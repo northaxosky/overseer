@@ -3,7 +3,8 @@
 use crate::app::{
     App, Confirm, ConfirmAction, Focus, Modal, PluginPaneRow, Prompt, PromptKind, Workspace,
 };
-use overseer_core::plugins::SeparatorError;
+use overseer_core::plugins::{PluginRow, SeparatorError, merge_rows};
+use std::collections::HashSet;
 
 #[derive(Debug, PartialEq, Eq)]
 struct PluginSeparatorInsert {
@@ -62,6 +63,138 @@ impl App {
                 }
             }
         }
+    }
+
+    /// Move the selected plugin by one merged display row
+    pub(super) fn reorder_selected_plugin(&mut self, delta: isize) {
+        if !self.on_plugins_pane() {
+            return;
+        }
+
+        let visible = self
+            .plugins
+            .project(&self.session.order.plugins, &self.session.plugin_separators);
+        let Some(selected) = self.plugins.index() else {
+            return;
+        };
+        let destination = selected as isize + delta;
+        if destination < 0 || destination >= visible.len() as isize {
+            return;
+        }
+
+        let Some(PluginPaneRow::Plugin {
+            plugin_index: moved_index,
+        }) = visible.get(selected).copied()
+        else {
+            return;
+        };
+        let target = visible[destination as usize];
+        if matches!(
+            target,
+            PluginPaneRow::Separator {
+                collapsed: true,
+                ..
+            }
+        ) {
+            self.note("Expand the group to move past it");
+            return;
+        }
+
+        let mut merged = merge_rows(
+            &self.session.order.plugins,
+            &self.session.plugin_separators.items,
+        );
+        let src_row = PluginRow::Plugin(moved_index);
+        let tgt_row = match target {
+            PluginPaneRow::Plugin { plugin_index } => PluginRow::Plugin(plugin_index),
+            PluginPaneRow::Separator {
+                separator_index, ..
+            } => PluginRow::Separator(separator_index),
+        };
+        let Some(source) = merged.iter().position(|row| *row == src_row) else {
+            return;
+        };
+        let Some(target) = merged.iter().position(|row| *row == tgt_row) else {
+            return;
+        };
+
+        let plugin_swap = matches!(
+            (src_row, tgt_row),
+            (PluginRow::Plugin(_), PluginRow::Plugin(_))
+        );
+        let moved_name = self.session.order.plugins[moved_index].name.clone();
+        merged.swap(source, target);
+
+        let mut order = self.session.order.clone();
+        order.plugins = merged
+            .iter()
+            .filter_map(|row| match *row {
+                PluginRow::Plugin(index) => Some(self.session.order.plugins[index].clone()),
+                PluginRow::Separator(_) => None,
+            })
+            .collect();
+        if plugin_swap && !order.is_dependency_ordered(&self.session.discovered) {
+            self.note("Masters and dependencies must stay in load order");
+            return;
+        }
+
+        let mut separators = self.session.plugin_separators.clone();
+        let candidate_names: HashSet<_> = order
+            .plugins
+            .iter()
+            .map(|plugin| plugin.name.to_ascii_lowercase())
+            .collect();
+        for (position, row) in merged.iter().enumerate() {
+            let PluginRow::Separator(separator_index) = *row else {
+                continue;
+            };
+            let separator = &mut separators.items[separator_index];
+            if separator
+                .anchor
+                .as_ref()
+                .is_some_and(|anchor| !candidate_names.contains(&anchor.to_ascii_lowercase()))
+            {
+                continue;
+            }
+            separator.anchor = merged[position + 1..].iter().find_map(|following| {
+                let PluginRow::Plugin(plugin_index) = *following else {
+                    return None;
+                };
+                Some(self.session.order.plugins[plugin_index].name.clone())
+            });
+        }
+        let anchors_changed = separators.items != self.session.plugin_separators.items;
+
+        if let Err(error) = order.save(&self.session.instance) {
+            self.fail(format!("Could not save load order: {error}"));
+            return;
+        }
+        if anchors_changed {
+            let profile_dir = self
+                .session
+                .instance
+                .profile_dir(&self.session.profile.name);
+            if let Err(error) = separators.save(&profile_dir) {
+                let rollback = self.session.order.save(&self.session.instance);
+                let message = match rollback {
+                    Ok(()) => format!("Could not save plugin separators: {error}"),
+                    Err(rollback_error) => format!(
+                        "Could not save plugin separators: {error}; load order rollback failed: {rollback_error}"
+                    ),
+                };
+                self.fail(message);
+                return;
+            }
+        }
+
+        self.session.order = order;
+        self.session.plugin_separators = separators;
+        let selected = self.plugins.project(&self.session.order.plugins, &self.session.plugin_separators).iter().position(|row| {
+            matches!(row, PluginPaneRow::Plugin { plugin_index } if self.session.order.plugins[*plugin_index].name.eq_ignore_ascii_case(&moved_name))
+        });
+        self.plugins.select(selected);
+        self.clamp_plugins_selection();
+        self.ok("Saved");
     }
 
     /// Open the new-plugin-separator prompt from the Plugins pane

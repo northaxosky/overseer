@@ -41,7 +41,7 @@ pub(crate) const HELP_ENTRIES: &[(&str, &str)] = &[
     ),
     ("X", "delete save"),
     ("L", "toggle local saves"),
-    ("J / K", "reorder mod (priority)"),
+    ("J / K", "reorder mod or plugin"),
     ("R", "rename mod / separator"),
     ("m / e", "remove / replace managed mod"),
     ("A", "add separator"),

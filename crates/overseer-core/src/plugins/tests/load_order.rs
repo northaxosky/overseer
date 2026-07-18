@@ -268,6 +268,20 @@ fn reconcile_dependency_correct_order_is_idempotent() {
 }
 
 #[test]
+fn dependency_ordered_detects_master_tiebreak_snaps() {
+    let discovered = [
+        meta_with_masters("J.esm", true, &["B.esp"]),
+        meta("A.esp", false),
+        meta("B.esp", false),
+    ];
+    let fixed = lo("P", vec![active("A.esp"), active("B.esp"), active("J.esm")]);
+    let snapped = lo("P", vec![active("B.esp"), active("A.esp"), active("J.esm")]);
+
+    assert!(fixed.is_dependency_ordered(&discovered));
+    assert!(!snapped.is_dependency_ordered(&discovered));
+}
+
+#[test]
 fn reconcile_breaks_cycles_with_the_same_deterministic_tie_break() {
     let mut order = lo("P", vec![active("B.esp"), active("A.esm")]);
     let discovered = [

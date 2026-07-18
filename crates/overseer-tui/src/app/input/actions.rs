@@ -16,8 +16,13 @@ impl App {
         }
     }
 
-    /// Move the selected mod up or down in priority
+    /// Move the selected mod or plugin in display order
     pub(super) fn reorder_selected(&mut self, delta: isize) {
+        if self.on_plugins_pane() {
+            self.reorder_selected_plugin(delta);
+            return;
+        }
+
         let Some((profile, selection)) = self.reordered_profile(delta) else {
             return;
         };
