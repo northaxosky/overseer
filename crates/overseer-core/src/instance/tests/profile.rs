@@ -435,7 +435,6 @@ fn commit_load_order_persists_order_and_returns_derived_state() {
 
     assert_eq!(outcome.discovered.len(), 1);
     assert_eq!(outcome.discovered[0].name, "Patch.esp");
-    assert!(outcome.violations.is_empty());
     assert_eq!(
         outcome.order.plugins,
         vec![crate::plugins::PluginEntry {
@@ -448,7 +447,7 @@ fn commit_load_order_persists_order_and_returns_derived_state() {
 }
 
 #[test]
-fn commit_load_order_returns_non_blocking_cycle_violations() {
+fn commit_load_order_keeps_a_deterministic_order_under_a_cycle() {
     let (_tmp, instance) = temp_instance();
     let mod_dir = instance.mods_dir().join("ModA");
     write_plugin(&mod_dir, "Patch.esp", 0, &["Armor.esp"]);
@@ -470,13 +469,6 @@ fn commit_load_order_returns_non_blocking_cycle_violations() {
             .map(|entry| entry.name.as_str())
             .collect::<Vec<_>>(),
         ["Patch.esp", "Armor.esp"]
-    );
-    assert_eq!(
-        outcome.violations,
-        vec![crate::plugins::PluginViolation::CyclicDependency(vec![
-            "Patch.esp".to_owned(),
-            "Armor.esp".to_owned(),
-        ])]
     );
     let saved = PluginLoadOrder::load(&instance, &profile.name).expect("load saved");
     assert_eq!(saved.plugins, outcome.order.plugins);

@@ -134,9 +134,7 @@ impl App {
                     .profile
                     .commit_load_order(&self.session.instance)
                 {
-                    Ok(CommitOutcome {
-                        discovered, order, ..
-                    }) => {
+                    Ok(CommitOutcome { discovered, order }) => {
                         self.session.discovered = discovered;
                         self.session.order = order;
                         self.clamp_plugins_selection();

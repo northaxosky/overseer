@@ -1,4 +1,4 @@
-//! Shared declared-master dependency graph, built once and read by both reconcile and validation.
+//! Declared-master dependency graph over an order's plugins; reconcile and validation each build their own.
 
 use super::{PluginEntry, PluginMeta};
 use std::collections::{HashMap, HashSet};
