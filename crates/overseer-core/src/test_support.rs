@@ -5,7 +5,7 @@
 //! Available to in-crate tests (`cfg(test)`) and, for integration tests and
 //! other crates, behind the `test-support` feature.
 
-use crate::instance::{Instance, ModKind, ModListEntry, Profile};
+use crate::instance::{Instance, ModEntry, ModKind, ModRow, Profile};
 use camino::{Utf8Path, Utf8PathBuf};
 use std::time::SystemTime;
 use tempfile::TempDir;
@@ -196,18 +196,19 @@ pub fn install_plugin(instance: &Instance, mod_name: &str, plugin: &str) {
 
 /// Save a profile (highest priority first) so loaders can read it from disk
 pub fn save_profile(instance: &Instance, name: &str, mods: &[(&str, bool)]) {
-    let profile = Profile {
-        name: name.to_owned(),
-        mods: mods
-            .iter()
-            .map(|(n, enabled)| ModListEntry {
-                name: (*n).to_owned(),
-                enabled: *enabled,
-                kind: ModKind::Managed,
+    let profile = Profile::new(
+        name,
+        mods.iter()
+            .map(|(n, enabled)| {
+                ModRow::Item(ModEntry {
+                    name: (*n).to_owned(),
+                    enabled: *enabled,
+                    kind: ModKind::Managed,
+                })
             })
             .collect(),
-        local_saves: false,
-    };
+        false,
+    );
     profile.save(instance).expect("save profile");
 }
 

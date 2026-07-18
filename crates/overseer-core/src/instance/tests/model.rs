@@ -1,7 +1,7 @@
 //! Tests for the instance model and mod operations
 
 use super::*;
-use crate::instance::{ModKind, ModListEntry};
+use crate::instance::{ModEntry, ModKind, ModRow};
 use crate::test_support::{install_mod, save_profile, temp, temp_instance};
 
 #[test]
@@ -217,7 +217,7 @@ fn create_profile_makes_an_empty_profile_on_disk() {
     let profile = instance.create_profile("Survival").expect("create");
 
     assert_eq!(profile.name, "Survival");
-    assert!(profile.mods.is_empty());
+    assert!(profile.rows().is_empty());
     // The directory and an (empty) modlist are persisted
     assert!(instance.profile_dir("Survival").is_dir());
     assert!(
@@ -306,11 +306,7 @@ fn pending_residue_blocks_profile_create_and_rename_until_cleanup() {
 #[test]
 fn rename_profile_moves_redirected_local_saves() {
     let (_tmp, instance) = temp_instance();
-    let profile = Profile {
-        name: "Old".to_owned(),
-        mods: Vec::new(),
-        local_saves: true,
-    };
+    let profile = Profile::new("Old", Vec::new(), true);
     profile.save(&instance).expect("save profile");
     let old_saves = instance.saves_dir("Old").expect("saves dir");
     std::fs::create_dir_all(&old_saves).expect("mk saves");
@@ -377,22 +373,23 @@ fn rename_mod_renames_folder_and_rewrites_referencing_profiles() {
     install_mod(&instance, "Other", &[("Data.txt", "other")]);
     save_profile(&instance, "Default", &[("CoolMod", true), ("Other", false)]);
 
-    let mut survival = Profile {
-        name: "Survival".to_owned(),
-        mods: vec![
-            ModListEntry {
+    let mut survival = Profile::new(
+        "Survival",
+        vec![
+            ModRow::Item(ModEntry {
                 name: "Other".to_owned(),
                 enabled: true,
                 kind: ModKind::Managed,
-            },
-            ModListEntry {
+            }),
+            ModRow::Separator("CoolMod".to_owned()),
+            ModRow::Item(ModEntry {
                 name: "CoolMod".to_owned(),
                 enabled: false,
                 kind: ModKind::Managed,
-            },
+            }),
         ],
-        local_saves: false,
-    };
+        false,
+    );
     survival.save(&instance).expect("save survival");
     save_profile(&instance, "Clean", &[("Other", true)]);
     let clean_before = std::fs::read_to_string(instance.profile_dir("Clean").join("modlist.txt"))
@@ -416,16 +413,17 @@ fn rename_mod_renames_folder_and_rewrites_referencing_profiles() {
     );
 
     let default = Profile::load(&instance, "Default").expect("load default");
-    assert_eq!(default.mods[0].name, "BetterMod");
-    assert!(default.mods[0].enabled);
-    assert_eq!(default.mods[1].name, "Other");
-    assert!(!default.mods[1].enabled);
+    assert_eq!(default.item_at_row(0).expect("item").name, "BetterMod");
+    assert!(default.item_at_row(0).expect("item").enabled);
+    assert_eq!(default.item_at_row(1).expect("item").name, "Other");
+    assert!(!default.item_at_row(1).expect("item").enabled);
 
     survival = Profile::load(&instance, "Survival").expect("load survival");
-    assert_eq!(survival.mods[0].name, "Other");
-    assert!(survival.mods[0].enabled);
-    assert_eq!(survival.mods[1].name, "BetterMod");
-    assert!(!survival.mods[1].enabled);
+    assert_eq!(survival.item_at_row(0).expect("item").name, "Other");
+    assert!(survival.item_at_row(0).expect("item").enabled);
+    assert_eq!(survival.item_at_row(2).expect("item").name, "BetterMod");
+    assert!(!survival.item_at_row(2).expect("item").enabled);
+    assert_eq!(survival.separator_at_row(1), Some("CoolMod"));
 
     let clean_after = std::fs::read_to_string(instance.profile_dir("Clean").join("modlist.txt"))
         .expect("read clean after");

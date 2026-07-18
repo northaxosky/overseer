@@ -1,23 +1,23 @@
 //! Tests for lazy plugin provider resolution
 
 use super::*;
-use crate::instance::{ModKind, ModListEntry, Profile};
+use crate::instance::{ModEntry, ModKind, ModRow, Profile};
 use crate::test_support::{install_mod, temp_instance};
 
-fn entry(name: &str) -> ModListEntry {
-    ModListEntry {
+fn entry(name: &str) -> ModRow {
+    ModRow::Item(ModEntry {
         name: name.to_owned(),
         enabled: true,
         kind: ModKind::Managed,
-    }
+    })
 }
 
 fn profile(mods: &[&str]) -> Profile {
-    Profile {
-        name: "Default".to_owned(),
-        mods: mods.iter().map(|name| entry(name)).collect(),
-        local_saves: false,
-    }
+    Profile::new(
+        "Default",
+        mods.iter().map(|name| entry(name)).collect(),
+        false,
+    )
 }
 
 #[test]

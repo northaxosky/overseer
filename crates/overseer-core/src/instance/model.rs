@@ -449,11 +449,7 @@ impl Instance {
                 io_err(&dir, source).into()
             }
         })?;
-        let profile = Profile {
-            name: name.to_owned(),
-            mods: Vec::new(),
-            local_saves: false,
-        };
+        let profile = Profile::new(name, Vec::new(), false);
         profile.save(self)?;
         Ok(profile)
     }
@@ -503,7 +499,7 @@ impl Instance {
             .map_err(|e| InstanceError::from(io_err(&old_dir, e)))?;
 
         for mut profile in profiles {
-            for entry in &mut profile.mods {
+            for entry in profile.items_mut() {
                 if entry.kind == ModKind::Managed && entry.name.eq_ignore_ascii_case(&old_name) {
                     entry.name = new.to_owned();
                 }
@@ -592,7 +588,7 @@ fn check_fs_name(name: &str) -> Result<(), &'static str> {
 /// Validate a managed mod folder name
 pub(crate) fn validate_mod_name(name: &str) -> Result<(), InstanceError> {
     check_fs_name(name).map_err(|m| InstanceError::InvalidModName(m.to_owned()))?;
-    if name.ends_with("_separator") {
+    if name.to_ascii_lowercase().ends_with("_separator") {
         return Err(InstanceError::InvalidModName(
             "mod names cannot end with _separator".to_owned(),
         ));
@@ -615,8 +611,7 @@ pub(crate) fn validate_profile_name(name: &str) -> Result<(), InstanceError> {
 
 fn profile_has_managed(profile: &Profile, name: &str) -> bool {
     profile
-        .mods
-        .iter()
+        .items()
         .any(|entry| entry.kind == ModKind::Managed && entry.name.eq_ignore_ascii_case(name))
 }
 

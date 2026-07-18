@@ -539,7 +539,7 @@ fn failed_plugin_toggle_leaves_live_state_unchanged() {
         .save(&app.session.instance)
         .expect("seed load order");
     let order_before = app.session.order.plugins.clone();
-    let profile_before = app.session.profile.mods.clone();
+    let profile_before = app.session.profile.rows().to_vec();
     let discovered_before = app.session.discovered.clone();
     let selection_before = app.plugins.index();
     let plugins_txt = app
@@ -553,7 +553,7 @@ fn failed_plugin_toggle_leaves_live_state_unchanged() {
     app.toggle_selected();
 
     assert_eq!(app.session.order.plugins, order_before);
-    assert_eq!(app.session.profile.mods, profile_before);
+    assert_eq!(app.session.profile.rows(), profile_before);
     assert_eq!(app.session.discovered, discovered_before);
     assert_eq!(app.plugins.index(), selection_before);
     assert!(
@@ -567,7 +567,7 @@ fn failed_plugin_toggle_leaves_live_state_unchanged() {
 #[test]
 fn plugin_toggle_succeeds_when_only_modlist_is_obstructed() {
     let (_tmp, mut app) = app_with_plugins();
-    let profile_before = app.session.profile.mods.clone();
+    let profile_before = app.session.profile.rows().to_vec();
     let discovered_before = app.session.discovered.clone();
     let modlist = app
         .session
@@ -582,7 +582,7 @@ fn plugin_toggle_succeeds_when_only_modlist_is_obstructed() {
     assert!(!app.session.order.plugins[0].active);
     let loaded = PluginLoadOrder::load(&app.session.instance, "Default").expect("reload");
     assert!(!loaded.plugins[0].active, "the toggle reached plugins.txt");
-    assert_eq!(app.session.profile.mods, profile_before);
+    assert_eq!(app.session.profile.rows(), profile_before);
     assert_eq!(app.session.discovered, discovered_before);
     assert!(
         modlist.is_dir(),

@@ -2,12 +2,11 @@
 
 use camino::{Utf8Path, Utf8PathBuf};
 use overseer_core::apply;
-use overseer_core::instance::{InstanceError, ModKind};
+use overseer_core::instance::{InstanceError, ModKind, ModRow};
 use ratatui::crossterm::event::{KeyCode, KeyEvent};
 
 use crate::app::{
     App, Focus, InstallJob, ModPaneRow, Modal, Prompt, PromptKind, SelectKind, Session,
-    separator_display,
 };
 
 impl App {
@@ -93,25 +92,30 @@ impl App {
             self.note("Switch to the mods or plugins pane to rename");
             return;
         }
-        let rows = self.mods.project(&self.session.profile.mods);
+        let rows = self.mods.project(self.session.profile.rows());
         let Some(row) = self.mods.index().and_then(|index| rows.get(index)).copied() else {
             return;
         };
         let model_index = row.model_index();
-        let entry = &self.session.profile.mods[model_index];
         match row {
-            ModPaneRow::Separator { .. } => {
+            ModPaneRow::Separator { name, .. } => {
                 self.modal = Some(Modal::Prompt(Prompt {
                     kind: PromptKind::RenameSeparator {
                         index: model_index,
-                        name: separator_display(&entry.name).to_owned(),
+                        name: name.to_owned(),
                     },
                     input: String::new(),
                     error: None,
                 }));
                 return;
             }
-            ModPaneRow::Mod { .. } if entry.kind != ModKind::Managed => {
+            ModPaneRow::Mod { .. }
+                if self
+                    .session
+                    .profile
+                    .item_at_row(model_index)
+                    .is_none_or(|entry| entry.kind != ModKind::Managed) =>
+            {
                 self.note("Only managed mods can be renamed");
                 return;
             }
@@ -119,7 +123,13 @@ impl App {
         }
         self.modal = Some(Modal::Prompt(Prompt {
             kind: PromptKind::RenameMod {
-                old: entry.name.clone(),
+                old: self
+                    .session
+                    .profile
+                    .item_at_row(model_index)
+                    .expect("mod pane row maps to an item")
+                    .name
+                    .clone(),
             },
             input: String::new(),
             error: None,
@@ -294,28 +304,30 @@ impl App {
 
     /// Insert a separator above the selection and persist; revert the in-memory insert if it fails
     fn insert_selected_separator(&mut self, name: &str) -> Result<(), String> {
-        let rows = self.mods.project(&self.session.profile.mods);
+        let rows = self.mods.project(self.session.profile.rows());
         let anchor = self
             .mods
             .index()
             .and_then(|index| rows.get(index))
-            .map_or(self.session.profile.mods.len(), |row| row.model_index() + 1);
-        let separator_index = self.session.profile.mods[..anchor]
+            .map_or(self.session.profile.rows().len(), |row| {
+                row.model_index() + 1
+            });
+        let separator_index = self.session.profile.rows()[..anchor]
             .iter()
-            .filter(|entry| entry.kind == ModKind::Separator)
+            .filter(|row| matches!(row, ModRow::Separator(_)))
             .count();
-        self.session
-            .profile
+        let mut profile = self.session.profile.clone();
+        profile
             .insert_separator(anchor, name)
             .map_err(|e| e.to_string())?;
-        if let Err(e) = self.session.profile.save_modlist(&self.session.instance) {
-            self.session.profile.mods.remove(anchor);
+        if let Err(e) = profile.save_modlist(&self.session.instance) {
             return Err(format!("Could not save: {e}"));
         }
+        self.session.profile = profile;
         self.mods.insert_separator(separator_index);
         let display = self
             .mods
-            .project(&self.session.profile.mods)
+            .project(self.session.profile.rows())
             .iter()
             .position(|row| row.model_index() == anchor);
         self.mods.select(display);
@@ -400,8 +412,7 @@ impl App {
         if let Some(entry) = self
             .session
             .profile
-            .mods
-            .iter_mut()
+            .items_mut()
             .find(|entry| entry.name.eq_ignore_ascii_case(old))
         {
             entry.name = new.to_owned();
@@ -427,24 +438,17 @@ impl App {
 
     /// Rename the separator at `index` and persist; revert the in memory rename if the save fails
     fn rename_selected_separator(&mut self, index: usize, name: &str) -> Result<(), String> {
-        let prev = self
-            .session
-            .profile
-            .mods
-            .get(index)
-            .map(|m| m.name.clone())
-            .ok_or_else(|| "That separator is gone".to_owned())?;
-        self.session
-            .profile
+        let mut profile = self.session.profile.clone();
+        profile
             .rename_separator(index, name)
             .map_err(|e| e.to_string())?;
-        if let Err(e) = self.session.profile.save_modlist(&self.session.instance) {
-            self.session.profile.mods[index].name = prev;
+        if let Err(e) = profile.save_modlist(&self.session.instance) {
             return Err(format!("Could not save: {e}"));
         }
+        self.session.profile = profile;
         let display = self
             .mods
-            .project(&self.session.profile.mods)
+            .project(self.session.profile.rows())
             .iter()
             .position(|row| row.model_index() == index);
         self.mods.select(display);

@@ -15,7 +15,7 @@ fn initialized_app() -> (tempfile::TempDir, App) {
     instance.create_profile("Default").expect("create profile");
     let mut app = App::sample();
     app.session = Session::load(&instance.root, Some("Default")).expect("load session");
-    app.mods.reset(&app.session.profile.mods);
+    app.mods.reset(app.session.profile.rows());
     app.plugins
         .reset(&app.session.order.plugins, &app.session.plugin_separators);
     (temp, app)
@@ -78,7 +78,7 @@ fn replace_job_keeps_name_and_reconciles_memory_without_persisting_profile_files
             .join("Old.esp")
             .exists()
     );
-    assert!(app.session.profile.position("ReplaceMe").is_some());
+    assert!(app.session.profile.item_row("ReplaceMe").is_some());
     assert!(
         app.session
             .order

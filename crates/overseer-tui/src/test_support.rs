@@ -6,7 +6,7 @@ use crate::app::{
 };
 use camino::{Utf8Path, Utf8PathBuf};
 use overseer_core::install::DownloadEntry;
-use overseer_core::instance::{Instance, ModKind, ModListEntry, Profile};
+use overseer_core::instance::{Instance, ModEntry, ModKind, ModRow, Profile};
 use overseer_core::plugins::{PluginEntry, PluginLoadOrder, PluginMeta, PluginSeparators};
 use overseer_core::saves::{SaveInfo, SaveMeta};
 use overseer_core::settings::Settings;
@@ -29,22 +29,22 @@ impl App {
     pub(crate) fn sample() -> Self {
         let session = Session {
             instance: Instance::new(sample_instance_root(), "test-game"),
-            profile: Profile {
-                name: "Default".to_owned(),
-                mods: vec![
-                    ModListEntry {
+            profile: Profile::new(
+                "Default",
+                vec![
+                    ModRow::Item(ModEntry {
                         name: "CoolMod".to_owned(),
                         enabled: true,
                         kind: ModKind::Managed,
-                    },
-                    ModListEntry {
+                    }),
+                    ModRow::Item(ModEntry {
                         name: "OffMod".to_owned(),
                         enabled: false,
                         kind: ModKind::Managed,
-                    },
+                    }),
                 ],
-                local_saves: false,
-            },
+                false,
+            ),
             order: PluginLoadOrder {
                 profile: "Default".to_owned(),
                 plugins: vec![
@@ -68,7 +68,7 @@ impl App {
             plugin_separators: PluginSeparators::default(),
             status: None,
         };
-        let mods = ModsPane::new(&session.profile.mods);
+        let mods = ModsPane::new(session.profile.rows());
         let plugins = PluginsPane::new(&session.order.plugins, &session.plugin_separators);
         Self {
             should_quit: false,

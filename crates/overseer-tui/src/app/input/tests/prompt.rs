@@ -3,7 +3,7 @@
 use super::*;
 use crate::app::Select;
 use crate::app::input::test_helpers::*;
-use overseer_core::instance::{ModListEntry, Profile};
+use overseer_core::instance::{ModEntry, ModRow, Profile};
 use overseer_core::test_support::{install_mod, save_profile};
 
 #[test]
@@ -287,14 +287,11 @@ fn r_on_a_managed_mod_opens_an_empty_rename_prompt() {
 #[test]
 fn r_on_a_foreign_row_or_the_plugins_pane_is_a_note() {
     let mut app = App::sample();
-    app.session
-        .profile
-        .mods
-        .push(overseer_core::instance::ModListEntry {
-            name: "DLC".to_owned(),
-            enabled: true,
-            kind: ModKind::Foreign,
-        });
+    app.session.profile.push_row(ModRow::Item(ModEntry {
+        name: "DLC".to_owned(),
+        enabled: true,
+        kind: ModKind::Foreign,
+    }));
     app.mods.select(Some(0)); // display 0 = the pushed row (model 2) under reversal
 
     app.handle_key(key(KeyCode::Char('R')));
@@ -314,13 +311,8 @@ fn r_on_a_separator_opens_a_rename_separator_prompt_prefilled_with_its_display_n
     let mut app = App::sample();
     app.session
         .profile
-        .mods
-        .push(overseer_core::instance::ModListEntry {
-            name: "Gameplay_separator".to_owned(),
-            enabled: false,
-            kind: ModKind::Separator,
-        });
-    app.mods.reset(&app.session.profile.mods);
+        .push_row(ModRow::Separator("Gameplay".to_owned()));
+    app.mods.reset(app.session.profile.rows());
     app.mods.select(Some(0)); // display 0 = the pushed separator (model 2) under reversal
 
     app.handle_key(key(KeyCode::Char('R')));
@@ -345,23 +337,19 @@ fn submitting_a_valid_separator_rename_persists_and_reselects() {
     let (_tmp, instance) = overseer_core::test_support::temp_instance();
     let mut app = App::sample();
     app.session.instance = instance;
-    app.session.profile.mods = vec![
-        ModListEntry {
+    app.session.profile.replace_rows(vec![
+        ModRow::Item(ModEntry {
             name: "A".to_owned(),
             enabled: true,
             kind: ModKind::Managed,
-        },
-        ModListEntry {
-            name: "Zone_separator".to_owned(),
-            enabled: false,
-            kind: ModKind::Separator,
-        },
-    ];
+        }),
+        ModRow::Separator("Zone".to_owned()),
+    ]);
     app.session
         .profile
         .save(&app.session.instance)
         .expect("seed the profile");
-    app.mods.reset(&app.session.profile.mods);
+    app.mods.reset(app.session.profile.rows());
     app.mods.select(Some(0)); // display 0 = the separator (model 1) under reversal
     app.handle_key(key(KeyCode::Char(' ')));
 
@@ -372,10 +360,10 @@ fn submitting_a_valid_separator_rename_persists_and_reselects() {
     app.handle_key(key(KeyCode::Enter));
 
     assert!(app.modal.is_none(), "a successful rename closes the prompt");
-    assert_eq!(app.session.profile.mods[1].name, "Areas_separator");
+    assert_eq!(app.session.profile.separator_at_row(1), Some("Areas"));
     assert_eq!(
         app.mods
-            .project(&app.session.profile.mods)
+            .project(app.session.profile.rows())
             .get(app.mods.index().expect("selected"))
             .map(|row| row.model_index()),
         Some(1),
@@ -383,11 +371,12 @@ fn submitting_a_valid_separator_rename_persists_and_reselects() {
     );
     let reloaded = Profile::load(&app.session.instance, "Default").expect("reload");
     assert_eq!(
-        reloaded.mods[1].name, "Areas_separator",
+        reloaded.separator_at_row(1),
+        Some("Areas"),
         "persisted to disk"
     );
     assert!(matches!(
-        app.mods.project(&app.session.profile.mods)[0],
+        app.mods.project(app.session.profile.rows())[0],
         ModPaneRow::Separator {
             collapsed: true,
             ..
@@ -396,27 +385,19 @@ fn submitting_a_valid_separator_rename_persists_and_reselects() {
 }
 
 #[test]
-fn submitting_a_colliding_separator_rename_keeps_the_prompt_with_error() {
+fn submitting_a_duplicate_separator_rename_is_allowed() {
     let (_tmp, instance) = overseer_core::test_support::temp_instance();
     let mut app = App::sample();
     app.session.instance = instance;
-    app.session.profile.mods = vec![
-        ModListEntry {
-            name: "Alpha_separator".to_owned(),
-            enabled: false,
-            kind: ModKind::Separator,
-        },
-        ModListEntry {
-            name: "Beta_separator".to_owned(),
-            enabled: false,
-            kind: ModKind::Separator,
-        },
-    ];
+    app.session.profile.replace_rows(vec![
+        ModRow::Separator("Alpha".to_owned()),
+        ModRow::Separator("Beta".to_owned()),
+    ]);
     app.session
         .profile
         .save(&app.session.instance)
         .expect("seed the profile");
-    app.mods.reset(&app.session.profile.mods);
+    app.mods.reset(app.session.profile.rows());
     app.mods.select(Some(1)); // display 1 = Alpha (model 0) under reversal
 
     app.handle_key(key(KeyCode::Char('R')));
@@ -425,11 +406,8 @@ fn submitting_a_colliding_separator_rename_keeps_the_prompt_with_error() {
     }
     app.handle_key(key(KeyCode::Enter));
 
-    assert!(
-        matches!(prompt_state(&app), Some(("Beta", Some(_)))),
-        "a colliding name keeps the prompt open with an inline error"
-    );
-    assert_eq!(app.session.profile.mods[0].name, "Alpha_separator");
+    assert!(app.modal.is_none());
+    assert_eq!(app.session.profile.separator_at_row(0), Some("Beta"));
 }
 
 #[test]
@@ -448,7 +426,10 @@ fn submitting_a_valid_mod_rename_updates_memory_and_keeps_selection() {
     app.handle_key(key(KeyCode::Enter));
 
     assert!(app.modal.is_none(), "successful rename closes prompt");
-    assert_eq!(app.session.profile.mods[0].name, "BetterMod");
+    assert_eq!(
+        app.session.profile.item_at_row(0).expect("item").name,
+        "BetterMod"
+    );
     assert_eq!(app.mods.index(), Some(1));
     assert!(app.message.is_some(), "an ok notice is shown");
 }
@@ -488,7 +469,10 @@ fn submitting_a_duplicate_mod_rename_keeps_the_prompt_with_error() {
         matches!(prompt_state(&app), Some(("Existing", Some(_)))),
         "duplicate name stays inline"
     );
-    assert_eq!(app.session.profile.mods[0].name, "CoolMod");
+    assert_eq!(
+        app.session.profile.item_at_row(0).expect("item").name,
+        "CoolMod"
+    );
 }
 
 #[test]
@@ -508,10 +492,9 @@ fn a_adds_a_separator_heading_the_selection_and_saves() {
 
     assert!(app.modal.is_none(), "success closes the prompt");
     // The new separator becomes the selection and heads the previously-selected row
-    let rows = app.mods.project(&app.session.profile.mods);
+    let rows = app.mods.project(app.session.profile.rows());
     let sel = rows[app.mods.index().expect("a row is selected")].model_index();
-    assert_eq!(app.session.profile.mods[sel].kind, ModKind::Separator);
-    assert_eq!(app.session.profile.mods[sel].name, "Gameplay_separator");
+    assert_eq!(app.session.profile.separator_at_row(sel), Some("Gameplay"));
     assert_eq!(
         app.mods.index(),
         Some(0),
@@ -539,23 +522,19 @@ fn failed_separator_insert_restores_domain_and_collapse_alignment() {
     let (_tmp, instance) = overseer_core::test_support::temp_instance();
     let mut app = App::sample();
     app.session.instance = instance;
-    app.session.profile.mods = vec![
-        ModListEntry {
+    app.session.profile.replace_rows(vec![
+        ModRow::Item(ModEntry {
             name: "A".to_owned(),
             enabled: true,
             kind: ModKind::Managed,
-        },
-        ModListEntry {
-            name: "Zone_separator".to_owned(),
-            enabled: false,
-            kind: ModKind::Separator,
-        },
-    ];
+        }),
+        ModRow::Separator("Zone".to_owned()),
+    ]);
     app.session
         .profile
         .save(&app.session.instance)
         .expect("seed the profile");
-    app.mods.reset(&app.session.profile.mods);
+    app.mods.reset(app.session.profile.rows());
     app.mods.select(Some(0));
     app.handle_key(key(KeyCode::Char(' ')));
 
@@ -572,14 +551,17 @@ fn failed_separator_insert_restores_domain_and_collapse_alignment() {
     assert_eq!(
         app.session
             .profile
-            .mods
+            .rows()
             .iter()
-            .map(|entry| entry.name.as_str())
+            .map(|row| match row {
+                ModRow::Item(item) => item.name.as_str(),
+                ModRow::Separator(name) => name.as_str(),
+            })
             .collect::<Vec<_>>(),
-        ["A", "Zone_separator"]
+        ["A", "Zone"]
     );
     assert!(matches!(
-        app.mods.project(&app.session.profile.mods)[0],
+        app.mods.project(app.session.profile.rows())[0],
         ModPaneRow::Separator {
             collapsed: true,
             ..
@@ -593,23 +575,19 @@ fn failed_separator_rename_restores_domain_and_collapse_alignment() {
     let (_tmp, instance) = overseer_core::test_support::temp_instance();
     let mut app = App::sample();
     app.session.instance = instance;
-    app.session.profile.mods = vec![
-        ModListEntry {
+    app.session.profile.replace_rows(vec![
+        ModRow::Item(ModEntry {
             name: "A".to_owned(),
             enabled: true,
             kind: ModKind::Managed,
-        },
-        ModListEntry {
-            name: "Zone_separator".to_owned(),
-            enabled: false,
-            kind: ModKind::Separator,
-        },
-    ];
+        }),
+        ModRow::Separator("Zone".to_owned()),
+    ]);
     app.session
         .profile
         .save(&app.session.instance)
         .expect("seed the profile");
-    app.mods.reset(&app.session.profile.mods);
+    app.mods.reset(app.session.profile.rows());
     app.mods.select(Some(0));
     app.handle_key(key(KeyCode::Char(' ')));
 
@@ -623,9 +601,9 @@ fn failed_separator_rename_restores_domain_and_collapse_alignment() {
     }
     app.handle_key(key(KeyCode::Enter));
 
-    assert_eq!(app.session.profile.mods[1].name, "Zone_separator");
+    assert_eq!(app.session.profile.separator_at_row(1), Some("Zone"));
     assert!(matches!(
-        app.mods.project(&app.session.profile.mods)[0],
+        app.mods.project(app.session.profile.rows())[0],
         ModPaneRow::Separator {
             collapsed: true,
             ..

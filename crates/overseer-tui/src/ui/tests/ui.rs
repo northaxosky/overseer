@@ -65,18 +65,12 @@ fn a_collapsed_separator_shows_a_glyph_and_member_count() {
 
 #[test]
 fn a_separator_renders_as_a_header_rule_not_a_checkbox_row() {
-    use overseer_core::instance::{ModKind, ModListEntry};
-
     let mut app = App::sample();
-    app.session.profile.mods.insert(
-        0,
-        ModListEntry {
-            name: "Gameplay_separator".to_owned(),
-            enabled: false,
-            kind: ModKind::Separator,
-        },
-    );
-    app.mods.reset(&app.session.profile.mods);
+    app.session
+        .profile
+        .insert_separator(0, "Gameplay")
+        .expect("insert separator");
+    app.mods.reset(app.session.profile.rows());
     let out = render(&mut app, 60, 10);
     assert!(
         out.contains("Gameplay"),
@@ -85,7 +79,7 @@ fn a_separator_renders_as_a_header_rule_not_a_checkbox_row() {
     assert!(out.contains("──"), "rendered as a rule");
     assert!(
         !out.contains("Gameplay_separator"),
-        "the `_separator` suffix is stripped for display"
+        "raw separator names have no suffix"
     );
     assert!(
         !out.contains("[ ] Gameplay"),

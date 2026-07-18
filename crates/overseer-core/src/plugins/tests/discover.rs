@@ -1,23 +1,19 @@
 //! Tests for plugin discovery
 
 use super::*;
-use crate::instance::{ModKind, ModListEntry, Profile};
+use crate::instance::{ModEntry, ModKind, ModRow, Profile};
 use crate::test_support::{FLAG_MASTER, temp_instance, write_plugin};
 
-fn entry(name: &str, enabled: bool) -> ModListEntry {
-    ModListEntry {
+fn entry(name: &str, enabled: bool) -> ModRow {
+    ModRow::Item(ModEntry {
         name: name.to_owned(),
         enabled,
         kind: ModKind::Managed,
-    }
+    })
 }
 
-fn profile(mods: Vec<ModListEntry>) -> Profile {
-    Profile {
-        name: "P".to_owned(),
-        mods,
-        local_saves: false,
-    }
+fn profile(mods: Vec<ModRow>) -> Profile {
+    Profile::new("P", mods, false)
 }
 
 fn names(plugins: &[PluginMeta]) -> Vec<&str> {

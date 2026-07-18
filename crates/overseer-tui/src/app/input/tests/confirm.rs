@@ -2,7 +2,7 @@
 
 use crate::app::input::test_helpers::key;
 use crate::app::{App, Confirm, ConfirmAction, Focus, ModPaneRow, Modal, OperationKind};
-use overseer_core::instance::{ModKind, ModListEntry, Profile};
+use overseer_core::instance::{ModEntry, ModKind, ModRow, Profile};
 use ratatui::crossterm::event::KeyCode;
 
 fn open_confirm(app: &mut App) {
@@ -76,28 +76,24 @@ fn app_with_separator() -> (tempfile::TempDir, App) {
     let (tmp, instance) = overseer_core::test_support::temp_instance();
     let mut app = App::sample();
     app.session.instance = instance;
-    app.session.profile.mods = vec![
-        ModListEntry {
+    app.session.profile.replace_rows(vec![
+        ModRow::Item(ModEntry {
             name: "A".to_owned(),
             enabled: true,
             kind: ModKind::Managed,
-        },
-        ModListEntry {
-            name: "Zone_separator".to_owned(),
-            enabled: false,
-            kind: ModKind::Separator,
-        },
-        ModListEntry {
+        }),
+        ModRow::Separator("Zone".to_owned()),
+        ModRow::Item(ModEntry {
             name: "B".to_owned(),
             enabled: true,
             kind: ModKind::Managed,
-        },
-    ];
+        }),
+    ]);
     app.session
         .profile
         .save(&app.session.instance)
         .expect("seed the profile");
-    app.mods.reset(&app.session.profile.mods);
+    app.mods.reset(app.session.profile.rows());
     (tmp, app)
 }
 
@@ -124,13 +120,16 @@ fn x_on_a_separator_confirms_then_removes_and_persists() {
     let names: Vec<&str> = app
         .session
         .profile
-        .mods
+        .rows()
         .iter()
-        .map(|m| m.name.as_str())
+        .filter_map(|row| match row {
+            ModRow::Item(item) => Some(item.name.as_str()),
+            ModRow::Separator(_) => None,
+        })
         .collect();
     assert_eq!(names, ["A", "B"], "the divider is gone, members remain");
     let reloaded = Profile::load(&app.session.instance, "Default").expect("reload");
-    let reloaded_names: Vec<&str> = reloaded.mods.iter().map(|m| m.name.as_str()).collect();
+    let reloaded_names: Vec<&str> = reloaded.items().map(|m| m.name.as_str()).collect();
     assert_eq!(reloaded_names, ["A", "B"], "persisted to disk");
 }
 
@@ -162,7 +161,7 @@ fn x_on_a_managed_mod_notes_and_does_not_delete() {
         app.message.is_some(),
         "a note explains why nothing happened"
     );
-    assert_eq!(app.session.profile.mods.len(), 3, "nothing was removed");
+    assert_eq!(app.session.profile.rows().len(), 3, "nothing was removed");
 }
 
 #[test]
@@ -178,7 +177,7 @@ fn x_when_the_workspace_is_focused_notes_and_does_not_delete() {
         "focus is on the workspace, so x is inert"
     );
     assert!(app.message.is_some());
-    assert_eq!(app.session.profile.mods.len(), 3, "nothing was removed");
+    assert_eq!(app.session.profile.rows().len(), 3, "nothing was removed");
 }
 
 #[test]
@@ -198,17 +197,20 @@ fn a_failed_save_on_delete_rolls_the_separator_back_in_memory() {
     let names: Vec<&str> = app
         .session
         .profile
-        .mods
+        .rows()
         .iter()
-        .map(|m| m.name.as_str())
+        .map(|row| match row {
+            ModRow::Item(item) => item.name.as_str(),
+            ModRow::Separator(name) => name.as_str(),
+        })
         .collect();
     assert_eq!(
         names,
-        ["A", "Zone_separator", "B"],
+        ["A", "Zone", "B"],
         "a failed save re-inserts the separator at its index"
     );
     assert!(matches!(
-        app.mods.project(&app.session.profile.mods)[1],
+        app.mods.project(app.session.profile.rows())[1],
         ModPaneRow::Separator {
             collapsed: true,
             ..

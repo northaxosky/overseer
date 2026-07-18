@@ -1,6 +1,6 @@
 //! Main-view mutations: toggling, reordering, deploying, and purging.
 
-use overseer_core::instance::{CommitOutcome, ModKind, Profile};
+use overseer_core::instance::{CommitOutcome, ModKind, ModRow, Profile};
 
 use crate::app::{App, Confirm, ConfirmAction, Focus, ModPaneRow, Modal, SelectKind, Workspace};
 
@@ -39,7 +39,7 @@ impl App {
             return None;
         }
 
-        let rows = self.mods.project(&self.session.profile.mods);
+        let rows = self.mods.project(self.session.profile.rows());
         let selected = self.mods.index()?;
         let destination = selected as isize + display_delta;
 
@@ -52,16 +52,18 @@ impl App {
         let target_row = rows[destination as usize];
         let target_index = target_row.model_index();
 
-        let (source, target) = {
-            let mods = &self.session.profile.mods;
-            (mods[source_index].kind, mods[target_index].kind)
-        };
+        let source = self
+            .session
+            .profile
+            .item_at_row(source_index)
+            .map(|item| item.kind);
+        let target = self.session.profile.rows().get(target_index);
 
-        if source != ModKind::Managed {
+        if source != Some(ModKind::Managed) {
             self.note("Only mods can be reordered");
             return None;
         }
-        if target == ModKind::Foreign {
+        if matches!(target, Some(ModRow::Item(item)) if item.kind == ModKind::Foreign) {
             self.note("Can't reorder past a base-game entry");
             return None;
         }
@@ -79,14 +81,14 @@ impl App {
 
         // Both endpoints visible, plain swap is clean
         let mut profile = self.session.profile.clone();
-        profile.mods.swap(source_index, target_index);
+        profile.swap_rows(source_index, target_index);
 
         Some((profile, destination as usize))
     }
 
     /// Toggle or collapse the selected Mods row and persist managed mod changes
     fn toggle_selected_mod(&mut self) {
-        let rows = self.mods.project(&self.session.profile.mods);
+        let rows = self.mods.project(self.session.profile.rows());
         let Some(row) = self.mods.index().and_then(|index| rows.get(index)).copied() else {
             return;
         };
@@ -96,17 +98,23 @@ impl App {
                 separator_index, ..
             } => {
                 self.mods.toggle_separator(separator_index);
-                let len = self.mods.project(&self.session.profile.mods).len();
+                let len = self.mods.project(self.session.profile.rows()).len();
                 self.mods.clamp(len);
             }
             ModPaneRow::Mod { model_index } => {
-                if self.session.profile.mods[model_index].kind != ModKind::Managed {
+                let Some(entry) = self.session.profile.item_at_row(model_index) else {
+                    self.note("Only managed mods can be toggled");
+                    return;
+                };
+                if entry.kind != ModKind::Managed {
                     self.note("Only managed mods can be toggled");
                     return;
                 }
 
                 let mut profile = self.session.profile.clone();
-                profile.mods[model_index].enabled = !profile.mods[model_index].enabled;
+                profile
+                    .set_item_enabled_at_row(model_index, !entry.enabled)
+                    .expect("selected managed row remains valid");
 
                 if let Err(e) = profile.save_modlist(&self.session.instance) {
                     self.fail(format!("Could not save mod list: {e}"));
@@ -180,7 +188,7 @@ impl App {
             self.note(format!("Only managed mods can be {verb}"));
             return None;
         }
-        let rows = self.mods.project(&self.session.profile.mods);
+        let rows = self.mods.project(self.session.profile.rows());
         let row = self
             .mods
             .index()
@@ -190,7 +198,11 @@ impl App {
             self.note(format!("Only managed mods can be {verb}"));
             return None;
         };
-        let entry = &self.session.profile.mods[model_index];
+        let entry = self
+            .session
+            .profile
+            .item_at_row(model_index)
+            .expect("mod pane row maps to an item");
         if entry.kind != ModKind::Managed {
             self.note(format!("Only managed mods can be {verb}"));
             return None;

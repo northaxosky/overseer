@@ -7,7 +7,7 @@ use overseer_core::apply::{self, DeploymentStatus};
 use overseer_core::deploy::{
     ConflictSnapshot, DestinationEntry, NullSink, Provider, ProviderOrigin,
 };
-use overseer_core::instance::{Instance, ModKind, ModListEntry};
+use overseer_core::instance::{Instance, ModEntry, ModKind, ModRow};
 use overseer_core::settings::{DownloadsSort, DownloadsSortKey, SavesSort, SavesSortKey, SortDir};
 use overseer_core::test_support::{install_mod, save_profile, temp_instance};
 use overseer_diagnostics::{Finding, Report};
@@ -45,11 +45,11 @@ fn conflict(relative: &str, winner: &str) -> DestinationEntry {
 
 fn session_with_mod(name: &str) -> Session {
     let mut session = App::sample().session;
-    session.profile.mods = vec![ModListEntry {
+    session.profile.replace_rows(vec![ModRow::Item(ModEntry {
         name: name.to_owned(),
         enabled: false,
         kind: ModKind::Managed,
-    }];
+    })]);
     session.order.plugins.clear();
     session.discovered.clear();
     session
@@ -69,12 +69,10 @@ fn live_status() -> (tempfile::TempDir, DeploymentStatus) {
 }
 
 fn seed_ephemeral_view_state(app: &mut App) {
-    app.session.profile.mods.push(ModListEntry {
-        name: "Group_separator".to_owned(),
-        enabled: false,
-        kind: ModKind::Separator,
-    });
-    app.mods.reset(&app.session.profile.mods);
+    app.session
+        .profile
+        .push_row(ModRow::Separator("Group".to_owned()));
+    app.mods.reset(app.session.profile.rows());
     app.mods.toggle_separator(0);
     app.mods.select(Some(1));
     app.plugins.select(Some(1));
@@ -95,7 +93,7 @@ fn assert_ephemeral_view_state(app: &App) {
     assert_eq!(app.workspace, Workspace::Saves);
     assert!(
         app.mods
-            .project(&app.session.profile.mods)
+            .project(app.session.profile.rows())
             .iter()
             .any(|row| matches!(
                 row,
@@ -170,7 +168,7 @@ fn deploy_success_updates_only_status_and_persistent_completion() {
     let mut app = App::sample();
     seed_ephemeral_view_state(&mut app);
     let root_before = app.session.instance.root.clone();
-    let mods_before = app.session.profile.mods.clone();
+    let mods_before = app.session.profile.rows().to_vec();
     let plugins_before = app.session.order.plugins.clone();
     let discovered_before = app.session.discovered.clone();
     let separators_before = app.session.plugin_separators.items.clone();
@@ -186,7 +184,7 @@ fn deploy_success_updates_only_status_and_persistent_completion() {
 
     assert!(app.session.status.is_some());
     assert_eq!(app.session.instance.root, root_before);
-    assert_eq!(app.session.profile.mods, mods_before);
+    assert_eq!(app.session.profile.rows(), mods_before);
     assert_eq!(app.session.order.plugins, plugins_before);
     assert_eq!(app.session.discovered, discovered_before);
     assert_eq!(app.session.plugin_separators.items, separators_before);
@@ -207,7 +205,7 @@ fn purge_success_clears_only_status_and_preserves_view_state() {
     let mut app = App::sample();
     app.session.status = Some(status);
     seed_ephemeral_view_state(&mut app);
-    let mods_before = app.session.profile.mods.clone();
+    let mods_before = app.session.profile.rows().to_vec();
     let plugins_before = app.session.order.plugins.clone();
     let mut outcome = apply::ReversalOutcome::default();
     outcome.removed.push("Data/one".into());
@@ -229,7 +227,7 @@ fn purge_success_clears_only_status_and_preserves_view_state() {
     app.apply_completion(OperationKind::Purge, result);
 
     assert!(app.session.status.is_none());
-    assert_eq!(app.session.profile.mods, mods_before);
+    assert_eq!(app.session.profile.rows(), mods_before);
     assert_eq!(app.session.order.plugins, plugins_before);
     assert_ephemeral_view_state(&app);
     assert!(matches!(
@@ -321,7 +319,10 @@ fn install_success_accepts_session_and_downloads_without_resetting_other_panes()
 
     app.apply_completion(OperationKind::Install, result);
 
-    assert_eq!(app.session.profile.mods[0].name, "Installed");
+    assert_eq!(
+        app.session.profile.item_at_row(0).expect("item").name,
+        "Installed"
+    );
     assert_eq!(app.mods.index(), Some(0));
     assert_eq!(app.plugins.index(), None);
     assert_eq!(app.downloads.entries[0].name, "Installed.zip");
@@ -349,7 +350,7 @@ fn committed_install_residue_preserves_cached_state_and_reports_success() {
         "cached.dds",
         "Winner",
     )]));
-    let profile_before = app.session.profile.mods.clone();
+    let profile_before = app.session.profile.rows().to_vec();
     let downloads_before = app.downloads.entries.clone();
     let pending = Utf8PathBuf::from(r"state\pending-mod-operation");
     let result = completion(
@@ -362,7 +363,7 @@ fn committed_install_residue_preserves_cached_state_and_reports_success() {
 
     app.apply_completion(OperationKind::Install, result);
 
-    assert_eq!(app.session.profile.mods, profile_before);
+    assert_eq!(app.session.profile.rows(), profile_before);
     assert_eq!(app.downloads.entries, downloads_before);
     assert!(matches!(app.conflicts.status, ConflictsStatus::Ready(_)));
     assert!(matches!(
@@ -400,13 +401,13 @@ fn committed_remove_and_replace_residue_preserve_cached_state_and_report_success
     ] {
         let mut app = App::sample();
         app.downloads.entries = vec![download_entry("Cached.zip", 1, 1)];
-        let profile_before = app.session.profile.mods.clone();
+        let profile_before = app.session.profile.rows().to_vec();
         let downloads_before = app.downloads.entries.clone();
         let result = completion(&app, Ok(output));
 
         app.apply_completion(kind, result);
 
-        assert_eq!(app.session.profile.mods, profile_before);
+        assert_eq!(app.session.profile.rows(), profile_before);
         assert_eq!(app.downloads.entries, downloads_before);
         assert!(matches!(
             app.operation,
@@ -437,7 +438,10 @@ fn failed_install_accepts_session_recovery_and_keeps_primary_failure() {
 
     app.apply_completion(OperationKind::Install, result);
 
-    assert_eq!(app.session.profile.mods[0].name, "Recovered");
+    assert_eq!(
+        app.session.profile.item_at_row(0).expect("item").name,
+        "Recovered"
+    );
     assert_eq!(app.downloads.entries[0].name, "Cached.zip");
     assert!(matches!(app.conflicts.status, ConflictsStatus::Stale));
     assert!(matches!(
@@ -468,7 +472,7 @@ fn failed_remove_and_replace_accept_session_recovery() {
 
         app.apply_completion(kind, result);
 
-        assert_eq!(app.session.profile.mods[0].name, name);
+        assert_eq!(app.session.profile.item_at_row(0).expect("item").name, name);
         assert!(matches!(
             app.operation,
             OperationState::Completed(CompletedOperation {
@@ -483,7 +487,7 @@ fn failed_remove_and_replace_accept_session_recovery() {
 #[test]
 fn non_install_failure_ignores_session_recovery() {
     let mut app = App::sample();
-    let original_mods = app.session.profile.mods.clone();
+    let original_mods = app.session.profile.rows().to_vec();
     let result = completion(
         &app,
         Err(OperationFailure {
@@ -497,7 +501,7 @@ fn non_install_failure_ignores_session_recovery() {
 
     app.apply_completion(OperationKind::Deploy, result);
 
-    assert_eq!(app.session.profile.mods, original_mods);
+    assert_eq!(app.session.profile.rows(), original_mods);
 }
 
 #[test]

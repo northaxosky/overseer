@@ -32,17 +32,17 @@ pub fn run(command: ModCommand) -> Result<()> {
 fn list(target: &ProfileArgs) -> Result<()> {
     let (_instance, profile) = target.load_context()?;
 
-    if profile.mods.is_empty() {
+    let item_count = profile.items().count();
+    if item_count == 0 {
         println!("No mods installed");
         return Ok(());
     }
 
     heading(format!(
         "{} - {} mods (highest priority first)",
-        profile.name,
-        profile.mods.len()
+        profile.name, item_count
     ));
-    for (i, entry) in profile.mods.iter().enumerate() {
+    for (i, entry) in profile.items().enumerate() {
         list_item(i + 1, entry.enabled, &entry.name, "");
     }
     Ok(())
@@ -75,9 +75,10 @@ fn set_enabled(target: &ProfileArgs, mod_name: &str, enabled: bool) -> Result<()
 fn move_to(target: &ProfileArgs, mod_name: &str, to_1based: usize) -> Result<()> {
     let (instance, mut profile) = target.load_context()?;
 
-    // The list is presented 1-based; convert to a 0-based index (move_to clamps the rest)
+    let ordinal = to_1based.saturating_sub(1);
+    let target_row = profile.row_for_item_ordinal(ordinal);
     profile
-        .move_to(mod_name, to_1based.saturating_sub(1))
+        .move_to(mod_name, target_row)
         .with_context(|| format!("moving `{mod_name}`"))?;
     profile.save(&instance).context("saving profile")?;
     success(format!(

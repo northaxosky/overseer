@@ -15,7 +15,7 @@ fn initialized_app() -> (tempfile::TempDir, App) {
     instance.create_profile("Default").expect("create profile");
     let mut app = App::sample();
     app.session = Session::load(&instance.root, Some("Default")).expect("load session");
-    app.mods.reset(&app.session.profile.mods);
+    app.mods.reset(app.session.profile.rows());
     app.plugins
         .reset(&app.session.order.plugins, &app.session.plugin_separators);
     (temp, app)
@@ -41,7 +41,7 @@ fn install_job_reloads_the_session_and_keeps_the_download_listed() {
 
     assert_eq!(app.running_operation_kind(), Some(OperationKind::Install));
     assert!(
-        app.session.profile.position("CoolMod").is_none(),
+        app.session.profile.item_row("CoolMod").is_none(),
         "worker output is not accepted synchronously"
     );
     assert!(
@@ -55,8 +55,7 @@ fn install_job_reloads_the_session_and_keeps_the_download_listed() {
     let installed = app
         .session
         .profile
-        .mods
-        .iter()
+        .items()
         .find(|entry| entry.name == "CoolMod")
         .expect("installed profile row");
     assert!(!installed.enabled);
@@ -151,7 +150,7 @@ fn failed_install_recovers_the_authoritative_session() {
     ));
     app.finish_operation_after_terminal();
 
-    assert!(app.session.profile.position("ExternallyAdded").is_some());
+    assert!(app.session.profile.item_row("ExternallyAdded").is_some());
     let (message, succeeded) = completed_message(&app);
     assert!(!succeeded);
     assert!(message.starts_with("Install failed: "));
@@ -174,8 +173,7 @@ fn newly_installed_invalid_plugin_stays_safe_while_disabled() {
     let entry = app
         .session
         .profile
-        .mods
-        .iter()
+        .items()
         .find(|entry| entry.name == "BadPlugin")
         .expect("installed profile row");
     assert!(!entry.enabled);

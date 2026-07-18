@@ -1,23 +1,20 @@
 //! Tests for Mods pane projection and separator collapse state
 
 use super::*;
+use overseer_core::instance::{ModEntry, ModKind};
 
 /// Build a managed mod fixture
-fn managed(name: &str) -> ModListEntry {
-    ModListEntry {
+fn managed(name: &str) -> ModRow {
+    ModRow::Item(ModEntry {
         name: name.to_owned(),
         enabled: true,
         kind: ModKind::Managed,
-    }
+    })
 }
 
 /// Build a separator fixture
-fn separator(name: &str) -> ModListEntry {
-    ModListEntry {
-        name: format!("{name}_separator"),
-        enabled: false,
-        kind: ModKind::Separator,
-    }
+fn separator(name: &str) -> ModRow {
+    ModRow::Separator(name.to_owned())
 }
 
 /// Collect model indices from projected rows
@@ -75,12 +72,14 @@ fn consecutive_separators_give_members_to_the_latest_separator() {
         pane.project(&mods),
         [
             ModPaneRow::Separator {
+                name: "Earlier",
                 model_index: 2,
                 separator_index: 1,
                 collapsed: false,
                 member_count: 0,
             },
             ModPaneRow::Separator {
+                name: "Latest",
                 model_index: 1,
                 separator_index: 0,
                 collapsed: false,
@@ -128,7 +127,7 @@ fn rename_retains_collapse_by_separator_index() {
     let mut mods = vec![managed("A"), separator("Old")];
     let mut pane = ModsPane::new(&mods);
     pane.toggle_separator(0);
-    mods[1].name = "New_separator".to_owned();
+    mods[1] = separator("New");
 
     assert!(matches!(
         pane.project(&mods)[0],

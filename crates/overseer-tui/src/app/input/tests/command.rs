@@ -185,12 +185,12 @@ fn busy_policy_covers_every_command() {
 #[test]
 fn enter_and_space_toggle_when_idle_and_are_gated_when_busy() {
     let mut app = App::sample();
-    let original = app.session.profile.mods.clone();
+    let original = app.session.profile.rows().to_vec();
 
     app.handle_key(key(KeyCode::Enter));
-    assert_ne!(app.session.profile.mods, original);
+    assert_ne!(app.session.profile.rows(), original);
     app.handle_key(key(KeyCode::Char(' ')));
-    assert_eq!(app.session.profile.mods, original);
+    assert_eq!(app.session.profile.rows(), original);
 
     app.workspace = Workspace::Downloads;
     app.focus = Focus::Workspace;

@@ -7,6 +7,7 @@ use crate::fs;
 use crate::plugins::{
     PluginError, PluginLoadOrder, PluginMeta, PluginViolation, discover_plugins, validate_order,
 };
+use crate::separator::validate_separator_name;
 use camino::{Utf8Path, Utf8PathBuf};
 
 /// What kind of `modlist.txt` line an entry is
@@ -16,23 +17,33 @@ pub enum ModKind {
     Managed,
     /// A game-shipped/foreign plugin (DLC, CC) managed elsewhere; always active
     Foreign,
-    /// An MO2 separator: visual divider, never deployed
-    Separator,
 }
 
-/// One line of a profile's mod list: a mod name plus whether it's enabled
+/// A real mod in a profile's mod list
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ModListEntry {
+pub struct ModEntry {
+    /// Mod display and folder name
     pub name: String,
+    /// Whether this mod contributes files and plugins
     pub enabled: bool,
+    /// Whether Overseer manages this mod's files
     pub kind: ModKind,
+}
+
+/// One positional row in a profile's mod list
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ModRow {
+    /// A real managed or foreign mod
+    Item(ModEntry),
+    /// A visual divider with its raw display name
+    Separator(String),
 }
 
 /// Profile: a named, ordered mod list
 #[derive(Debug, Clone)]
 pub struct Profile {
     pub name: String,
-    pub mods: Vec<ModListEntry>,
+    mods: Vec<ModRow>,
     pub local_saves: bool,
 }
 
@@ -48,6 +59,97 @@ pub struct CommitOutcome {
 }
 
 impl Profile {
+    /// Build a profile from positional rows
+    pub fn new(name: impl Into<String>, rows: Vec<ModRow>, local_saves: bool) -> Self {
+        Self {
+            name: name.into(),
+            mods: rows,
+            local_saves,
+        }
+    }
+
+    /// All positional mod-list rows
+    pub fn rows(&self) -> &[ModRow] {
+        &self.mods
+    }
+
+    /// Replace all positional rows
+    pub fn replace_rows(&mut self, rows: Vec<ModRow>) {
+        self.mods = rows;
+    }
+
+    /// Append one positional row
+    pub fn push_row(&mut self, row: ModRow) {
+        self.mods.push(row);
+    }
+
+    /// Real mods only, in storage order
+    pub fn items(&self) -> impl DoubleEndedIterator<Item = &ModEntry> + '_ {
+        self.mods.iter().filter_map(|row| match row {
+            ModRow::Item(item) => Some(item),
+            ModRow::Separator(_) => None,
+        })
+    }
+
+    /// Mutable real mods only, in storage order
+    pub fn items_mut(&mut self) -> impl Iterator<Item = &mut ModEntry> + '_ {
+        self.mods.iter_mut().filter_map(|row| match row {
+            ModRow::Item(item) => Some(item),
+            ModRow::Separator(_) => None,
+        })
+    }
+
+    /// Real mod at a positional row index
+    pub fn item_at_row(&self, row: usize) -> Option<&ModEntry> {
+        match self.mods.get(row) {
+            Some(ModRow::Item(item)) => Some(item),
+            _ => None,
+        }
+    }
+
+    /// Separator display name at a positional row index
+    pub fn separator_at_row(&self, row: usize) -> Option<&str> {
+        match self.mods.get(row) {
+            Some(ModRow::Separator(name)) => Some(name),
+            _ => None,
+        }
+    }
+
+    /// Swap two positional rows
+    pub fn swap_rows(&mut self, a: usize, b: usize) -> bool {
+        if a >= self.mods.len() || b >= self.mods.len() {
+            return false;
+        }
+        self.mods.swap(a, b);
+        true
+    }
+
+    /// Set the enabled state of the managed item at a row
+    pub fn set_item_enabled_at_row(
+        &mut self,
+        row: usize,
+        enabled: bool,
+    ) -> Result<(), InstanceError> {
+        let Some(ModRow::Item(item)) = self.mods.get_mut(row) else {
+            return Err(InstanceError::ModNotInList(format!("row {row}")));
+        };
+        if item.kind != ModKind::Managed {
+            return Err(InstanceError::NotManaged(item.name.clone()));
+        }
+        item.enabled = enabled;
+        Ok(())
+    }
+
+    /// Row index of the item at a 0-based item ordinal, or the row count at the end
+    pub fn row_for_item_ordinal(&self, ordinal: usize) -> usize {
+        self.mods
+            .iter()
+            .enumerate()
+            .filter_map(|(row, value)| matches!(value, ModRow::Item(_)).then_some(row))
+            .nth(ordinal)
+            .unwrap_or(self.mods.len())
+    }
+
     /// Read a profile's `modlist.txt` + `settings.ini`. A missing modlist = empty profile
     pub fn load(instance: &Instance, name: &str) -> Result<Self, InstanceError> {
         let dir = instance.profile_dir(name);
@@ -86,40 +188,54 @@ impl Profile {
         Ok(())
     }
 
-    /// Serialize a mod list to `modlist.txt` text (`+`/`-` prefixes, one per line)
+    /// Serialize items and separator markers to `modlist.txt`
     pub(crate) fn to_modlist_string(&self) -> String {
         let mut out = String::new();
-        for entry in &self.mods {
-            out.push(match entry.kind {
-                ModKind::Foreign => '*',
-                _ if entry.enabled => '+',
-                _ => '-',
-            });
-            out.push_str(&entry.name);
-            out.push('\n');
+        for row in &self.mods {
+            match row {
+                ModRow::Separator(name) => {
+                    out.push_str("|\tseparator\t");
+                    out.push_str(name);
+                    out.push('\n');
+                }
+                ModRow::Item(entry) => {
+                    out.push(match entry.kind {
+                        ModKind::Foreign => '*',
+                        ModKind::Managed if entry.enabled => '+',
+                        ModKind::Managed => '-',
+                    });
+                    out.push_str(&entry.name);
+                    out.push('\n');
+                }
+            }
         }
         out
     }
 
-    /// Enabled *managed* mods as deploy sources, lowest priority first (foreign/separator entries have no `mods/` dir)
+    /// Enabled managed mods as deploy sources, lowest priority first
     pub fn deploy_sources(&self, instance: &Instance) -> Vec<ModSource> {
-        self.mods
-            .iter()
+        self.items()
             .rev()
             .filter(|entry| entry.enabled && entry.kind == ModKind::Managed)
             .map(|entry| ModSource::new(entry.name.clone(), instance.mods_dir().join(&entry.name)))
             .collect()
     }
 
-    /// Index of a mod by name (case-insensitive)
-    pub fn position(&self, name: &str) -> Option<usize> {
-        self.mods
-            .iter()
-            .position(|e| e.name.eq_ignore_ascii_case(name))
+    /// Row index of an item by name (case-insensitive)
+    pub fn item_row(&self, name: &str) -> Option<usize> {
+        self.mods.iter().position(
+            |row| matches!(row, ModRow::Item(item) if item.name.eq_ignore_ascii_case(name)),
+        )
+    }
+
+    /// 0-based position among real mods only
+    pub fn item_ordinal(&self, name: &str) -> Option<usize> {
+        self.items()
+            .position(|item| item.name.eq_ignore_ascii_case(name))
     }
 
     pub fn contains(&self, name: &str) -> bool {
-        self.position(name).is_some()
+        self.item_row(name).is_some()
     }
 
     /// Add a mod at the highest priority
@@ -130,11 +246,11 @@ impl Profile {
         }
         self.mods.insert(
             0,
-            ModListEntry {
+            ModRow::Item(ModEntry {
                 name,
                 enabled,
                 kind: ModKind::Managed,
-            },
+            }),
         );
         Ok(())
     }
@@ -142,20 +258,23 @@ impl Profile {
     /// Remove a mod from the profile
     pub fn remove(&mut self, name: &str) -> Result<(), InstanceError> {
         let idx = self
-            .position(name)
+            .item_row(name)
             .ok_or_else(|| InstanceError::ModNotInList(name.to_owned()))?;
         self.mods.remove(idx);
         Ok(())
     }
 
-    fn entry_mut(&mut self, name: &str) -> Result<&mut ModListEntry, InstanceError> {
+    fn entry_mut(&mut self, name: &str) -> Result<&mut ModEntry, InstanceError> {
         let idx = self
-            .position(name)
+            .item_row(name)
             .ok_or_else(|| InstanceError::ModNotInList(name.to_owned()))?;
-        Ok(&mut self.mods[idx])
+        match &mut self.mods[idx] {
+            ModRow::Item(item) => Ok(item),
+            ModRow::Separator(_) => unreachable!("item lookup returned a separator"),
+        }
     }
 
-    fn managed_entry_mut(&mut self, name: &str) -> Result<&mut ModListEntry, InstanceError> {
+    fn managed_entry_mut(&mut self, name: &str) -> Result<&mut ModEntry, InstanceError> {
         let entry = self.entry_mut(name)?;
         if entry.kind != ModKind::Managed {
             return Err(InstanceError::NotManaged(name.to_owned()));
@@ -178,7 +297,7 @@ impl Profile {
     /// Raise a mod's priority by one (toward the front)
     pub fn move_up(&mut self, name: &str) -> Result<(), InstanceError> {
         let idx = self
-            .position(name)
+            .item_row(name)
             .ok_or_else(|| InstanceError::ModNotInList(name.to_owned()))?;
         if idx > 0 {
             self.mods.swap(idx, idx - 1);
@@ -189,7 +308,7 @@ impl Profile {
     /// Lower a mod's priority by one (toward the back)
     pub fn move_down(&mut self, name: &str) -> Result<(), InstanceError> {
         let idx = self
-            .position(name)
+            .item_row(name)
             .ok_or_else(|| InstanceError::ModNotInList(name.to_owned()))?;
         if idx + 1 < self.mods.len() {
             self.mods.swap(idx, idx + 1);
@@ -200,7 +319,7 @@ impl Profile {
     /// Move a mod to an absolute index
     pub fn move_to(&mut self, name: &str, target: usize) -> Result<(), InstanceError> {
         let from = self
-            .position(name)
+            .item_row(name)
             .ok_or_else(|| InstanceError::ModNotInList(name.to_owned()))?;
         let entry = self.mods.remove(from);
         let target = target.min(self.mods.len());
@@ -208,25 +327,16 @@ impl Profile {
         Ok(())
     }
 
-    /// Insert a separator (`_separator` divider) at `index`
+    /// Insert a separator at a positional row index
     pub fn insert_separator(
         &mut self,
         index: usize,
         display_name: &str,
     ) -> Result<(), InstanceError> {
-        let name = Self::separator_name(display_name)?;
-        if self.contains(&name) {
-            return Err(InstanceError::ModAlreadyInList(name));
-        }
+        let name =
+            validate_separator_name(display_name).map_err(InstanceError::InvalidSeparatorName)?;
         let index = index.min(self.mods.len());
-        self.mods.insert(
-            index,
-            ModListEntry {
-                name,
-                enabled: false,
-                kind: ModKind::Separator,
-            },
-        );
+        self.mods.insert(index, ModRow::Separator(name));
         Ok(())
     }
 
@@ -236,57 +346,26 @@ impl Profile {
         index: usize,
         display_name: &str,
     ) -> Result<(), InstanceError> {
-        self.ensure_separator(index)?;
-        let name = Self::separator_name(display_name)?;
-        if self
-            .mods
-            .iter()
-            .enumerate()
-            .any(|(i, m)| i != index && m.name.eq_ignore_ascii_case(&name))
-        {
-            return Err(InstanceError::ModAlreadyInList(name));
-        }
-        self.mods[index].name = name;
+        let name =
+            validate_separator_name(display_name).map_err(InstanceError::InvalidSeparatorName)?;
+        let Some(ModRow::Separator(current)) = self.mods.get_mut(index) else {
+            return Err(InstanceError::InvalidSeparatorName(
+                "no separator at that position".to_owned(),
+            ));
+        };
+        *current = name;
         Ok(())
     }
 
     /// Remove the separator at `index`, merge its members to the group above
     pub fn remove_separator(&mut self, index: usize) -> Result<(), InstanceError> {
-        self.ensure_separator(index)?;
+        if !matches!(self.mods.get(index), Some(ModRow::Separator(_))) {
+            return Err(InstanceError::InvalidSeparatorName(
+                "no separator at that position".to_owned(),
+            ));
+        }
         self.mods.remove(index);
         Ok(())
-    }
-
-    /// Confirm `index` points at a separator entry
-    fn ensure_separator(&self, index: usize) -> Result<(), InstanceError> {
-        match self.mods.get(index) {
-            Some(e) if e.kind == ModKind::Separator => Ok(()),
-            _ => Err(InstanceError::InvalidSeparatorName(
-                "no separator at that position".to_owned(),
-            )),
-        }
-    }
-
-    /// Validate a user separator display name and return its stored `<name>_separator` form
-    fn separator_name(display_name: &str) -> Result<String, InstanceError> {
-        let name = display_name.trim();
-        let reject = |why: &str| Err(InstanceError::InvalidSeparatorName(why.to_owned()));
-        if name.is_empty() {
-            return reject("name cannot be empty");
-        }
-        if name.chars().any(char::is_control) {
-            return reject("name cannot contain control characters");
-        }
-        if name.contains(['/', '\\']) {
-            return reject("name cannot contain path separators");
-        }
-        if name.starts_with('#') || name.starts_with('*') {
-            return reject("name cannot start with `#` or `*`");
-        }
-        if name.to_ascii_lowercase().ends_with("_separator") {
-            return reject("name cannot end with `_separator`");
-        }
-        Ok(format!("{name}_separator"))
     }
 
     /// Reconcile this profile's mod list with what's actually installed under `mods/`
@@ -295,11 +374,14 @@ impl Profile {
         let before = self.mods.len();
 
         // Drop entries with no folder
-        self.mods.retain(|e| {
-            e.kind != ModKind::Managed
-                || installed
-                    .iter()
-                    .any(|m| m.name.eq_ignore_ascii_case(&e.name))
+        self.mods.retain(|row| match row {
+            ModRow::Separator(_) => true,
+            ModRow::Item(m) => {
+                m.kind == ModKind::Foreign
+                    || installed
+                        .iter()
+                        .any(|x| x.name.eq_ignore_ascii_case(&m.name))
+            }
         });
         let removed = before - self.mods.len();
 
@@ -307,11 +389,11 @@ impl Profile {
         let mut added = 0;
         for m in &installed {
             if !self.contains(&m.name) {
-                self.mods.push(ModListEntry {
+                self.mods.push(ModRow::Item(ModEntry {
                     name: m.name.clone(),
                     enabled: false,
                     kind: ModKind::Managed,
-                });
+                }));
                 added += 1;
             }
         }
@@ -369,10 +451,13 @@ fn write_local_saves(profile_dir: &Utf8Path, local_saves: bool) -> Result<(), In
     Ok(())
 }
 
-/// Parse `modlist.txt`: `+Name` enabled, `-Name` disabled, top line = highest priority, other lines skipped
-fn parse_modlist(text: &str) -> Vec<ModListEntry> {
+/// Parse item prefixes and inline separator markers from `modlist.txt`
+fn parse_modlist(text: &str) -> Vec<ModRow> {
     text.lines()
         .filter_map(|line| {
+            if let Some(name) = line.strip_prefix("|\tseparator\t") {
+                return Some(ModRow::Separator(name.to_owned()));
+            }
             let line = line.trim();
             let enabled = match line.chars().next() {
                 Some('+' | '*') => true,
@@ -381,23 +466,19 @@ fn parse_modlist(text: &str) -> Vec<ModListEntry> {
             };
             let foreign = line.starts_with('*');
             let name = line[1..].trim();
-            if name.is_empty() {
+            if name.is_empty() || name.to_ascii_lowercase().ends_with("_separator") {
                 return None;
             }
-            let kind = if name.ends_with("_separator") {
-                ModKind::Separator
-            } else if foreign {
+            let kind = if foreign {
                 ModKind::Foreign
             } else {
                 ModKind::Managed
             };
-            // separators never deploy
-            let enabled = enabled && kind != ModKind::Separator;
-            Some(ModListEntry {
+            Some(ModRow::Item(ModEntry {
                 name: name.to_owned(),
                 enabled,
                 kind,
-            })
+            }))
         })
         .collect()
 }

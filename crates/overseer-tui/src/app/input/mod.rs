@@ -127,7 +127,7 @@ impl App {
     fn move_main_selection(&mut self, delta: isize) {
         match self.focus {
             Focus::Mods => {
-                let len = self.mods.project(&self.session.profile.mods).len();
+                let len = self.mods.project(self.session.profile.rows()).len();
                 self.mods.move_by(len, delta);
             }
             Focus::Workspace => {
@@ -149,7 +149,7 @@ impl App {
 
     /// After replacing `self.session`, reset the per-pane selection and refresh workspace
     pub(super) fn after_session_changed(&mut self) {
-        self.mods.reset(&self.session.profile.mods);
+        self.mods.reset(self.session.profile.rows());
         self.plugins
             .reset(&self.session.order.plugins, &self.session.plugin_separators);
         self.conflicts.list.reset_first(0);
@@ -171,11 +171,14 @@ impl App {
         if self.workspace != Workspace::Conflicts {
             return;
         }
-        let rows = self.mods.project(&self.session.profile.mods);
+        let rows = self.mods.project(self.session.profile.rows());
         let Some(row) = self.mods.index().and_then(|i| rows.get(i)).copied() else {
             return;
         };
-        let entry = &self.session.profile.mods[row.model_index()];
+        let Some(entry) = self.session.profile.item_at_row(row.model_index()) else {
+            self.note("Select a managed mod to filter conflicts");
+            return;
+        };
         if entry.kind != ModKind::Managed {
             self.note("Select a managed mod to filter conflicts");
             return;
@@ -190,12 +193,14 @@ impl App {
         let matches: Vec<usize> = self
             .session
             .profile
-            .mods
+            .rows()
             .iter()
             .enumerate()
-            .filter_map(|(index, entry)| {
-                (entry.kind == ModKind::Managed && entry.name.eq_ignore_ascii_case(name))
-                    .then_some(index)
+            .filter_map(|(index, _row)| {
+                self.session.profile.item_at_row(index).and_then(|entry| {
+                    (entry.kind == ModKind::Managed && entry.name.eq_ignore_ascii_case(name))
+                        .then_some(index)
+                })
             })
             .collect();
         let model_index = match matches.len() {
@@ -211,10 +216,10 @@ impl App {
         };
 
         self.mods
-            .reveal_group(&self.session.profile.mods, model_index);
+            .reveal_group(self.session.profile.rows(), model_index);
         let display = self
             .mods
-            .project(&self.session.profile.mods)
+            .project(self.session.profile.rows())
             .iter()
             .position(|row| row.model_index() == model_index);
         self.mods.select(display);

@@ -133,7 +133,7 @@ fn submitting_starts_the_install_worker_and_preserves_location() {
         "submitting starts the generic worker"
     );
     assert!(
-        app.session.profile.position("CoolMod").is_none(),
+        app.session.profile.item_row("CoolMod").is_none(),
         "the worker result is not applied synchronously"
     );
     assert!(

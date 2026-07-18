@@ -4,6 +4,7 @@ use super::test_helpers::key;
 use super::*;
 use crate::app::{ModPaneRow, Select};
 use crate::test_support::{download_entry, save_info};
+use overseer_core::instance::{ModEntry, ModKind, ModRow};
 use overseer_core::settings::{
     DownloadsSort, DownloadsSortKey, SavesSort, SavesSortKey, Settings, SortDir,
 };
@@ -510,40 +511,36 @@ fn from_key_round_trips_every_workspace() {
     }
 }
 
-fn managed_row(name: &str) -> overseer_core::instance::ModListEntry {
-    overseer_core::instance::ModListEntry {
+fn managed_row(name: &str) -> ModRow {
+    ModRow::Item(ModEntry {
         name: name.to_owned(),
         enabled: true,
-        kind: overseer_core::instance::ModKind::Managed,
-    }
+        kind: ModKind::Managed,
+    })
 }
 
-fn separator_row(name: &str) -> overseer_core::instance::ModListEntry {
-    overseer_core::instance::ModListEntry {
-        name: name.to_owned(),
-        enabled: false,
-        kind: overseer_core::instance::ModKind::Separator,
-    }
+fn separator_row(name: &str) -> ModRow {
+    ModRow::Separator(name.to_owned())
 }
 
 /// A fixture whose file order is PatchA, PatchB, [Gameplay], TextureX, [Visual]
 fn app_with_groups() -> App {
     let mut app = App::sample();
-    app.session.profile.mods = vec![
+    app.session.profile.replace_rows(vec![
         managed_row("PatchA"),
         managed_row("PatchB"),
-        separator_row("Gameplay_separator"),
+        separator_row("Gameplay"),
         managed_row("TextureX"),
-        separator_row("Visual_separator"),
-    ];
-    app.mods.reset(&app.session.profile.mods);
+        separator_row("Visual"),
+    ]);
+    app.mods.reset(app.session.profile.rows());
     app
 }
 
 /// Collect projected model indices in display order
 fn projected_model_indices(app: &App) -> Vec<usize> {
     app.mods
-        .project(&app.session.profile.mods)
+        .project(app.session.profile.rows())
         .iter()
         .map(|row| row.model_index())
         .collect()
@@ -551,7 +548,7 @@ fn projected_model_indices(app: &App) -> Vec<usize> {
 
 /// Resolve the selected display row to its model index
 fn selected_model_index(app: &App) -> Option<usize> {
-    let rows = app.mods.project(&app.session.profile.mods);
+    let rows = app.mods.project(app.session.profile.rows());
     app.mods
         .index()
         .and_then(|index| rows.get(index))
@@ -584,7 +581,7 @@ fn collapsing_a_separator_hides_its_group_and_keeps_the_cursor() {
         "PatchB and PatchA are hidden"
     );
     assert!(matches!(
-        app.mods.project(&app.session.profile.mods)[2],
+        app.mods.project(app.session.profile.rows())[2],
         ModPaneRow::Separator {
             model_index: 2,
             collapsed: true,
@@ -619,7 +616,7 @@ fn clamp_mod_selection_pulls_a_stale_index_into_view() {
     app.mods.select(Some(2));
     app.handle_key(key(KeyCode::Char(' '))); // visible shrinks to [4, 3, 2]
     app.mods.select(Some(4)); // stale: past the new end
-    let len = app.mods.project(&app.session.profile.mods).len();
+    let len = app.mods.project(app.session.profile.rows()).len();
     app.mods.clamp(len);
     assert_eq!(app.mods.index(), Some(2));
 }
@@ -631,7 +628,7 @@ fn changing_session_clears_collapse_state() {
     app.handle_key(key(KeyCode::Char(' ')));
     app.after_session_changed();
     assert!(matches!(
-        app.mods.project(&app.session.profile.mods)[2],
+        app.mods.project(app.session.profile.rows())[2],
         ModPaneRow::Separator {
             collapsed: false,
             ..
@@ -690,21 +687,18 @@ fn mod_origin(name: &str) -> overseer_core::deploy::ProviderOrigin {
     }
 }
 
-fn foreign_row(name: &str) -> overseer_core::instance::ModListEntry {
-    overseer_core::instance::ModListEntry {
+fn foreign_row(name: &str) -> ModRow {
+    ModRow::Item(ModEntry {
         name: name.to_owned(),
         enabled: true,
-        kind: overseer_core::instance::ModKind::Foreign,
-    }
+        kind: ModKind::Foreign,
+    })
 }
 
-fn jump_app(
-    mods: Vec<overseer_core::instance::ModListEntry>,
-    conflict: overseer_core::deploy::DestinationEntry,
-) -> App {
+fn jump_app(mods: Vec<ModRow>, conflict: overseer_core::deploy::DestinationEntry) -> App {
     let mut app = App::sample();
-    app.session.profile.mods = mods;
-    app.mods.reset(&app.session.profile.mods);
+    app.session.profile.replace_rows(mods);
+    app.mods.reset(app.session.profile.rows());
     app.workspace = Workspace::Conflicts;
     app.focus = Focus::Workspace;
     app.conflicts.status =
@@ -716,11 +710,14 @@ fn jump_app(
 }
 
 fn selected_mod_name(app: &App) -> Option<&str> {
-    let rows = app.mods.project(&app.session.profile.mods);
+    let rows = app.mods.project(app.session.profile.rows());
     app.mods
         .index()
         .and_then(|index| rows.get(index))
-        .map(|row| app.session.profile.mods[row.model_index()].name.as_str())
+        .map(|row| match &app.session.profile.rows()[row.model_index()] {
+            ModRow::Item(item) => item.name.as_str(),
+            ModRow::Separator(name) => name.as_str(),
+        })
 }
 
 #[test]
@@ -821,9 +818,9 @@ fn jumping_expands_only_the_owning_separator_group() {
     let mut app = jump_app(
         vec![
             managed_row("Target"),
-            separator_row("Target_separator"),
+            separator_row("Target"),
             managed_row("Other"),
-            separator_row("Other_separator"),
+            separator_row("Other"),
         ],
         jump_entry("Data/shared.dds", vec![mod_origin("Target")]),
     );
@@ -832,7 +829,7 @@ fn jumping_expands_only_the_owning_separator_group() {
 
     app.handle_key(key(KeyCode::Char('g')));
 
-    let rows = app.mods.project(&app.session.profile.mods);
+    let rows = app.mods.project(app.session.profile.rows());
     assert!(rows.iter().any(|row| matches!(
         row,
         ModPaneRow::Separator {
@@ -857,7 +854,7 @@ fn jumping_to_ungrouped_mod_preserves_unrelated_collapse_state() {
     let mut app = jump_app(
         vec![
             managed_row("Grouped"),
-            separator_row("Group_separator"),
+            separator_row("Group"),
             managed_row("Target"),
         ],
         jump_entry("Data/shared.dds", vec![mod_origin("Target")]),
@@ -868,7 +865,7 @@ fn jumping_to_ungrouped_mod_preserves_unrelated_collapse_state() {
 
     assert!(
         app.mods
-            .project(&app.session.profile.mods)
+            .project(app.session.profile.rows())
             .iter()
             .any(|row| matches!(
                 row,
@@ -980,14 +977,11 @@ fn jumping_preserves_active_conflict_filter_and_workspace() {
     assert_eq!(app.workspace, Workspace::Conflicts);
 }
 
-fn plugin_jump_app(
-    mods: Vec<overseer_core::instance::ModListEntry>,
-    plugins: &[&str],
-) -> (tempfile::TempDir, App) {
+fn plugin_jump_app(mods: Vec<ModRow>, plugins: &[&str]) -> (tempfile::TempDir, App) {
     let (temp, instance) = overseer_core::test_support::temp_instance();
     let mut app = App::sample();
     app.session.instance = instance;
-    app.session.profile.mods = mods;
+    app.session.profile.replace_rows(mods);
     app.session.order.plugins = plugins
         .iter()
         .map(|name| overseer_core::plugins::PluginEntry {
@@ -996,7 +990,7 @@ fn plugin_jump_app(
         })
         .collect();
     app.session.plugin_separators = overseer_core::plugins::PluginSeparators::default();
-    app.mods.reset(&app.session.profile.mods);
+    app.mods.reset(app.session.profile.rows());
     app.plugins
         .reset(&app.session.order.plugins, &app.session.plugin_separators);
     app.workspace = Workspace::Plugins;
@@ -1119,7 +1113,7 @@ fn plugin_provider_jump_reveals_a_mod_in_a_collapsed_group() {
     assert_eq!(selected_mod_name(&app), Some("Target"));
     assert!(
         app.mods
-            .project(&app.session.profile.mods)
+            .project(app.session.profile.rows())
             .iter()
             .any(|row| matches!(
                 row,

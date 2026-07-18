@@ -246,7 +246,7 @@ impl App {
         if let Err(e) = settings.save() {
             tracing::warn!(error = %e, "could not save settings");
         }
-        let mods = ModsPane::new(&session.profile.mods);
+        let mods = ModsPane::new(session.profile.rows());
         let plugins = PluginsPane::new(&session.order.plugins, &session.plugin_separators);
 
         Ok(Self {
@@ -299,11 +299,6 @@ pub(crate) fn cycle_variant<T: IntoEnumIterator + PartialEq + Copy>(current: T, 
     T::iter()
         .nth(target)
         .expect("target is within the variant count")
-}
-
-/// A separator entry's display name: its stored name with the `_separator` suffix stripped
-pub(crate) fn separator_display(name: &str) -> &str {
-    name.strip_suffix("_separator").unwrap_or(name)
 }
 
 #[cfg(test)]

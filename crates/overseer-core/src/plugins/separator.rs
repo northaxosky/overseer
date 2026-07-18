@@ -2,6 +2,7 @@
 
 use super::load_order::PluginEntry;
 use crate::fs;
+use crate::separator::validate_separator_name;
 use camino::Utf8Path;
 use thiserror::Error;
 
@@ -70,7 +71,7 @@ impl PluginSeparators {
         anchor: Option<String>,
         name: &str,
     ) -> Result<(), SeparatorError> {
-        let name = validate_separator_name(name)?;
+        let name = validate_separator_name(name).map_err(SeparatorError::InvalidName)?;
         let at = at.min(self.items.len());
         self.items.insert(at, Separator { name, anchor });
         Ok(())
@@ -78,7 +79,7 @@ impl PluginSeparators {
 
     /// Rename the separator at `index`
     pub fn rename(&mut self, index: usize, name: &str) -> Result<(), SeparatorError> {
-        let name = validate_separator_name(name)?;
+        let name = validate_separator_name(name).map_err(SeparatorError::InvalidName)?;
         let sep = self
             .items
             .get_mut(index)
@@ -128,25 +129,6 @@ pub fn merge_rows(plugins: &[PluginEntry], separators: &[Separator]) -> Vec<Plug
         }
     }
     rows
-}
-
-/// Validate a plugin separator display name and return it trimmed; store raw, no suffix
-fn validate_separator_name(name: &str) -> Result<String, SeparatorError> {
-    let name = name.trim();
-    let reject = |why: &str| Err(SeparatorError::InvalidName(why.to_owned()));
-    if name.is_empty() {
-        return reject("name cannot be empty");
-    }
-    if name.chars().any(char::is_control) {
-        return reject("name cannot contain control characters");
-    }
-    if name.contains(['/', '\\']) {
-        return reject("name cannot contain path separators");
-    }
-    if name.starts_with('#') || name.starts_with('*') {
-        return reject("name cannot start with `#` or `*`");
-    }
-    Ok(name.to_owned())
 }
 
 /// Parse `separators.txt`: each line `<anchor>\t<name>`, an empty anchor field means None

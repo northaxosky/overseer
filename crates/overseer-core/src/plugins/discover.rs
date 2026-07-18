@@ -55,7 +55,7 @@ fn discover_plugin_paths(
 ) -> Result<Vec<(String, Utf8PathBuf)>, PluginError> {
     let mut seen: Vec<String> = Vec::new();
     let mut paths = Vec::new();
-    for entry in &profile.mods {
+    for entry in profile.items() {
         if !entry.enabled {
             continue;
         }

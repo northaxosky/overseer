@@ -71,8 +71,7 @@ fn first_profile(instance: &Instance) -> String {
 /// Enabled, managed mods whose staging dir exists (skips separators, foreign, and orphaned entries)
 fn deployable_sources(instance: &Instance, profile: &Profile) -> Vec<ModSource> {
     profile
-        .mods
-        .iter()
+        .items()
         .rev()
         .filter(|e| e.enabled && e.kind == ModKind::Managed)
         .map(|e| (e.name.clone(), instance.mods_dir().join(&e.name)))
@@ -92,28 +91,26 @@ fn loads_a_real_mo2_profile() {
     let profile = Profile::load(&instance, &profile_name).expect("load the MO2 profile");
 
     let managed = profile
-        .mods
-        .iter()
+        .items()
         .filter(|m| m.kind == ModKind::Managed)
         .count();
     let separators = profile
-        .mods
+        .rows()
         .iter()
-        .filter(|m| m.kind == ModKind::Separator)
+        .filter(|row| matches!(row, overseer_core::instance::ModRow::Separator(_)))
         .count();
     eprintln!(
         "profile `{profile_name}`: {} entries ({managed} managed, {separators} separators)",
-        profile.mods.len()
+        profile.rows().len()
     );
     assert!(
-        profile.mods.len() > 10,
+        managed > 10,
         "a real MO2 profile should list many mods, got {}",
-        profile.mods.len()
+        managed
     );
     // Every enabled managed mod resolves to a real dir under mods/
     for entry in profile
-        .mods
-        .iter()
+        .items()
         .filter(|m| m.enabled && m.kind == ModKind::Managed)
     {
         assert!(

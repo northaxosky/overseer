@@ -98,6 +98,49 @@ fn full_workflow_init_enable_deploy_status_purge() {
 }
 
 #[test]
+fn mod_list_and_move_use_item_ordinals_with_separator_rows() {
+    let tmp = TempDir::new().unwrap();
+    let inst = tmp.path().join("inst");
+    let inst_s = inst.to_str().unwrap();
+    overseer(&[
+        "instance",
+        "init",
+        "--path",
+        inst_s,
+        "--game-dir",
+        tmp.path().join("game").to_str().unwrap(),
+        "--local",
+        tmp.path().join("local").to_str().unwrap(),
+    ])
+    .success();
+    for name in ["A", "B", "C"] {
+        std::fs::create_dir_all(inst.join("mods").join(name)).unwrap();
+    }
+    let modlist = inst.join("profiles").join("Default").join("modlist.txt");
+    std::fs::write(&modlist, "+A\n|\tseparator\tGameplay\n+B\n+C\n").unwrap();
+
+    overseer(&["mod", "list", "--instance", inst_s])
+        .success()
+        .stdout(predicate::str::contains("3 mods"))
+        .stdout(predicate::str::contains("1. [x] A"))
+        .stdout(predicate::str::contains("2. [x] B"))
+        .stdout(predicate::str::contains("3. [x] C"))
+        .stdout(predicate::str::contains("Gameplay").not());
+
+    overseer(&["mod", "move", "A", "--to", "2", "--instance", inst_s]).success();
+
+    assert_eq!(
+        std::fs::read_to_string(&modlist).unwrap(),
+        "|\tseparator\tGameplay\n+B\n+A\n+C\n"
+    );
+    overseer(&["mod", "list", "--instance", inst_s])
+        .success()
+        .stdout(predicate::str::contains("1. [x] B"))
+        .stdout(predicate::str::contains("2. [x] A"))
+        .stdout(predicate::str::contains("3. [x] C"));
+}
+
+#[test]
 fn show_on_a_missing_instance_fails() {
     let tmp = TempDir::new().unwrap();
     let missing = tmp.path().join("nope");

@@ -9,7 +9,7 @@ mod operation;
 
 use overseer_core::apply::{DeploymentStatus, Status};
 use overseer_core::deploy::DestinationEntry;
-use overseer_core::instance::ModListEntry;
+use overseer_core::instance::ModEntry;
 use overseer_core::plugins::is_master;
 use overseer_frontend::style::Role;
 use ratatui::{
@@ -22,7 +22,7 @@ use strum::IntoEnumIterator;
 
 use crate::app::{
     App, ConflictsStatus, Focus, ModPaneRow, OperationKind, PluginPaneRow, Workspace,
-    downloads_sort_label, saves_sort_label, separator_display,
+    downloads_sort_label, saves_sort_label,
 };
 use crate::theme;
 
@@ -74,30 +74,29 @@ pub(crate) fn draw_main(app: &mut App, frame: &mut Frame) {
     let mods_title = format!(
         " mods — {} ({}) ",
         app.session.profile.name,
-        app.session.profile.mods.len()
+        app.session.profile.items().count()
     );
 
     let mods_items: Vec<ListItem<'static>> = app
         .mods
-        .project(&app.session.profile.mods)
+        .project(app.session.profile.rows())
         .into_iter()
         .map(|row| match row {
             ModPaneRow::Separator {
-                model_index,
+                name,
                 collapsed,
                 member_count,
                 ..
             } => {
-                let entry = &app.session.profile.mods[model_index];
-                let header = separator_header(
-                    separator_display(&entry.name),
-                    cols[0].width,
-                    collapsed,
-                    member_count,
-                );
+                let header = separator_header(name, cols[0].width, collapsed, member_count);
                 ListItem::new(header).style(theme::style(Role::Heading))
             }
-            ModPaneRow::Mod { model_index } => mod_row(&app.session.profile.mods[model_index]),
+            ModPaneRow::Mod { model_index } => mod_row(
+                app.session
+                    .profile
+                    .item_at_row(model_index)
+                    .expect("mod row"),
+            ),
         })
         .collect();
 
@@ -486,7 +485,7 @@ fn marker(on: bool) -> &'static str {
 }
 
 /// A mod-list row: a separator renders as a header rule, every other kind as a checkbox + name
-fn mod_row(m: &ModListEntry) -> ListItem<'static> {
+fn mod_row(m: &ModEntry) -> ListItem<'static> {
     let role = if m.enabled {
         Role::Success
     } else {

@@ -401,13 +401,13 @@ fn blocked_busy_key_table_covers_every_domain_action() {
 
     for code in blocked {
         let mut app = App::sample();
-        let mods = app.session.profile.mods.clone();
+        let mods = app.session.profile.rows().to_vec();
         let plugins = app.session.order.plugins.clone();
         let release = start_read_only_gated(&mut app);
 
         app.handle_key(key(code));
 
-        assert_eq!(app.session.profile.mods, mods, "{code:?} preserves mods");
+        assert_eq!(app.session.profile.rows(), mods, "{code:?} preserves mods");
         assert_eq!(
             app.session.order.plugins, plugins,
             "{code:?} preserves plugins"

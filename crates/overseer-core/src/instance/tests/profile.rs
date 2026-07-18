@@ -2,28 +2,24 @@
 
 use super::*;
 
-fn entry(name: &str, enabled: bool) -> ModListEntry {
-    ModListEntry {
+fn entry(name: &str, enabled: bool) -> ModRow {
+    ModRow::Item(ModEntry {
         name: name.to_owned(),
         enabled,
         kind: ModKind::Managed,
-    }
+    })
 }
 
-fn foreign_entry(name: &str) -> ModListEntry {
-    ModListEntry {
+fn foreign_entry(name: &str) -> ModRow {
+    ModRow::Item(ModEntry {
         name: name.to_owned(),
         enabled: true,
         kind: ModKind::Foreign,
-    }
+    })
 }
 
-fn separator_entry(name: &str) -> ModListEntry {
-    ModListEntry {
-        name: name.to_owned(),
-        enabled: false,
-        kind: ModKind::Separator,
-    }
+fn separator_entry(name: &str) -> ModRow {
+    ModRow::Separator(name.to_owned())
 }
 
 use crate::test_support::{temp_instance, write_plugin};
@@ -38,7 +34,14 @@ fn profile_of(names: &[&str]) -> Profile {
 }
 
 fn names_of(profile: &Profile) -> Vec<&str> {
-    profile.mods.iter().map(|e| e.name.as_str()).collect()
+    profile
+        .mods
+        .iter()
+        .map(|row| match row {
+            ModRow::Item(item) => item.name.as_str(),
+            ModRow::Separator(name) => name.as_str(),
+        })
+        .collect()
 }
 
 // --- separators ---
@@ -49,17 +52,14 @@ fn insert_separator_adds_an_inert_separator_at_the_given_index() {
     profile
         .insert_separator(1, "Gameplay")
         .expect("insert separator");
-    // The display name is stored in MO2's `<name>_separator` form
-    assert_eq!(names_of(&profile), ["Top", "Gameplay_separator", "Bottom"]);
-    let sep = &profile.mods[1];
-    assert_eq!(sep.kind, ModKind::Separator);
-    assert!(!sep.enabled, "a separator is never enabled/deployed");
+    assert_eq!(names_of(&profile), ["Top", "Gameplay", "Bottom"]);
+    assert_eq!(profile.separator_at_row(1), Some("Gameplay"));
 }
 
 #[test]
 fn insert_separator_rejects_invalid_display_names() {
     let mut profile = profile_of(&["A"]);
-    // Empty/whitespace, path separators, control chars, `#`/`*` leads, and a redundant suffix
+    // Empty/whitespace, path separators, control chars, and `#`/`*` leads
     for bad in [
         "",
         "   ",
@@ -68,7 +68,6 @@ fn insert_separator_rejects_invalid_display_names() {
         "bell\u{7}here",
         "#comment",
         "*star",
-        "Zone_separator",
     ] {
         let err = profile
             .insert_separator(0, bad)
@@ -83,36 +82,35 @@ fn insert_separator_rejects_invalid_display_names() {
 }
 
 #[test]
-fn insert_separator_rejects_a_duplicate_name() {
+fn insert_separator_allows_duplicate_names() {
     let mut profile = profile_of(&["A"]);
     profile
         .insert_separator(0, "Gameplay")
         .expect("first insert");
-    let err = profile
+    profile
         .insert_separator(0, "Gameplay")
-        .expect_err("duplicate separator must be rejected");
-    assert!(matches!(err, InstanceError::ModAlreadyInList(n) if n == "Gameplay_separator"));
+        .expect("duplicate display names are positional");
+    assert_eq!(names_of(&profile), ["Gameplay", "Gameplay", "A"]);
 }
 
 #[test]
 fn rename_separator_updates_the_stored_name() {
     let mut profile = Profile {
         name: "P".to_owned(),
-        mods: vec![separator_entry("Gameplay_separator"), entry("A", true)],
+        mods: vec![separator_entry("Gameplay"), entry("A", true)],
         local_saves: false,
     };
     profile.rename_separator(0, "Overhauls").expect("rename");
-    assert_eq!(profile.mods[0].name, "Overhauls_separator");
-    assert_eq!(profile.mods[0].kind, ModKind::Separator);
+    assert_eq!(profile.separator_at_row(0), Some("Overhauls"));
 }
 
 #[test]
-fn rename_separator_rejects_a_non_separator_index_and_a_colliding_name() {
+fn rename_separator_rejects_a_non_separator_index() {
     let mut profile = Profile {
         name: "P".to_owned(),
         mods: vec![
-            separator_entry("Gameplay_separator"),
-            separator_entry("Visuals_separator"),
+            separator_entry("Gameplay"),
+            separator_entry("Visuals"),
             entry("A", true),
         ],
         local_saves: false,
@@ -124,16 +122,11 @@ fn rename_separator_rejects_a_non_separator_index_and_a_colliding_name() {
             .expect_err("not a separator"),
         InstanceError::InvalidSeparatorName(_)
     ));
-    // Renaming Gameplay -> Visuals would collide with the sibling separator
-    assert!(matches!(
-        profile
-            .rename_separator(0, "Visuals")
-            .expect_err("colliding name"),
-        InstanceError::ModAlreadyInList(n) if n == "Visuals_separator"
-    ));
-    // Both separators are left untouched
-    assert_eq!(profile.mods[0].name, "Gameplay_separator");
-    assert_eq!(profile.mods[1].name, "Visuals_separator");
+    profile
+        .rename_separator(0, "Visuals")
+        .expect("duplicate display names are positional");
+    assert_eq!(profile.separator_at_row(0), Some("Visuals"));
+    assert_eq!(profile.separator_at_row(1), Some("Visuals"));
 }
 
 #[test]
@@ -142,7 +135,7 @@ fn remove_separator_drops_the_divider_and_keeps_its_members() {
         name: "P".to_owned(),
         mods: vec![
             entry("A", true),
-            separator_entry("Gameplay_separator"),
+            separator_entry("Gameplay"),
             entry("B", true),
         ],
         local_saves: false,
@@ -155,7 +148,7 @@ fn remove_separator_drops_the_divider_and_keeps_its_members() {
 fn remove_separator_rejects_a_non_separator_index() {
     let mut profile = Profile {
         name: "P".to_owned(),
-        mods: vec![separator_entry("Gameplay_separator"), entry("A", true)],
+        mods: vec![separator_entry("Gameplay"), entry("A", true)],
         local_saves: false,
     };
     assert!(matches!(
@@ -164,7 +157,7 @@ fn remove_separator_rejects_a_non_separator_index() {
             .expect_err("index 1 is a managed mod, not a separator"),
         InstanceError::InvalidSeparatorName(_)
     ));
-    assert_eq!(names_of(&profile), ["Gameplay_separator", "A"]);
+    assert_eq!(names_of(&profile), ["Gameplay", "A"]);
 }
 
 // --- parsing ---
@@ -182,11 +175,14 @@ fn parses_asterisk_as_enabled_foreign() {
 }
 
 #[test]
-fn parses_a_separator_as_an_inert_entry() {
-    // A real MO2 separator line: preserved verbatim, never a deployable mod
-    let mods = parse_modlist("-Gameplay_separator\n");
-    assert_eq!(mods, vec![separator_entry("Gameplay_separator")]);
-    assert!(!mods[0].enabled, "a separator is never enabled/deployed");
+fn parses_an_overseer_separator_marker() {
+    let mods = parse_modlist("|\tseparator\tGameplay\n");
+    assert_eq!(mods, vec![separator_entry("Gameplay")]);
+}
+
+#[test]
+fn ignores_legacy_mo2_separator_lines_case_insensitively() {
+    assert!(parse_modlist("-Gameplay_separator\n+VISUALS_SEPARATOR\n").is_empty());
 }
 
 #[test]
@@ -236,13 +232,13 @@ fn a_separator_round_trips_through_serialize_and_parse() {
         name: "P".to_owned(),
         mods: vec![
             entry("Alpha", true),
-            separator_entry("Gameplay_separator"),
+            separator_entry("Gameplay"),
             entry("Beta", false),
         ],
         local_saves: false,
     };
     let text = profile.to_modlist_string();
-    assert_eq!(text, "+Alpha\n-Gameplay_separator\n-Beta\n");
+    assert_eq!(text, "+Alpha\n|\tseparator\tGameplay\n-Beta\n");
     assert_eq!(parse_modlist(&text), profile.mods);
 }
 
@@ -265,7 +261,7 @@ fn deploy_sources_excludes_separators() {
         name: "P".to_owned(),
         mods: vec![
             entry("High", true),
-            separator_entry("Mid_separator"),
+            separator_entry("Mid"),
             entry("Low", true),
         ],
         local_saves: false,
@@ -572,11 +568,11 @@ fn enabling_local_saves_preserves_other_settings_keys() {
 // --- lookup ---
 
 #[test]
-fn position_and_contains_are_case_insensitive() {
+fn item_row_and_contains_are_case_insensitive() {
     let profile = profile_of(&["MyMod", "Other"]);
-    assert_eq!(profile.position("mymod"), Some(0));
-    assert_eq!(profile.position("OTHER"), Some(1));
-    assert_eq!(profile.position("missing"), None);
+    assert_eq!(profile.item_row("mymod"), Some(0));
+    assert_eq!(profile.item_row("OTHER"), Some(1));
+    assert_eq!(profile.item_row("missing"), None);
     assert!(profile.contains("mYmOd"));
     assert!(!profile.contains("nope"));
 }
@@ -588,7 +584,10 @@ fn add_inserts_at_highest_priority() {
     let mut profile = profile_of(&["Existing"]);
     profile.add("Newcomer", true).expect("add");
     assert_eq!(names_of(&profile), ["Newcomer", "Existing"]);
-    assert_eq!(profile.mods[0].kind, ModKind::Managed);
+    assert_eq!(
+        profile.item_at_row(0).map(|item| item.kind),
+        Some(ModKind::Managed)
+    );
 }
 
 #[test]
@@ -618,9 +617,9 @@ fn remove_missing_is_an_error() {
 fn enable_and_disable_toggle_state() {
     let mut profile = profile_of(&["M"]);
     profile.disable("m").expect("disable");
-    assert!(!profile.mods[0].enabled);
+    assert!(!profile.item_at_row(0).expect("item").enabled);
     profile.enable("M").expect("enable");
-    assert!(profile.mods[0].enabled);
+    assert!(profile.item_at_row(0).expect("item").enabled);
 }
 
 #[test]
@@ -644,21 +643,24 @@ fn disabling_a_foreign_entry_is_rejected_not_a_silent_noop() {
         profile.disable("DLCRobot").expect_err("err"),
         InstanceError::NotManaged(_)
     ));
-    assert!(profile.mods[0].enabled, "the entry is left untouched");
+    assert!(
+        profile.item_at_row(0).expect("item").enabled,
+        "the entry is left untouched"
+    );
 }
 
 #[test]
 fn toggling_a_separator_is_rejected() {
     let mut profile = Profile {
         name: "P".to_owned(),
-        mods: vec![separator_entry("Gameplay_separator")],
+        mods: vec![separator_entry("Gameplay")],
         local_saves: false,
     };
     assert!(matches!(
-        profile.enable("Gameplay_separator").expect_err("err"),
-        InstanceError::NotManaged(_)
+        profile.enable("Gameplay").expect_err("err"),
+        InstanceError::ModNotInList(_)
     ));
-    assert!(!profile.mods[0].enabled, "the separator stays inert");
+    assert_eq!(profile.separator_at_row(0), Some("Gameplay"));
 }
 
 // --- reorder ---
@@ -722,6 +724,31 @@ fn move_to_missing_is_an_error() {
     ));
 }
 
+#[test]
+fn moves_cross_separators_one_row_at_a_time() {
+    let mut profile = Profile {
+        name: "P".to_owned(),
+        mods: vec![entry("A", true), separator_entry("Group"), entry("B", true)],
+        local_saves: false,
+    };
+    profile.move_down("A").expect("move across separator");
+    assert_eq!(names_of(&profile), ["Group", "A", "B"]);
+    profile.move_up("B").expect("move up");
+    assert_eq!(names_of(&profile), ["Group", "B", "A"]);
+}
+
+#[test]
+fn item_ordinals_and_row_targets_skip_separators() {
+    let profile = Profile {
+        name: "P".to_owned(),
+        mods: vec![entry("A", true), separator_entry("Group"), entry("B", true)],
+        local_saves: false,
+    };
+    assert_eq!(profile.item_ordinal("B"), Some(1));
+    assert_eq!(profile.row_for_item_ordinal(1), 2);
+    assert_eq!(profile.row_for_item_ordinal(2), 3);
+}
+
 // --- reconcile ---
 
 /// Create empty `mods/<name>/` folders so `installed_mods()` discovers them
@@ -741,7 +768,7 @@ fn reconcile_appends_newly_installed_at_lowest_priority() {
     assert!(changed);
     // New mod is appended at the back (lowest priority), existing order kept
     assert_eq!(names_of(&profile), ["Existing", "BrandNew"]);
-    assert!(!profile.mods[1].enabled);
+    assert!(!profile.item_at_row(1).expect("item").enabled);
 }
 
 #[test]
@@ -806,7 +833,10 @@ fn reconcile_preserves_existing_order_and_enabled_state() {
     let changed = profile.reconcile(&instance).expect("reconcile");
     assert!(!changed, "everything already present, nothing to do");
     assert_eq!(names_of(&profile), ["C", "B", "A"]);
-    assert!(!profile.mods[1].enabled, "B stays disabled");
+    assert!(
+        !profile.item_at_row(1).expect("item").enabled,
+        "B stays disabled"
+    );
 }
 
 #[test]
@@ -831,20 +861,31 @@ fn reconcile_keeps_a_separator_without_a_folder() {
     install_dirs(&instance, &["Managed"]);
     let mut profile = Profile {
         name: "P".to_owned(),
-        mods: vec![
-            separator_entry("Gameplay_separator"),
-            entry("Managed", true),
-        ],
+        mods: vec![separator_entry("Gameplay"), entry("Managed", true)],
         local_saves: false,
     };
 
     let changed = profile.reconcile(&instance).expect("reconcile");
     // A separator has no mods/ folder but must survive reconcile (and the save that follows), so importing an MO2 profile and running `mod list` can't silently destroy it
     assert!(!changed, "a separator is not a change to reconcile away");
-    assert!(
-        profile.mods.iter().any(|e| e.kind == ModKind::Separator),
-        "the separator is preserved"
-    );
+    assert_eq!(profile.separator_at_row(0), Some("Gameplay"));
+}
+
+#[test]
+fn reconcile_removes_an_item_between_separators_without_moving_them() {
+    let (_tmp, instance) = temp_instance();
+    let mut profile = Profile {
+        name: "P".to_owned(),
+        mods: vec![
+            separator_entry("Above"),
+            entry("Gone", true),
+            separator_entry("Below"),
+        ],
+        local_saves: false,
+    };
+
+    assert!(profile.reconcile(&instance).expect("reconcile"));
+    assert_eq!(names_of(&profile), ["Above", "Below"]);
 }
 
 #[test]

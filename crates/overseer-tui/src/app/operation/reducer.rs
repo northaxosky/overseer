@@ -134,7 +134,7 @@ impl App {
     /// Accept the only operation result allowed to replace the active session
     fn accept_install_session(&mut self, session: Session) {
         self.session = session;
-        self.mods.reconcile_model(&self.session.profile.mods);
+        self.mods.reconcile_model(self.session.profile.rows());
         self.plugins
             .reconcile_model(&self.session.order.plugins, &self.session.plugin_separators);
 

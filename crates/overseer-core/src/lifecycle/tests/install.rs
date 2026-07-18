@@ -49,8 +49,7 @@ fn profile_reconcile_discovers_an_install_disabled() {
     let mut profile = Profile::load_existing(&instance, "Default").expect("load profile");
     assert!(profile.reconcile(&instance).expect("reconcile"));
     let entry = profile
-        .mods
-        .iter()
+        .items()
         .find(|entry| entry.name == "CoolMod")
         .expect("new mod row");
 

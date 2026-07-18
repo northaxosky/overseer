@@ -3,6 +3,7 @@
 use super::*;
 use crate::app::input::test_helpers::key;
 use crate::app::{Select, SelectKind};
+use overseer_core::instance::{ModEntry, ModRow};
 use ratatui::crossterm::event::KeyCode;
 
 /// Foreign mod rows remain unchanged and explain why
@@ -10,24 +11,28 @@ use ratatui::crossterm::event::KeyCode;
 fn toggling_a_non_managed_mod_is_refused() {
     use overseer_core::instance::ModKind;
     let mut app = App::sample();
-    app.session
-        .profile
-        .mods
-        .push(overseer_core::instance::ModListEntry {
-            name: "DLCRobot".to_owned(),
-            enabled: true,
-            kind: ModKind::Foreign,
-        });
-    let foreign = app.session.profile.mods.len() - 1;
+    app.session.profile.push_row(ModRow::Item(ModEntry {
+        name: "DLCRobot".to_owned(),
+        enabled: true,
+        kind: ModKind::Foreign,
+    }));
+    let foreign = app.session.profile.rows().len() - 1;
     let display = app
         .mods
-        .project(&app.session.profile.mods)
+        .project(app.session.profile.rows())
         .iter()
         .position(|row| row.model_index() == foreign)
         .expect("the foreign row is visible");
     app.mods.select(Some(display));
     app.toggle_selected();
-    assert!(app.session.profile.mods[foreign].enabled, "left unchanged");
+    assert!(
+        app.session
+            .profile
+            .item_at_row(foreign)
+            .expect("item")
+            .enabled,
+        "left unchanged"
+    );
     assert!(app.message.is_some(), "user is told why");
 }
 
@@ -50,7 +55,7 @@ fn persisted_toggle_app() -> (tempfile::TempDir, App) {
         .order
         .save(&app.session.instance)
         .expect("seed load order");
-    app.mods.reset(&app.session.profile.mods);
+    app.mods.reset(app.session.profile.rows());
     app.mods.select(Some(0));
     app.plugins
         .reset(&app.session.order.plugins, &app.session.plugin_separators);
@@ -70,9 +75,12 @@ fn successful_mod_toggle_round_trips_and_refreshes_plugins() {
 
     app.toggle_selected();
 
-    assert!(app.session.profile.mods[1].enabled);
+    assert!(app.session.profile.item_at_row(1).expect("item").enabled);
     let loaded = Profile::load(&app.session.instance, "Default").expect("reload toggled profile");
-    assert!(loaded.mods[1].enabled, "the toggle reached modlist.txt");
+    assert!(
+        loaded.item_at_row(1).expect("item").enabled,
+        "the toggle reached modlist.txt"
+    );
     assert_eq!(
         app.session
             .discovered
@@ -118,7 +126,7 @@ fn failed_mod_toggle_leaves_live_state_unchanged() {
     app.conflicts.status = ConflictsStatus::Ready(
         overseer_core::deploy::ConflictSnapshot::from_entries(Vec::new()),
     );
-    let mods_before = app.session.profile.mods.clone();
+    let mods_before = app.session.profile.rows().to_vec();
     let local_saves_before = app.session.profile.local_saves;
     let order_before = app.session.order.plugins.clone();
     let discovered_before = app.session.discovered.clone();
@@ -134,7 +142,7 @@ fn failed_mod_toggle_leaves_live_state_unchanged() {
 
     app.toggle_selected();
 
-    assert_eq!(app.session.profile.mods, mods_before);
+    assert_eq!(app.session.profile.rows(), mods_before);
     assert_eq!(app.session.profile.local_saves, local_saves_before);
     assert_eq!(app.session.order.plugins, order_before);
     assert_eq!(app.session.discovered, discovered_before);
@@ -173,9 +181,12 @@ fn failed_plugin_refresh_after_mod_save_reports_partial_success() {
 
     app.toggle_selected();
 
-    assert!(app.session.profile.mods[1].enabled);
+    assert!(app.session.profile.item_at_row(1).expect("item").enabled);
     let loaded = Profile::load(&app.session.instance, "Default").expect("reload toggled profile");
-    assert!(loaded.mods[1].enabled, "the mod toggle remains durable");
+    assert!(
+        loaded.item_at_row(1).expect("item").enabled,
+        "the mod toggle remains durable"
+    );
     assert_eq!(app.session.order.plugins, order_before);
     assert_eq!(app.session.discovered, discovered_before);
     assert_eq!(app.plugins.index(), plugins_selection_before);
@@ -191,12 +202,12 @@ fn failed_plugin_refresh_after_mod_save_reports_partial_success() {
 #[test]
 fn toggling_a_mod_separator_remains_view_only() {
     let (_tmp, mut app) = persisted_toggle_app();
-    app.session.profile.mods.push(separator("Group_separator"));
+    app.session.profile.push_row(separator("Group"));
     app.session
         .profile
         .save_modlist(&app.session.instance)
         .expect("seed separator");
-    app.mods.reset(&app.session.profile.mods);
+    app.mods.reset(app.session.profile.rows());
     app.mods.select(Some(0));
     let modlist = app
         .session
@@ -210,7 +221,7 @@ fn toggling_a_mod_separator_remains_view_only() {
     assert_eq!(std::fs::read(&modlist).expect("reread mod list"), before);
     assert!(app.message.is_none());
     assert!(matches!(
-        app.mods.project(&app.session.profile.mods)[0],
+        app.mods.project(app.session.profile.rows())[0],
         ModPaneRow::Separator {
             collapsed: true,
             member_count: 2,
@@ -257,10 +268,11 @@ fn toggle_in_the_saves_workspace_names_the_uppercase_delete_key() {
 fn staged_reorder_moves_the_selected_mod_and_returns_selection() {
     let mut app = App::sample();
     let (profile, selection) = app.reordered_profile(1).expect("stage move down");
-    assert_eq!(profile.mods[1].name, "CoolMod");
+    assert_eq!(profile.item_at_row(1).expect("item").name, "CoolMod");
     assert_eq!(selection, 1);
     assert_eq!(
-        app.session.profile.mods[0].name, "CoolMod",
+        app.session.profile.item_at_row(0).expect("item").name,
+        "CoolMod",
         "live state stays unchanged"
     );
     assert_eq!(app.mods.index(), Some(0), "live cursor stays unchanged");
@@ -276,33 +288,36 @@ fn staged_reorder_is_a_noop_at_edges_and_in_the_plugins_pane() {
     assert!(app.reordered_profile(1).is_none()); // unsupported pane
 }
 
-fn managed(name: &str) -> overseer_core::instance::ModListEntry {
-    overseer_core::instance::ModListEntry {
+fn managed(name: &str) -> ModRow {
+    ModRow::Item(ModEntry {
         name: name.to_owned(),
         enabled: true,
         kind: ModKind::Managed,
-    }
+    })
 }
 
-fn separator(name: &str) -> overseer_core::instance::ModListEntry {
-    overseer_core::instance::ModListEntry {
-        name: name.to_owned(),
-        enabled: false,
-        kind: ModKind::Separator,
-    }
+fn separator(name: &str) -> ModRow {
+    ModRow::Separator(name.to_owned())
 }
 
-fn foreign(name: &str) -> overseer_core::instance::ModListEntry {
-    overseer_core::instance::ModListEntry {
+fn foreign(name: &str) -> ModRow {
+    ModRow::Item(ModEntry {
         name: name.to_owned(),
         enabled: true,
         kind: ModKind::Foreign,
-    }
+    })
 }
 
 /// Collect profile entry names in model order
 fn names(profile: &Profile) -> Vec<String> {
-    profile.mods.iter().map(|m| m.name.clone()).collect()
+    profile
+        .rows()
+        .iter()
+        .map(|row| match row {
+            ModRow::Item(item) => item.name.clone(),
+            ModRow::Separator(name) => name.clone(),
+        })
+        .collect()
 }
 
 /// J stages a downward display move as a priority raise
@@ -320,19 +335,16 @@ fn j_stages_a_mod_down_the_ui_which_raises_its_priority() {
 #[test]
 fn a_managed_mod_crosses_an_expanded_separator() {
     let mut app = App::sample();
-    app.session.profile.mods = vec![
+    app.session.profile.replace_rows(vec![
         managed("PatchA"),
-        separator("Group_separator"),
+        separator("Group"),
         managed("TextureX"),
-    ];
-    app.mods.reset(&app.session.profile.mods);
+    ]);
+    app.mods.reset(app.session.profile.rows());
     // display: [TextureX(d0,m2), Group(d1,m1), PatchA(d2,m0)]
     app.mods.select(Some(0)); // TextureX, above the group
     let (profile, selection) = app.reordered_profile(1).expect("cross separator");
-    assert_eq!(
-        names(&profile),
-        vec!["PatchA", "TextureX", "Group_separator"]
-    );
+    assert_eq!(names(&profile), vec!["PatchA", "TextureX", "Group"]);
     assert_eq!(selection, 1, "the candidate cursor crosses the boundary");
 }
 
@@ -340,8 +352,10 @@ fn a_managed_mod_crosses_an_expanded_separator() {
 #[test]
 fn a_move_past_a_foreign_entry_is_refused() {
     let mut app = App::sample();
-    app.session.profile.mods = vec![foreign("DLCArmor"), managed("TextureX")];
-    app.mods.reset(&app.session.profile.mods);
+    app.session
+        .profile
+        .replace_rows(vec![foreign("DLCArmor"), managed("TextureX")]);
+    app.mods.reset(app.session.profile.rows());
     // display: [TextureX(d0,m1), DLCArmor(d1,m0)]
     app.mods.select(Some(0)); // TextureX
     assert!(
@@ -355,8 +369,10 @@ fn a_move_past_a_foreign_entry_is_refused() {
 #[test]
 fn reordering_a_separator_row_is_refused() {
     let mut app = App::sample();
-    app.session.profile.mods = vec![managed("PatchA"), separator("Group_separator")];
-    app.mods.reset(&app.session.profile.mods);
+    app.session
+        .profile
+        .replace_rows(vec![managed("PatchA"), separator("Group")]);
+    app.mods.reset(app.session.profile.rows());
     // display: [Group(d0,m1), PatchA(d1,m0)]
     app.mods.select(Some(0)); // the separator
     assert!(
@@ -370,13 +386,13 @@ fn reordering_a_separator_row_is_refused() {
 #[test]
 fn a_move_past_a_collapsed_separator_is_refused() {
     let mut app = App::sample();
-    app.session.profile.mods = vec![
+    app.session.profile.replace_rows(vec![
         managed("PatchA"),
-        separator("Lower_separator"),
+        separator("Lower"),
         managed("TextureX"),
-        separator("Upper_separator"),
-    ];
-    app.mods.reset(&app.session.profile.mods);
+        separator("Upper"),
+    ]);
+    app.mods.reset(app.session.profile.rows());
     app.mods.toggle_separator(0);
     // display: [Upper(d0), TextureX(d1), Lower▶(d2)]
     app.mods.select(Some(1)); // TextureX
@@ -387,7 +403,7 @@ fn a_move_past_a_collapsed_separator_is_refused() {
     assert!(app.message.is_some(), "the user is told to expand");
     assert_eq!(
         names(&app.session.profile),
-        vec!["PatchA", "Lower_separator", "TextureX", "Upper_separator"],
+        vec!["PatchA", "Lower", "TextureX", "Upper"],
         "nothing moved"
     );
 }
@@ -401,7 +417,7 @@ fn persisted_reorder_app() -> (tempfile::TempDir, App) {
         .profile
         .save(&app.session.instance)
         .expect("seed profile");
-    app.mods.reset(&app.session.profile.mods);
+    app.mods.reset(app.session.profile.rows());
     app.mods.select(Some(0));
     (tmp, app)
 }
@@ -442,7 +458,7 @@ fn failed_reorder_leaves_profile_cursor_conflicts_and_plugins_unchanged() {
     app.conflicts.status = ConflictsStatus::Ready(
         overseer_core::deploy::ConflictSnapshot::from_entries(Vec::new()),
     );
-    let mods_before = app.session.profile.mods.clone();
+    let mods_before = app.session.profile.rows().to_vec();
     let local_saves_before = app.session.profile.local_saves;
     let cursor_before = app.mods.index();
     let order_before = app.session.order.plugins.clone();
@@ -457,7 +473,7 @@ fn failed_reorder_leaves_profile_cursor_conflicts_and_plugins_unchanged() {
 
     app.reorder_selected(1);
 
-    assert_eq!(app.session.profile.mods, mods_before);
+    assert_eq!(app.session.profile.rows(), mods_before);
     assert_eq!(app.session.profile.local_saves, local_saves_before);
     assert_eq!(app.mods.index(), cursor_before);
     assert!(matches!(
@@ -508,15 +524,12 @@ fn uppercase_p_opens_purge_confirmation_without_running_work() {
 #[test]
 fn remove_and_replace_only_accept_managed_mod_rows() {
     for (entry, expected) in [
-        (
-            separator("Group_separator"),
-            "Only managed mods can be removed",
-        ),
+        (separator("Group"), "Only managed mods can be removed"),
         (foreign("BaseGame"), "Only managed mods can be removed"),
     ] {
         let mut app = App::sample();
-        app.session.profile.mods = vec![entry];
-        app.mods.reset(&app.session.profile.mods);
+        app.session.profile.replace_rows(vec![entry]);
+        app.mods.reset(app.session.profile.rows());
 
         app.begin_remove_mod();
 

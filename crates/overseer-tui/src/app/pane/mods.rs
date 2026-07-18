@@ -1,17 +1,18 @@
 //! Mods pane selection, separator collapse state, and display projection
 
-use overseer_core::instance::{ModKind, ModListEntry};
+use overseer_core::instance::ModRow;
 use ratatui::widgets::ListState;
 
 use super::SeparatorUiState;
 use crate::app::ListCursor;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ModPaneRow {
+pub(crate) enum ModPaneRow<'a> {
     Mod {
         model_index: usize,
     },
     Separator {
+        name: &'a str,
         model_index: usize,
         separator_index: usize,
         collapsed: bool,
@@ -19,7 +20,7 @@ pub(crate) enum ModPaneRow {
     },
 }
 
-impl ModPaneRow {
+impl ModPaneRow<'_> {
     /// Return the profile model index represented by this row
     pub(crate) fn model_index(self) -> usize {
         match self {
@@ -36,21 +37,21 @@ pub(crate) struct ModsPane {
 
 impl ModsPane {
     /// Create pane state for the current profile mod list
-    pub(crate) fn new(mods: &[ModListEntry]) -> Self {
+    pub(crate) fn new(mods: &[ModRow]) -> Self {
         let mut pane = Self::default();
         pane.reset(mods);
         pane
     }
 
     /// Reset selection and collapse state for a replacement mod list
-    pub(crate) fn reset(&mut self, mods: &[ModListEntry]) {
+    pub(crate) fn reset(&mut self, mods: &[ModRow]) {
         self.separators.reset(separator_count(mods));
         let len = self.project(mods).len();
         self.selection.reset_first(len);
     }
 
     /// Preserve compatible view state while accepting a replacement mod model
-    pub(crate) fn reconcile_model(&mut self, mods: &[ModListEntry]) {
+    pub(crate) fn reconcile_model(&mut self, mods: &[ModRow]) {
         let count = separator_count(mods);
 
         if self.separators.len() != count {
@@ -102,24 +103,24 @@ impl ModsPane {
     }
 
     /// Expand the separator group that owns `model_index`
-    pub(crate) fn reveal_group(&mut self, mods: &[ModListEntry], model_index: usize) {
+    pub(crate) fn reveal_group(&mut self, mods: &[ModRow], model_index: usize) {
         let Some(owner) = mods
             .iter()
             .enumerate()
             .skip(model_index + 1)
-            .find_map(|(index, entry)| (entry.kind == ModKind::Separator).then_some(index))
+            .find_map(|(index, row)| matches!(row, ModRow::Separator(_)).then_some(index))
         else {
             return;
         };
         let separator_index = mods[..owner]
             .iter()
-            .filter(|entry| entry.kind == ModKind::Separator)
+            .filter(|row| matches!(row, ModRow::Separator(_)))
             .count();
         self.separators.expand(separator_index);
     }
 
     /// Project profile entries into complete visible semantic rows
-    pub(crate) fn project(&self, mods: &[ModListEntry]) -> Vec<ModPaneRow> {
+    pub(crate) fn project<'a>(&self, mods: &'a [ModRow]) -> Vec<ModPaneRow<'a>> {
         let separator_count = separator_count(mods);
         assert_eq!(
             self.separators.len(),
@@ -129,8 +130,8 @@ impl ModsPane {
 
         let mut separator_indices = vec![None; mods.len()];
         let mut next_separator = 0;
-        for (model_index, entry) in mods.iter().enumerate() {
-            if entry.kind == ModKind::Separator {
+        for (model_index, row) in mods.iter().enumerate() {
+            if matches!(row, ModRow::Separator(_)) {
                 separator_indices[model_index] = Some(next_separator);
                 next_separator += 1;
             }
@@ -139,12 +140,13 @@ impl ModsPane {
         let mut rows = Vec::with_capacity(mods.len());
         let mut hidden = false;
         for model_index in (0..mods.len()).rev() {
-            if mods[model_index].kind == ModKind::Separator {
+            if let ModRow::Separator(name) = &mods[model_index] {
                 let separator_index = separator_indices[model_index]
                     .expect("separator entries have a separator-only index");
                 let collapsed = self.separators.is_collapsed(separator_index);
                 hidden = collapsed;
                 rows.push(ModPaneRow::Separator {
+                    name,
                     model_index,
                     separator_index,
                     collapsed,
@@ -159,18 +161,18 @@ impl ModsPane {
 }
 
 /// Count separator entries in profile persistence order
-fn separator_count(mods: &[ModListEntry]) -> usize {
+fn separator_count(mods: &[ModRow]) -> usize {
     mods.iter()
-        .filter(|entry| entry.kind == ModKind::Separator)
+        .filter(|row| matches!(row, ModRow::Separator(_)))
         .count()
 }
 
 /// Count members owned by the separator at `model_index`
-fn member_count(mods: &[ModListEntry], model_index: usize) -> usize {
+fn member_count(mods: &[ModRow], model_index: usize) -> usize {
     mods[..model_index]
         .iter()
         .rev()
-        .take_while(|entry| entry.kind != ModKind::Separator)
+        .take_while(|row| !matches!(row, ModRow::Separator(_)))
         .count()
 }
 

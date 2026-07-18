@@ -22,6 +22,7 @@ pub mod patch;
 pub mod plugins;
 pub mod restore;
 pub mod saves;
+mod separator;
 pub mod settings;
 
 pub use error::IoError;
