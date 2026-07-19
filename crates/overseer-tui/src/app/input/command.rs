@@ -170,9 +170,15 @@ impl Command {
             {
                 BusyPolicy::Blocked(OperationKind::Install)
             }
+            Self::OpenSelect(SelectKind::Launch) => {
+                BusyPolicy::Blocked(OperationKind::PrepareLaunch)
+            }
             Self::ToggleSelected
             | Self::Reorder(_)
-            | Self::OpenSelect(_)
+            | Self::OpenSelect(SelectKind::Profile | SelectKind::Instance)
+            | Self::OpenSelect(
+                SelectKind::ReplaceArchive { .. } | SelectKind::JumpProvider { .. },
+            )
             | Self::OpenRenameMod
             | Self::OpenNewSeparator
             | Self::DeleteSave

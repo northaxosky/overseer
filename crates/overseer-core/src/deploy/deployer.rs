@@ -8,6 +8,13 @@ use camino::Utf8PathBuf;
 use serde::{Deserialize, Serialize};
 use std::process::ExitStatus;
 
+/// How long a backend's deployment remains active
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Activation {
+    Persistent,
+    Session,
+}
+
 /// A fully resolved thing to run: program, arguments, and directory
 #[derive(Debug, Clone)]
 pub struct LaunchTarget {
@@ -27,6 +34,11 @@ pub trait LaunchHandle: Send {
 
 /// A mod deployment backend
 pub trait Deployer {
+    /// Whether this backend remains deployed after its launched process exits
+    fn activation(&self) -> Activation {
+        Activation::Persistent
+    }
+
     /// Which backend this is (used for journaling and display)
     fn kind(&self) -> DeployerKind;
 
@@ -153,5 +165,18 @@ impl Deployer for StubDeployer {
 
     fn launch(&self, _target: &LaunchTarget) -> Result<Box<dyn LaunchHandle>, DeployError> {
         Err(self.unsupported())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hardlink_activation_is_persistent() {
+        assert_eq!(
+            deployer_for(DeployerKind::HardLink).activation(),
+            Activation::Persistent
+        );
     }
 }

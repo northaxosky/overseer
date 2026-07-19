@@ -2,11 +2,17 @@
 
 mod marker;
 
-use crate::apply::{ApplyError, InstanceLock};
-use crate::deploy::{DeployError, LaunchHandle, LaunchTarget, deployer_for};
+pub use crate::apply::RedeployToken;
+
+use crate::apply::{
+    ApplyError, DeploymentState, InstanceLock, PreparedDeployment, deploy_profile_locked,
+    observe_deployment_locked, purge_locked, recover_if_needed,
+};
+use crate::deploy::{DeployError, LaunchHandle, LaunchTarget, ProgressSink, deployer_for};
 use crate::instance::Instance;
 use camino::{Utf8Path, Utf8PathBuf};
 use serde::{Deserialize, Serialize};
+use std::fmt;
 use std::fs;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -74,6 +80,42 @@ pub enum LaunchError {
 
     #[error(transparent)]
     Apply(#[from] ApplyError),
+}
+
+/// Result of atomically preparing a deployment and attempting launch
+pub enum PrepareOutcome {
+    Launched {
+        handle: Box<dyn LaunchHandle>,
+        marker: LaunchMarker,
+    },
+    NeedsRedeploy {
+        reason: String,
+        token: RedeployToken,
+    },
+    NeedsRecovery {
+        reason: String,
+    },
+}
+
+impl fmt::Debug for PrepareOutcome {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Launched { marker, .. } => f
+                .debug_struct("Launched")
+                .field("handle", &"<launch handle>")
+                .field("marker", marker)
+                .finish(),
+            Self::NeedsRedeploy { reason, token } => f
+                .debug_struct("NeedsRedeploy")
+                .field("reason", reason)
+                .field("token", token)
+                .finish(),
+            Self::NeedsRecovery { reason } => f
+                .debug_struct("NeedsRecovery")
+                .field("reason", reason)
+                .finish(),
+        }
+    }
 }
 
 /// Resolve all derived and user configured tools for this instance
@@ -212,6 +254,111 @@ fn launch_target(instance: &Instance, tool: Tool) -> LaunchTarget {
     }
 }
 
+/// Ensure a profile is current under one lock, then launch the selected tool
+pub fn prepare_and_launch(
+    instance: &Instance,
+    profile_name: &str,
+    tool_key: &str,
+    consent: Option<RedeployToken>,
+    progress: &dyn ProgressSink,
+) -> Result<PrepareOutcome, LaunchError> {
+    let _lock = InstanceLock::acquire(instance)?;
+    if marker::exists(instance)? {
+        return Err(ApplyError::LaunchActive {
+            path: marker::path(instance),
+        }
+        .into());
+    }
+
+    let tool = resolve(instance, tool_key)?;
+    let prepared = PreparedDeployment::build(instance, profile_name)?;
+    let observed = match observe_deployment_locked(instance, &prepared) {
+        Ok(observed) => observed,
+        Err(error) => {
+            return Ok(PrepareOutcome::NeedsRecovery {
+                reason: format!("deployment state could not be read safely: {error}"),
+            });
+        }
+    };
+
+    match observed.state {
+        DeploymentState::Current => launch_prepared_locked(instance, tool, profile_name),
+        DeploymentState::Absent => {
+            deploy_profile_locked(instance, &prepared, progress)?;
+            launch_prepared_locked(instance, tool, profile_name)
+        }
+        DeploymentState::Interrupted => {
+            deployer_for(instance.config.deployer).check_supported(&prepared.plan)?;
+            if let Err(error) = recover_if_needed(instance, progress) {
+                return recovery_outcome(error);
+            }
+            let rebuilt = PreparedDeployment::build(instance, profile_name)?;
+            deploy_profile_locked(instance, &rebuilt, progress)?;
+            launch_prepared_locked(instance, tool, profile_name)
+        }
+        DeploymentState::RecoveryFailed => Ok(PrepareOutcome::NeedsRecovery {
+            reason: format!(
+                "deployment recovery is incomplete at `{}`; resolve it before launching",
+                crate::apply::Deployment::path(instance)
+            ),
+        }),
+        DeploymentState::Stale | DeploymentState::Broken => {
+            let token = observed
+                .token
+                .expect("stale and broken observations carry consent tokens");
+            let reason = redeploy_reason(observed.state);
+            if consent.as_ref() != Some(&token) {
+                return Ok(PrepareOutcome::NeedsRedeploy { reason, token });
+            }
+
+            deployer_for(instance.config.deployer).check_supported(&prepared.plan)?;
+            let deployment = observed
+                .deployment
+                .expect("stale and broken observations carry deployments");
+            if let Err(error) = purge_locked(instance, deployment, progress, false) {
+                return recovery_outcome(error);
+            }
+            let rebuilt = PreparedDeployment::build(instance, profile_name)?;
+            deploy_profile_locked(instance, &rebuilt, progress)?;
+            launch_prepared_locked(instance, tool, profile_name)
+        }
+    }
+}
+
+/// Surface a RecoveryFailed error as NeedsRecovery, otherwise propagate it
+fn recovery_outcome(error: ApplyError) -> Result<PrepareOutcome, LaunchError> {
+    if matches!(error, ApplyError::RecoveryFailed { .. }) {
+        Ok(PrepareOutcome::NeedsRecovery {
+            reason: error.to_string(),
+        })
+    } else {
+        Err(error.into())
+    }
+}
+
+/// Human-readable reason a stale or broken deployment must be rebuilt
+fn redeploy_reason(state: DeploymentState) -> String {
+    match state {
+        DeploymentState::Broken => {
+            "the recorded deployment is incomplete and must be rebuilt before launch".to_owned()
+        }
+        DeploymentState::Stale => {
+            "the active deployment does not match the requested profile state".to_owned()
+        }
+        _ => "the deployment must be rebuilt before launch".to_owned(),
+    }
+}
+
+/// Launch the tool once the deployment is confirmed current
+fn launch_prepared_locked(
+    instance: &Instance,
+    tool: Tool,
+    profile: &str,
+) -> Result<PrepareOutcome, LaunchError> {
+    let (handle, marker) = launch_tool_locked(instance, tool, profile, instance.config.deployer)?;
+    Ok(PrepareOutcome::Launched { handle, marker })
+}
+
 /// Run a launch target using the instance's configured default profile
 pub fn launch(instance: &Instance, key: &str) -> Result<Box<dyn LaunchHandle>, LaunchError> {
     let profile = instance.config.default_profile.clone();
@@ -234,8 +381,18 @@ pub fn launch_tracked(
     profile: &str,
 ) -> Result<(Box<dyn LaunchHandle>, LaunchMarker), LaunchError> {
     let tool = resolve(instance, key)?;
-    let target = launch_target(instance, tool.clone());
     let _lock = InstanceLock::acquire(instance)?;
+    launch_tool_locked(instance, tool, profile, instance.config.deployer)
+}
+
+/// Write the launch marker and hand off to the deployer under a held lock
+fn launch_tool_locked(
+    instance: &Instance,
+    tool: Tool,
+    profile: &str,
+    deployer: crate::deploy::DeployerKind,
+) -> Result<(Box<dyn LaunchHandle>, LaunchMarker), LaunchError> {
+    let target = launch_target(instance, tool.clone());
     if marker::exists(instance)? {
         return Err(ApplyError::LaunchActive {
             path: marker::path(instance),
@@ -254,7 +411,7 @@ pub fn launch_tracked(
         launcher_pid: std::process::id(),
     };
     marker::write(instance, &marker)?;
-    match deployer_for(instance.config.deployer).launch(&target) {
+    match deployer_for(deployer).launch(&target) {
         Ok(handle) => Ok((handle, marker)),
         Err(error) => {
             if let Err(cleanup) = marker::remove_locked(instance) {

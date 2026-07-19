@@ -33,8 +33,9 @@ fn main() -> Result<()> {
         Command::Launch {
             name,
             clear,
+            redeploy,
             instance,
-        } => commands::launch::run(name, clear, &instance),
+        } => commands::launch::run(name, clear, redeploy, &instance),
         Command::Exe { command } => commands::exe::run(command),
         Command::Doctor { target } => commands::doctor::run(&target),
         Command::Patch { command } => commands::patch::run(command),

@@ -103,6 +103,9 @@ pub enum Command {
         /// Clear a stale launch marker without starting a target
         #[arg(long, conflicts_with = "name")]
         clear: bool,
+        /// Purge and rebuild a stale deployment before launching
+        #[arg(long, requires = "name")]
+        redeploy: bool,
         #[command(flatten)]
         instance: InstanceArgs,
     },

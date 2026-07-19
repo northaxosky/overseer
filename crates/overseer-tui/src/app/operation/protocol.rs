@@ -5,6 +5,7 @@ use overseer_core::apply::{self, DeploymentStatus, ReversalOutcome};
 use overseer_core::deploy::ConflictSnapshot;
 use overseer_core::install::DownloadEntry;
 use overseer_core::instance::Instance;
+use overseer_core::launch::PrepareOutcome;
 use overseer_core::saves::SaveInfo;
 use overseer_diagnostics::Report;
 
@@ -12,6 +13,7 @@ use super::super::Session;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum OperationKind {
+    PrepareLaunch,
     Deploy,
     Purge,
     Install,
@@ -27,6 +29,7 @@ impl OperationKind {
     /// Return the user-facing operation label
     pub(crate) fn label(self) -> &'static str {
         match self {
+            Self::PrepareLaunch => "Launch",
             Self::Deploy => "Deploy",
             Self::Purge => "Purge",
             Self::Install => "Install",
@@ -42,6 +45,7 @@ impl OperationKind {
     /// Return the worker-thread name suffix
     pub(super) fn thread_label(self) -> &'static str {
         match self {
+            Self::PrepareLaunch => "prepare-launch",
             Self::Deploy => "deploy",
             Self::Purge => "purge",
             Self::Install => "install",
@@ -58,7 +62,12 @@ impl OperationKind {
     pub(crate) fn is_mutating(self) -> bool {
         matches!(
             self,
-            Self::Deploy | Self::Purge | Self::Install | Self::Remove | Self::Replace
+            Self::PrepareLaunch
+                | Self::Deploy
+                | Self::Purge
+                | Self::Install
+                | Self::Remove
+                | Self::Replace
         )
     }
 
@@ -66,7 +75,12 @@ impl OperationKind {
     pub(crate) fn is_play_unsafe(self) -> bool {
         matches!(
             self,
-            Self::Deploy | Self::Purge | Self::Install | Self::Remove | Self::Replace
+            Self::PrepareLaunch
+                | Self::Deploy
+                | Self::Purge
+                | Self::Install
+                | Self::Remove
+                | Self::Replace
         )
     }
 
@@ -81,6 +95,7 @@ impl OperationKind {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum OperationPhase {
+    PreparingLaunch,
     PlanningDeploy,
     PreparingPurge,
     ExtractingArchive,
@@ -99,6 +114,7 @@ impl OperationPhase {
     /// Return the user facing phase label
     pub(crate) fn label(self) -> &'static str {
         match self {
+            Self::PreparingLaunch => "Preparing deployment and launch",
             Self::PlanningDeploy => "Planning deployment",
             Self::PreparingPurge => "Preparing purge",
             Self::ExtractingArchive => "Extracting archive",
@@ -117,6 +133,7 @@ impl OperationPhase {
     /// Select the initial phase for an operation
     pub(super) fn initial(kind: OperationKind) -> Self {
         match kind {
+            OperationKind::PrepareLaunch => Self::PreparingLaunch,
             OperationKind::Deploy => Self::PlanningDeploy,
             OperationKind::Purge => Self::PreparingPurge,
             OperationKind::Install => Self::ExtractingArchive,
@@ -157,6 +174,13 @@ pub(crate) enum LifecycleState {
 
 #[derive(Debug)]
 pub(crate) enum OperationOutput {
+    PrepareLaunch {
+        outcome: PrepareOutcome,
+        instance: Instance,
+        tool_key: String,
+        tool_name: String,
+        status: Option<DeploymentStatus>,
+    },
     RefreshDownloads(Vec<DownloadEntry>),
     RefreshSaves(Vec<SaveInfo>),
     Doctor(Report),
@@ -187,6 +211,7 @@ impl OperationOutput {
     /// Return the operation kind represented by this output
     pub(super) fn kind(&self) -> OperationKind {
         match self {
+            Self::PrepareLaunch { .. } => OperationKind::PrepareLaunch,
             Self::RefreshDownloads(_) => OperationKind::RefreshDownloads,
             Self::RefreshSaves(_) => OperationKind::RefreshSaves,
             Self::Doctor(_) => OperationKind::Doctor,

@@ -1,7 +1,10 @@
 //! Validation and application of typed worker results
 
 use super::super::sort::{sort_downloads, sort_saves};
-use super::super::{App, ConflictsStatus, DoctorReport, ListCursor, Modal, Session};
+use super::super::{
+    App, Confirm, ConfirmAction, ConflictsStatus, DoctorReport, LaunchSession, ListCursor, Modal,
+    Session,
+};
 use super::protocol::{
     LifecycleState, OperationContext, OperationKind, OperationOutput, OperationRecovery,
     WorkerCompletion, WorkerEvent,
@@ -9,16 +12,43 @@ use super::protocol::{
 use super::runner::{CompletedOperation, OperationProgress, OperationState, RunningOperation};
 use overseer_core::deploy::ConflictSnapshot;
 use overseer_core::install::DownloadEntry;
+use overseer_core::launch::PrepareOutcome;
 use overseer_core::saves::SaveInfo;
 use overseer_diagnostics::Report;
 
 impl App {
     /// Validate and apply one typed worker completion
     pub(super) fn apply_completion(&mut self, kind: OperationKind, completion: WorkerCompletion) {
-        if !self.context_matches(&completion.context) {
+        let WorkerCompletion { context, outcome } = completion;
+        let context_matches = self.context_matches(&context);
+        let outcome = match outcome {
+            Ok(OperationOutput::PrepareLaunch {
+                outcome: PrepareOutcome::Launched { handle, marker },
+                instance,
+                tool_name,
+                status,
+                ..
+            }) => {
+                if context_matches {
+                    self.session.status = status;
+                }
+                self.track_launch(LaunchSession::new(
+                    handle,
+                    tool_name,
+                    context.profile,
+                    instance,
+                    marker,
+                ));
+                self.operation = OperationState::Idle;
+                return;
+            }
+            outcome => outcome,
+        };
+
+        if !context_matches {
             tracing::warn!(
-                captured_root = %completion.context.instance_root,
-                captured_profile = %completion.context.profile,
+                captured_root = %context.instance_root,
+                captured_profile = %context.profile,
                 active_root = %self.session.instance.root,
                 active_profile = %self.session.profile.name,
                 "discarding stale background result"
@@ -31,11 +61,47 @@ impl App {
             return;
         }
 
-        match completion.outcome {
+        match outcome {
             Ok(output) => {
                 debug_assert_eq!(kind, output.kind(), "job kind/output mismatch");
 
                 match output {
+                    OperationOutput::PrepareLaunch {
+                        outcome: PrepareOutcome::NeedsRedeploy { reason, token },
+                        tool_key,
+                        tool_name,
+                        status,
+                        ..
+                    } => {
+                        self.session.status = status;
+                        self.modal = Some(Modal::Confirm(Confirm {
+                            message: format!("{reason}. Redeploy before launching {tool_name}?"),
+                            action: ConfirmAction::Redeploy {
+                                tool_key,
+                                tool_name,
+                                token,
+                            },
+                        }));
+                        self.operation = OperationState::Idle;
+                    }
+                    OperationOutput::PrepareLaunch {
+                        outcome: PrepareOutcome::NeedsRecovery { reason },
+                        status,
+                        ..
+                    } => {
+                        self.session.status = status;
+                        self.operation = OperationState::Completed(CompletedOperation::failed(
+                            kind,
+                            format!("Launch needs recovery: {reason}"),
+                        ));
+                    }
+                    OperationOutput::PrepareLaunch {
+                        outcome: PrepareOutcome::Launched { .. },
+                        ..
+                    } => {
+                        tracing::error!("launched outcome reached context-validated reducer");
+                        self.operation = OperationState::Idle;
+                    }
                     OperationOutput::RefreshDownloads(entries) => {
                         self.accept_downloads(entries);
                         self.operation = OperationState::Idle;
@@ -82,7 +148,7 @@ impl App {
 
                 match (kind, failure.recovery) {
                     (
-                        OperationKind::Deploy | OperationKind::Purge,
+                        OperationKind::PrepareLaunch | OperationKind::Deploy | OperationKind::Purge,
                         Some(OperationRecovery::DeploymentStatus(status)),
                     ) => {
                         self.session.status = status.map(|status| *status);

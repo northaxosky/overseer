@@ -14,7 +14,7 @@ pub mod validate;
 pub use carrier::carrier_for;
 pub use discover::{UnreadablePlugin, discover_plugins, discover_plugins_lenient};
 pub use error::PluginError;
-pub(crate) use gamestate::restore_plugins_txt;
+pub(crate) use gamestate::{decode_plugins_txt, restore_plugins_txt};
 pub use gamestate::{
     implicit_active_plugins, read_plugins_txt, restore_plugins_txt_if_ours, write_active_plugins,
 };

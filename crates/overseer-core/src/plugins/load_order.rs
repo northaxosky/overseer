@@ -182,7 +182,7 @@ fn topological_order(entries: Vec<PluginEntry>, discovered: &[PluginMeta]) -> Ve
 }
 
 /// Parse `plugins.txt`
-fn parse_plugins(text: &str) -> Vec<PluginEntry> {
+pub(super) fn parse_plugins(text: &str) -> Vec<PluginEntry> {
     text.lines()
         .filter_map(|line| {
             let line = line.trim();

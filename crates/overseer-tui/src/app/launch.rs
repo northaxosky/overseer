@@ -1,7 +1,8 @@
 //! Tracked launch state outside the operation runner.
 
 use super::{App, Notice, OperationKind};
-use overseer_core::deploy::{DeployError, LaunchHandle};
+use overseer_core::apply;
+use overseer_core::deploy::{Activation, DeployError, Deployer, LaunchHandle, deployer_for};
 use overseer_core::instance::Instance;
 use overseer_core::launch;
 use overseer_frontend::style::Role;
@@ -79,19 +80,31 @@ impl App {
             Ok(Some(status)) => {
                 let session = self.launch.take().expect("polled launch remains present");
                 let cleared = launch::clear_launch_marker_if(&session.instance, &session.marker);
-                let (text, role) = match cleared {
-                    Err(error) => (
+                let teardown = if matches!(cleared, Ok(true)) {
+                    dispatch_recorded_session_teardown(&session.instance)
+                } else {
+                    Ok(false)
+                };
+                let (text, role) = match (cleared, teardown) {
+                    (_, Err(error)) => (
+                        format!(
+                            "{} exited, but its session teardown could not be dispatched: {error}",
+                            session.tool_name
+                        ),
+                        Role::Failure,
+                    ),
+                    (Err(error), _) => (
                         format!(
                             "{} exited, but its launch marker could not be cleared: {error}",
                             session.tool_name
                         ),
                         Role::Failure,
                     ),
-                    Ok(_) if status.success() => (
+                    (Ok(_), Ok(_)) if status.success() => (
                         format!("{} session ended", session.tool_name),
                         Role::Heading,
                     ),
-                    Ok(_) => (
+                    (Ok(_), Ok(_)) => (
                         format!("{} exited with {status}", session.tool_name),
                         Role::Failure,
                     ),
@@ -182,6 +195,29 @@ impl App {
             Err(error) => self.fail(format!("Could not clear launch marker: {error}")),
         }
     }
+}
+
+fn dispatch_recorded_session_teardown(instance: &Instance) -> Result<bool, String> {
+    let Some(status) = apply::status(instance).map_err(|error| error.to_string())? else {
+        return Ok(false);
+    };
+    let deployer = deployer_for(status.deployment.record.deployer);
+    let Some(()) = dispatch_session_teardown(deployer.as_ref(), || {
+        tracing::info!(
+            instance = %instance.root,
+            "session deployment teardown dispatched"
+        );
+    }) else {
+        return Ok(false);
+    };
+    Ok(true)
+}
+
+fn dispatch_session_teardown<T>(
+    deployer: &dyn Deployer,
+    teardown: impl FnOnce() -> T,
+) -> Option<T> {
+    (deployer.activation() == Activation::Session).then(teardown)
 }
 
 #[cfg(test)]

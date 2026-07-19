@@ -1,6 +1,7 @@
 //! Tests for the Select modal
 
 use super::*;
+use crate::app::OperationKind;
 use crate::app::input::test_helpers::*;
 use ratatui::crossterm::event::KeyModifiers;
 
@@ -34,12 +35,20 @@ fn l_opens_the_launcher_and_l_again_closes_it() {
 }
 
 #[test]
-fn launching_with_no_targets_notes_and_closes() {
-    let mut app = App::sample(); // sample instance configures no exes
+fn launch_selection_starts_the_uniform_prepare_operation() {
+    let mut app = App::sample();
     app.handle_key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE));
     app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
     assert!(app.modal.is_none(), "picker closes");
-    assert!(app.message.is_some(), "user is told there are none");
+    assert!(
+        app.operation_running(),
+        "launch preparation runs in the worker"
+    );
+    assert_eq!(
+        app.running_operation_kind(),
+        Some(OperationKind::PrepareLaunch)
+    );
+    app.finish_operation_after_terminal();
 }
 
 struct PendingLaunch;

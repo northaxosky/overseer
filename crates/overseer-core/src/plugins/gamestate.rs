@@ -4,7 +4,13 @@ use super::error::PluginError;
 use super::load_order::PluginEntry;
 use crate::restore::{Restore, restore_if_ours};
 use camino::{Utf8Path, Utf8PathBuf};
+use encoding_rs::WINDOWS_1252;
 use loadorder::{GameId, GameSettings};
+
+/// Decode the game's Windows-1252 `Plugins.txt` into logical entries
+pub(crate) fn decode_plugins_txt(bytes: &[u8]) -> Vec<PluginEntry> {
+    super::load_order::parse_plugins(&WINDOWS_1252.decode(bytes).0)
+}
 
 /// Write the game's real `Plugins.txt` to match `plugins` (load order + active flags)
 pub fn write_active_plugins(

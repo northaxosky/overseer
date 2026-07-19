@@ -1,6 +1,7 @@
 //! Modal surfaces: views that block the main view and end in submit or cancel
 
 use camino::Utf8PathBuf;
+use overseer_core::launch::RedeployToken;
 use overseer_core::launch::ToolKind;
 use overseer_diagnostics::Report;
 
@@ -213,6 +214,12 @@ pub(crate) enum ConfirmAction {
     Deploy,
     /// Purge the live deployment
     Purge,
+    /// Redeploy the exact launch request after stale-state consent
+    Redeploy {
+        tool_key: String,
+        tool_name: String,
+        token: RedeployToken,
+    },
     /// Clear a stale tracked-launch marker
     ClearLaunchMarker,
 }

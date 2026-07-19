@@ -12,7 +12,7 @@ mod record;
 
 pub use conflict::ConflictSnapshot;
 pub use deployer::{
-    Deployer, DeployerKind, LaunchHandle, LaunchTarget, TargetOwnership, deployer_for,
+    Activation, Deployer, DeployerKind, LaunchHandle, LaunchTarget, TargetOwnership, deployer_for,
 };
 pub use error::DeployError;
 pub use hardlink::HardlinkDeployer;

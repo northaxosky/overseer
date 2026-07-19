@@ -133,8 +133,11 @@ fn busy_policy_covers_every_command() {
         assert_eq!(command.busy_policy(default_context), expected);
     }
 
+    assert_eq!(
+        Command::OpenSelect(SelectKind::Launch).busy_policy(default_context),
+        BusyPolicy::Blocked(OperationKind::PrepareLaunch)
+    );
     for command in [
-        Command::OpenSelect(SelectKind::Launch),
         Command::OpenSelect(SelectKind::Profile),
         Command::OpenSelect(SelectKind::Instance),
     ] {

@@ -21,6 +21,7 @@ esplugin.workspace = true
 toml.workspace = true
 serde_json.workspace = true
 libloadorder.workspace = true
+encoding_rs.workspace = true
 atomicwrites.workspace = true
 dirs.workspace = true
 crc32fast.workspace = true

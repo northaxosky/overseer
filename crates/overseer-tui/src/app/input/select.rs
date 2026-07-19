@@ -7,7 +7,7 @@ use overseer_core::launch::{self, ToolKind};
 use ratatui::crossterm::event::{KeyCode, KeyEvent};
 
 use crate::app::{
-    App, Confirm, ConfirmAction, Focus, LaunchRow, LaunchSession, ListCursor, Modal, Select,
+    App, Confirm, ConfirmAction, Focus, LaunchRow, ListCursor, Modal, PrepareLaunchJob, Select,
     SelectKind, Session,
 };
 
@@ -123,22 +123,9 @@ impl App {
             return;
         }
         match selected {
-            Some(row) => match launch::launch_tracked(
-                &self.session.instance,
-                &row.key,
-                &self.session.profile.name,
-            ) {
-                Ok((handle, marker)) => {
-                    self.track_launch(LaunchSession::new(
-                        handle,
-                        row.display_name,
-                        self.session.profile.name.clone(),
-                        self.session.instance.clone(),
-                        marker,
-                    ));
-                }
-                Err(e) => self.fail(format!("Launch failed: {e}")),
-            },
+            Some(row) => {
+                self.start_operation(PrepareLaunchJob::new(row.key, row.display_name, None))
+            }
             None => self.note("No launch targets — add one with `overseer exe add`"),
         }
     }

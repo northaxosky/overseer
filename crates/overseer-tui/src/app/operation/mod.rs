@@ -7,8 +7,8 @@ mod reducer;
 pub(crate) mod runner;
 
 pub(crate) use jobs::{
-    DeployJob, DoctorJob, InstallJob, PurgeJob, RefreshDownloadsJob, RefreshSavesJob, RemoveJob,
-    ReplaceJob, ScanConflictsJob,
+    DeployJob, DoctorJob, InstallJob, PrepareLaunchJob, PurgeJob, RefreshDownloadsJob,
+    RefreshSavesJob, RemoveJob, ReplaceJob, ScanConflictsJob,
 };
 pub(crate) use protocol::OperationKind;
 pub(crate) use runner::{OperationProgress, OperationState};

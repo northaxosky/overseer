@@ -5,9 +5,11 @@ use super::*;
 use camino::Utf8PathBuf;
 use overseer_core::apply::{self, DeploymentStatus};
 use overseer_core::deploy::{
-    ConflictSnapshot, DestinationEntry, NullSink, Provider, ProviderOrigin,
+    ConflictSnapshot, DeployError, DestinationEntry, LaunchHandle, NullSink, Provider,
+    ProviderOrigin,
 };
-use overseer_core::instance::{Instance, ModEntry, ModKind, ModRow};
+use overseer_core::instance::{Instance, ModEntry, ModKind, ModRow, UserTool};
+use overseer_core::launch::{LaunchMarker, PrepareOutcome};
 use overseer_core::settings::{DownloadsSort, DownloadsSortKey, SavesSort, SavesSortKey, SortDir};
 use overseer_core::test_support::{install_mod, save_profile, temp_instance};
 use overseer_diagnostics::{Finding, Report};
@@ -911,4 +913,140 @@ fn failed_refresh_preserves_cached_downloads() {
 
     assert_eq!(app.downloads.entries[0].name, "Cached.zip");
     assert!(matches!(app.operation, OperationState::Completed(_)));
+}
+
+struct PendingLaunch;
+
+impl LaunchHandle for PendingLaunch {
+    fn try_wait(&mut self) -> Result<Option<std::process::ExitStatus>, DeployError> {
+        Ok(None)
+    }
+
+    fn detach(self: Box<Self>) {}
+}
+
+#[test]
+fn launched_completion_is_adopted_after_the_displayed_context_changes() {
+    let mut app = App::sample();
+    let captured_instance = app.session.instance.clone();
+    let result = completion(
+        &app,
+        Ok(OperationOutput::PrepareLaunch {
+            outcome: PrepareOutcome::Launched {
+                handle: Box::new(PendingLaunch),
+                marker: LaunchMarker {
+                    launch_id: 4,
+                    tool: "Captured Tool".to_owned(),
+                    profile: "Default".to_owned(),
+                    timestamp: 1,
+                    launcher_pid: 1,
+                },
+            },
+            instance: captured_instance.clone(),
+            tool_key: "captured-tool".to_owned(),
+            tool_name: "Captured Tool".to_owned(),
+            status: None,
+        }),
+    );
+    app.session.profile.name = "Other".to_owned();
+    app.session.instance.root = Utf8PathBuf::from("other-instance");
+
+    app.apply_completion(OperationKind::PrepareLaunch, result);
+
+    assert!(app.game_running());
+    assert!(app.tracks_launch_in(&captured_instance));
+    assert_eq!(
+        app.launch.as_ref().map(|launch| launch.profile.as_str()),
+        Some("Default")
+    );
+    assert!(matches!(app.operation, OperationState::Idle));
+}
+
+fn stale_redeploy_fixture() -> (
+    tempfile::TempDir,
+    Instance,
+    overseer_core::launch::RedeployToken,
+) {
+    let (temp, mut instance) = temp_instance();
+    install_mod(&instance, "CoolMod", &[("Textures/a.dds", "pixels")]);
+    save_profile(&instance, "Default", &[("CoolMod", true)]);
+    apply::deploy_profile(&instance, "Default", &NullSink).expect("deploy");
+    let program = Utf8PathBuf::from_path_buf(std::env::current_exe().expect("current exe"))
+        .expect("utf8 current exe");
+    instance.config.tools = vec![UserTool::new("Tool", program, vec!["--list".to_owned()])];
+    std::fs::write(
+        instance.local_dir().expect("local dir").join("Plugins.txt"),
+        b"external\n",
+    )
+    .expect("stale plugins");
+    let outcome =
+        overseer_core::launch::prepare_and_launch(&instance, "Default", "tool", None, &NullSink)
+            .expect("prepare");
+    let PrepareOutcome::NeedsRedeploy { token, .. } = outcome else {
+        panic!("fixture must need redeploy")
+    };
+    (temp, instance, token)
+}
+
+#[test]
+fn needs_redeploy_opens_confirm_with_the_exact_tool_and_token() {
+    let (_temp, instance, token) = stale_redeploy_fixture();
+    let mut app = App::sample();
+    app.session.instance = instance.clone();
+    let result = completion(
+        &app,
+        Ok(OperationOutput::PrepareLaunch {
+            outcome: PrepareOutcome::NeedsRedeploy {
+                reason: "stale".to_owned(),
+                token: token.clone(),
+            },
+            instance,
+            tool_key: "tool".to_owned(),
+            tool_name: "Exact Tool".to_owned(),
+            status: None,
+        }),
+    );
+
+    app.apply_completion(OperationKind::PrepareLaunch, result);
+
+    assert!(matches!(
+        app.modal,
+        Some(Modal::Confirm(crate::app::Confirm {
+            action: crate::app::ConfirmAction::Redeploy {
+                ref tool_key,
+                ref tool_name,
+                token: ref actual_token,
+            },
+            ..
+        })) if tool_key == "tool" && tool_name == "Exact Tool" && actual_token == &token
+    ));
+    assert!(matches!(app.operation, OperationState::Idle));
+}
+
+#[test]
+fn needs_recovery_surfaces_a_persistent_launch_failure() {
+    let mut app = App::sample();
+    let result = completion(
+        &app,
+        Ok(OperationOutput::PrepareLaunch {
+            outcome: PrepareOutcome::NeedsRecovery {
+                reason: "manual repair required".to_owned(),
+            },
+            instance: app.session.instance.clone(),
+            tool_key: "tool".to_owned(),
+            tool_name: "Tool".to_owned(),
+            status: None,
+        }),
+    );
+
+    app.apply_completion(OperationKind::PrepareLaunch, result);
+
+    assert!(matches!(
+        app.operation,
+        OperationState::Completed(CompletedOperation {
+            kind: OperationKind::PrepareLaunch,
+            succeeded: false,
+            ref message,
+        }) if message.contains("manual repair required")
+    ));
 }

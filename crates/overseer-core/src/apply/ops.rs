@@ -3,16 +3,18 @@
 use super::error::{ApplyError, non_utf8};
 use super::lock::InstanceLock;
 use super::outcome::{CapturedPath, ReversalOutcome};
+use super::preparation::PreparedDeployment;
+use super::save_paths;
 use super::state::{Deployment, SaveRedirect, Status};
 
 use crate::deploy::{
-    BACKUP_DIR, DeployEntry, DeployError, DeployPlan, DeployRecord, ModSource, NullSink,
-    PreservedConflict, ProgressSink, ROOT_DIR, ReversalIssue, TargetOwnership, VerifyReport,
-    deployer_for, logical_path_key, strip_data_prefix,
+    BACKUP_DIR, DeployEntry, DeployError, DeployRecord, ModSource, NullSink, PreservedConflict,
+    ProgressSink, ROOT_DIR, ReversalIssue, TargetOwnership, VerifyReport, deployer_for,
+    logical_path_key, strip_data_prefix,
 };
 use crate::fs;
 use crate::instance::{Instance, Profile};
-use crate::plugins::{self, PluginLoadOrder};
+use crate::plugins;
 use crate::restore::Restore;
 use crate::saves;
 use camino::{Utf8Path, Utf8PathBuf};
@@ -27,34 +29,40 @@ pub fn deploy_profile(
     tracing::info!(profile = profile_name, "deploying profile");
     let _lock = InstanceLock::acquire(instance)?;
     recover_if_needed(instance, progress)?;
+    let prepared = PreparedDeployment::build(instance, profile_name)?;
+    deploy_profile_locked(instance, &prepared, progress)
+}
 
+/// Deploy one prepared profile while the caller owns the instance lock
+pub(crate) fn deploy_profile_locked(
+    instance: &Instance,
+    prepared: &PreparedDeployment,
+    progress: &dyn ProgressSink,
+) -> Result<Deployment, ApplyError> {
     if Deployment::exists(instance) {
         return Err(ApplyError::AlreadyDeployed {
             path: Deployment::path(instance),
         });
     }
 
-    let mut profile = Profile::load_existing(instance, profile_name)?;
-    profile.reconcile(instance)?;
     fs::ensure_dir(&instance.overwrite_dir())?;
-    let sources = deploy_sources(instance, &profile);
-
-    let plan = DeployPlan::from_rooted_mods(&instance.config.game_dir, &sources)?;
     let deployer = deployer_for(instance.config.deployer);
-    deployer.check_supported(&plan)?;
+    deployer.check_supported(&prepared.plan)?;
 
     let backup_root = instance.config.game_dir.join(BACKUP_DIR);
     guard_no_orphaned_backup(&backup_root)?;
-    let record = DeployRecord::from_plan(&plan, backup_root, instance.config.deployer)?;
+    let record = DeployRecord::from_plan(&prepared.plan, backup_root, instance.config.deployer)?;
     let baseline = snapshot_paths(&record.target_root, &record.backup_root)?;
 
-    let local_dir = instance.local_dir()?;
-    fs::ensure_dir(&local_dir)?;
-    let order = prepare_load_order(instance, &profile)?;
-    let plugins_txt_backup = plugins::read_plugins_txt(&local_dir)?;
+    fs::ensure_dir(&prepared.local_dir)?;
+    prepared.plugin_order.save(instance)?;
+    let plugins_txt_backup = plugins::read_plugins_txt(&prepared.local_dir)?;
 
-    let prepared_save = if profile.local_saves {
-        let (custom_ini, saves_dir) = save_paths(instance, &profile.name)?;
+    let prepared_save = if prepared.local_saves {
+        let (custom_ini, saves_dir) = prepared
+            .save_paths
+            .clone()
+            .expect("local saves preparation includes paths");
         let original = saves::read_save_redirect(&custom_ini)?;
         Some((custom_ini, saves_dir, original))
     } else {
@@ -64,7 +72,7 @@ pub fn deploy_profile(
     let mut deployment = Deployment {
         status: Status::InProgress,
         committed: Some(false),
-        profile: profile.name,
+        profile: prepared.profile.clone(),
         record,
         plugins_txt_backup,
         plugins_txt_intended: None,
@@ -87,14 +95,14 @@ pub fn deploy_profile(
     if let Err(error) = plugins::write_active_plugins(
         instance.config.game.load_order_id(),
         &instance.config.game_dir,
-        &local_dir,
-        &order.plugins,
+        &prepared.local_dir,
+        &prepared.plugin_order.plugins,
     ) {
         rollback_failed_deploy(instance, deployment, progress);
         return Err(error.into());
     }
 
-    deployment.plugins_txt_intended = match plugins::read_plugins_txt(&local_dir) {
+    deployment.plugins_txt_intended = match plugins::read_plugins_txt(&prepared.local_dir) {
         Ok(intended) => intended,
         Err(error) => {
             rollback_failed_deploy(instance, deployment, progress);
@@ -227,7 +235,7 @@ pub fn rename_profile(instance: &mut Instance, old: &str, new: &str) -> Result<(
 }
 
 /// Purge any non-committed journal before a mutating operation continues
-fn recover_if_needed(
+pub(crate) fn recover_if_needed(
     instance: &Instance,
     progress: &dyn ProgressSink,
 ) -> Result<Option<ReversalOutcome>, ApplyError> {
@@ -249,7 +257,7 @@ fn recover_if_needed(
 }
 
 /// Run ordinary purge while the caller holds the instance lock
-fn purge_locked(
+pub(crate) fn purge_locked(
     instance: &Instance,
     deployment: Deployment,
     progress: &dyn ProgressSink,
@@ -925,26 +933,6 @@ fn overwrite_staging_path(game_relative: &Utf8Path) -> Utf8PathBuf {
         Some(under_data) if !under_data.as_str().is_empty() => under_data,
         _ => Utf8Path::new(ROOT_DIR).join(game_relative),
     }
-}
-
-/// Discover plugins and reconcile and save the profile load order
-fn prepare_load_order(
-    instance: &Instance,
-    profile: &Profile,
-) -> Result<PluginLoadOrder, ApplyError> {
-    Ok(profile.commit_load_order(instance)?.order)
-}
-
-/// Compute this profile's custom INI and saves directory
-fn save_paths(
-    instance: &Instance,
-    profile: &str,
-) -> Result<(Utf8PathBuf, Utf8PathBuf), ApplyError> {
-    let ini_dir = instance.ini_dir()?;
-    let stem = instance.config.game.ini_stem();
-    let custom_ini = ini_dir.join(format!("{stem}Custom.ini"));
-    let saves_dir = instance.saves_dir(profile)?;
-    Ok((custom_ini, saves_dir))
 }
 
 /// Refuse deploy when the fixed backup root survives without a journal

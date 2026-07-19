@@ -2,7 +2,10 @@
 
 use super::*;
 use crate::app::operation::{DeployJob, RefreshDownloadsJob};
-use overseer_core::deploy::{DeployError, LaunchHandle};
+use overseer_core::deploy::{
+    Activation, DeployEntry, DeployError, DeployPlan, DeployRecord, Deployer, DeployerKind,
+    LaunchHandle, LaunchTarget, ProgressSink, ReversalReport, TargetOwnership, VerifyReport,
+};
 use std::collections::VecDeque;
 use std::process::ExitStatus;
 use std::sync::Arc;
@@ -229,4 +232,67 @@ fn exit_does_not_clear_a_newer_sessions_marker() {
     assert!(app.poll_launch());
 
     assert!(marker.exists(), "foreign marker remains");
+}
+
+struct SessionDeployer;
+
+impl Deployer for SessionDeployer {
+    fn activation(&self) -> Activation {
+        Activation::Session
+    }
+
+    fn kind(&self) -> DeployerKind {
+        DeployerKind::ProjFs
+    }
+
+    fn check_supported(&self, _plan: &DeployPlan) -> Result<(), DeployError> {
+        Ok(())
+    }
+
+    fn deploy(
+        &self,
+        _record: &DeployRecord,
+        _progress: &dyn ProgressSink,
+    ) -> Result<(), DeployError> {
+        Ok(())
+    }
+
+    fn classify(&self, _record: &DeployRecord, _entry: &DeployEntry) -> TargetOwnership {
+        TargetOwnership::Absent
+    }
+
+    fn undeploy(&self, _record: &DeployRecord, _progress: &dyn ProgressSink) -> ReversalReport {
+        ReversalReport::default()
+    }
+
+    fn verify(&self, record: &DeployRecord) -> VerifyReport {
+        VerifyReport {
+            expected: record.entries.len(),
+            missing: Vec::new(),
+        }
+    }
+
+    fn launch(&self, _target: &LaunchTarget) -> Result<Box<dyn LaunchHandle>, DeployError> {
+        unreachable!("dispatch test does not launch")
+    }
+}
+
+#[test]
+fn session_activation_dispatches_exit_teardown() {
+    let mut dispatched = false;
+
+    let result = dispatch_session_teardown(&SessionDeployer, || {
+        dispatched = true;
+        "done"
+    });
+
+    assert_eq!(result, Some("done"));
+    assert!(dispatched);
+    assert!(
+        dispatch_session_teardown(
+            overseer_core::deploy::deployer_for(DeployerKind::HardLink).as_ref(),
+            || "unexpected",
+        )
+        .is_none()
+    );
 }
