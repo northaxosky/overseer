@@ -22,11 +22,16 @@ pub fn deploy(target: &ProfileArgs) -> Result<()> {
     Ok(())
 }
 
-pub fn purge(instance: &InstanceArgs) -> Result<()> {
+pub fn purge(instance: &InstanceArgs, force: bool) -> Result<()> {
     let instance = instance.load_instance()?;
     heading(format!("Purging deployment for {}", instance.root));
 
-    let outcome = apply::purge(&instance, &CliProgress).context("purging deployment")?;
+    let outcome = if force {
+        apply::purge_forced(&instance, &CliProgress)
+    } else {
+        apply::purge(&instance, &CliProgress)
+    }
+    .context("purging deployment")?;
 
     success(purge_summary(&outcome));
     if outcome.plugins_txt == Restore::Conflict {

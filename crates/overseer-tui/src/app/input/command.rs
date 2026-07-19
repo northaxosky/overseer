@@ -126,6 +126,22 @@ impl App {
 }
 
 impl Command {
+    /// Return the operation blocked by a tracked game, if any.
+    pub(super) fn launch_block(&self, ctx: Context) -> Option<OperationKind> {
+        match self {
+            Self::Deploy => Some(OperationKind::Deploy),
+            Self::Purge => Some(OperationKind::Purge),
+            Self::RemoveMod => Some(OperationKind::Remove),
+            Self::ReplaceMod => Some(OperationKind::Replace),
+            Self::ToggleSelected
+                if ctx.focus == Focus::Workspace && ctx.workspace == Workspace::Downloads =>
+            {
+                Some(OperationKind::Install)
+            }
+            _ => None,
+        }
+    }
+
     /// Classify how this command behaves while a background operation is running
     pub(super) fn busy_policy(&self, ctx: Context) -> BusyPolicy {
         match self {

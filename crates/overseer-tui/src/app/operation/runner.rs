@@ -208,6 +208,10 @@ impl App {
     /// Start one owned job on a named background thread
     pub(crate) fn start_operation<J: BackgroundJob>(&mut self, job: J) {
         let kind = J::KIND;
+        if self.game_running() && kind.is_play_unsafe() {
+            self.note_blocked_operation(kind);
+            return;
+        }
         if self.operation_running() {
             self.note_blocked_operation(kind);
             return;
@@ -252,6 +256,10 @@ impl App {
 
     /// Explain why another operation cannot start
     pub(crate) fn note_blocked_operation(&mut self, requested: OperationKind) {
+        if self.game_running() && requested.is_play_unsafe() {
+            self.note_game_running(requested);
+            return;
+        }
         let Some(active) = self.running_operation_kind() else {
             return;
         };

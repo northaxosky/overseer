@@ -44,6 +44,9 @@ impl App {
         if key.code == KeyCode::Enter && self.dismiss_completed_operation() {
             return;
         }
+        if key.code == KeyCode::Enter && self.dismiss_launch_notice() {
+            return;
+        }
         // A mutating operation blocks quit before anything else consumes the key
         if let Some(active) = self.running_operation_kind()
             && is_quit(key)
@@ -63,10 +66,21 @@ impl App {
             return;
         }
         if is_quit(key) {
+            self.detach_launch();
             self.should_quit = true;
             return;
         }
         let command = self.command_for(key);
+        if let Some(kind) = command.as_ref().and_then(|command| {
+            command.launch_block(Context {
+                focus: self.focus,
+                workspace: self.workspace,
+            })
+        }) && self.game_running()
+        {
+            self.note_blocked_operation(kind);
+            return;
+        }
         // Busy-gate a recognized command before clearing the notice
         if let (Some(command), Some(_active)) = (command.as_ref(), self.running_operation_kind()) {
             let ctx = Context {

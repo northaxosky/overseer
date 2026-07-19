@@ -37,6 +37,9 @@ impl App {
 
     /// Delete the save at `path`, remove its cached row, and refresh in the background
     pub(super) fn delete_selected_save(&mut self, path: &Utf8Path) {
+        if self.block_while_playing("delete saves") {
+            return;
+        }
         let name = path.file_name().unwrap_or(path.as_str()).to_owned();
 
         let previous = self.saves.list.index().unwrap_or(0);

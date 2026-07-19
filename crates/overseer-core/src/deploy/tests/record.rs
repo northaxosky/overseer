@@ -14,9 +14,9 @@ fn vfs_stub_launch_is_unsupported() {
         working_dir: Utf8PathBuf::from("."),
     };
     for kind in [DeployerKind::Usvfs, DeployerKind::ProjFs] {
-        let err = deployer_for(kind)
-            .launch(&target)
-            .expect_err("stub launch must be unsupported");
+        let Err(err) = deployer_for(kind).launch(&target) else {
+            panic!("stub launch must be unsupported");
+        };
         assert!(
             matches!(err, DeployError::Unsupported { deployer } if deployer == kind),
             "{kind:?} should report its own kind"

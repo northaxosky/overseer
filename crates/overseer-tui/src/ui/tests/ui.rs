@@ -46,6 +46,19 @@ fn footer_prefers_a_message_over_status() {
 }
 
 #[test]
+fn footer_shows_the_persistent_launch_state() {
+    let mut app = App::sample();
+    app.launch_notice = Some(crate::app::Notice {
+        text: "Fallout 4 exited successfully".to_owned(),
+        role: Role::Success,
+    });
+
+    let out = render(&mut app, 100, 12);
+
+    assert!(out.contains("Fallout 4 exited successfully"));
+}
+
+#[test]
 fn separator_header_fills_to_the_inner_width() {
     let line = separator_header("Mid", 20, false, 0);
     assert!(line.starts_with("▼ Mid "));

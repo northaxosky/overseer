@@ -47,6 +47,13 @@ pub enum DeployError {
         source: std::io::Error,
     },
 
+    #[error("failed to query launched process `{program}`")]
+    Wait {
+        program: Utf8PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+
     #[error(
         "mod `{name}` nests a `Data` folder inside `Root` (`{path}`); Root & Data must be separate"
     )]

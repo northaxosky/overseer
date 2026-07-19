@@ -67,6 +67,66 @@ fn purge_removes_deployed_files_and_state() {
     assert!(!Deployment::exists(&instance), "purge should clear state");
 }
 
+fn seed_launch_marker(instance: &Instance) {
+    let path = crate::launch::launch_marker_path(instance);
+    std::fs::create_dir_all(path.parent().expect("marker parent")).expect("create marker parent");
+    std::fs::write(path, b"active").expect("write marker");
+}
+
+#[test]
+fn launch_marker_blocks_purge_across_a_fresh_instance_load() {
+    let (_tmp, instance) = temp_instance();
+    install_mod(&instance, "CoolMod", &[("Meshes/m.nif", "tris")]);
+    save_profile(&instance, "Default", &[("CoolMod", true)]);
+    std::fs::create_dir_all(&instance.root).expect("instance root");
+    instance.save().expect("save instance");
+    deploy_profile(&instance, "Default", &NullSink).expect("deploy");
+    seed_launch_marker(&instance);
+
+    let reloaded = Instance::load(instance.root.clone()).expect("fresh instance");
+    let error = purge(&reloaded, &NullSink).expect_err("marker blocks fresh-session purge");
+
+    assert!(matches!(error, ApplyError::LaunchActive { .. }));
+    assert!(deployed(&instance, "Meshes/m.nif").exists());
+    assert!(Deployment::exists(&instance));
+}
+
+#[test]
+fn forced_purge_bypasses_marker_and_clear_removes_it() {
+    let (_tmp, instance) = temp_instance();
+    install_mod(&instance, "CoolMod", &[("Meshes/m.nif", "tris")]);
+    save_profile(&instance, "Default", &[("CoolMod", true)]);
+    deploy_profile(&instance, "Default", &NullSink).expect("deploy");
+    seed_launch_marker(&instance);
+
+    purge_forced(&instance, &NullSink).expect("forced purge");
+
+    assert!(!deployed(&instance, "Meshes/m.nif").exists());
+    assert!(
+        crate::launch::has_launch_marker(&instance).expect("marker query"),
+        "forced purge does not claim the game exited"
+    );
+    assert!(crate::launch::clear_launch_marker(&instance).expect("clear marker"));
+    assert!(!crate::launch::has_launch_marker(&instance).expect("marker query"));
+}
+
+#[test]
+fn recovery_refuses_to_unlink_while_marker_is_present() {
+    let (_tmp, instance) = temp_instance();
+    install_mod(&instance, "CoolMod", &[("Meshes/m.nif", "tris")]);
+    save_profile(&instance, "Default", &[("CoolMod", true)]);
+    deploy_profile(&instance, "Default", &NullSink).expect("deploy");
+    force_status(&instance, Status::InProgress);
+    seed_launch_marker(&instance);
+
+    let error =
+        recover_if_needed(&instance, &NullSink).expect_err("marker blocks interrupted recovery");
+
+    assert!(matches!(error, ApplyError::LaunchActive { .. }));
+    assert!(deployed(&instance, "Meshes/m.nif").exists());
+    assert!(Deployment::exists(&instance));
+}
+
 #[test]
 fn second_deploy_is_refused() {
     let (_tmp, instance) = temp_instance();

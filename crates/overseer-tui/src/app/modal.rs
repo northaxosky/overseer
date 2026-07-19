@@ -213,6 +213,8 @@ pub(crate) enum ConfirmAction {
     Deploy,
     /// Purge the live deployment
     Purge,
+    /// Clear a stale tracked-launch marker
+    ClearLaunchMarker,
 }
 
 /// A dismiss-only reference modal with a title and key/description rows

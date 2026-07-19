@@ -54,16 +54,16 @@ fn run(app: &mut App, terminal: &mut DefaultTerminal) -> Result<()> {
     while !app.should_quit {
         if app.operation_running() {
             dirty |= app.poll_operation();
+        }
+        dirty |= app.poll_launch();
 
-            if !app.operation_running() {
-                dirty = true;
-                continue;
-            }
-
+        if app.operation_running() || app.game_running() {
             let now = Instant::now();
 
             if now >= deadline {
-                app.tick_operation();
+                if app.operation_running() {
+                    app.tick_operation();
+                }
 
                 while deadline <= now {
                     deadline += OPERATION_TICK;

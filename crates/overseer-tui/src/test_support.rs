@@ -76,6 +76,8 @@ impl App {
             focus: Focus::Mods,
             workspace: Workspace::default(),
             message: None,
+            launch: None,
+            launch_notice: None,
             settings: Settings {
                 recent_instances: vec![
                     Utf8Path::new("/alpha").to_owned(),

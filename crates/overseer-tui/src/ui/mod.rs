@@ -117,7 +117,10 @@ pub(crate) fn draw_main(app: &mut App, frame: &mut Frame) {
     // Status/message on the left, key hints on the right, sharing the footer row
     let (status_text, status_role) = match &app.message {
         Some(n) => (n.text.clone(), n.role),
-        None => (status_summary(app.session.status.as_ref()), Role::Muted),
+        None => match app.launch_status() {
+            Some(n) => (n.text, n.role),
+            None => (status_summary(app.session.status.as_ref()), Role::Muted),
+        },
     };
     let status_width = status_text.chars().count();
     let status = Paragraph::new(status_text).style(theme::style(status_role));

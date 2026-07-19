@@ -6,6 +6,7 @@ use super::{
 };
 use camino::Utf8PathBuf;
 use serde::{Deserialize, Serialize};
+use std::process::ExitStatus;
 
 /// A fully resolved thing to run: program, arguments, and directory
 #[derive(Debug, Clone)]
@@ -13,6 +14,15 @@ pub struct LaunchTarget {
     pub program: Utf8PathBuf,
     pub args: Vec<String>,
     pub working_dir: Utf8PathBuf,
+}
+
+/// A running launch session that can be polled or detached
+pub trait LaunchHandle: Send {
+    /// Query whether the launched process tree has exited
+    fn try_wait(&mut self) -> Result<Option<ExitStatus>, DeployError>;
+
+    /// Stop tracking without terminating the launched processes
+    fn detach(self: Box<Self>);
 }
 
 /// A mod deployment backend
@@ -41,7 +51,7 @@ pub trait Deployer {
     fn verify(&self, record: &DeployRecord) -> VerifyReport;
 
     /// Run `target` with the instance's mods visible to it
-    fn launch(&self, target: &LaunchTarget) -> Result<(), DeployError>;
+    fn launch(&self, target: &LaunchTarget) -> Result<Box<dyn LaunchHandle>, DeployError>;
 }
 
 /// Ownership of a recorded destination at reversal time
@@ -141,7 +151,7 @@ impl Deployer for StubDeployer {
         }
     }
 
-    fn launch(&self, _target: &LaunchTarget) -> Result<(), DeployError> {
+    fn launch(&self, _target: &LaunchTarget) -> Result<Box<dyn LaunchHandle>, DeployError> {
         Err(self.unsupported())
     }
 }

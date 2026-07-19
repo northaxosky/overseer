@@ -13,27 +13,51 @@ fn launch_reports_a_missing_executable() {
         args: vec![],
         working_dir: Utf8PathBuf::from("."),
     };
-    let err = HardlinkDeployer::new()
-        .launch(&target)
-        .expect_err("a missing program must error");
+    let Err(err) = HardlinkDeployer::new().launch(&target) else {
+        panic!("a missing program must error");
+    };
     assert!(matches!(err, DeployError::Launch { .. }));
 }
 
 #[cfg(windows)]
 #[test]
-fn launch_spawns_an_executable() {
-    // cmd.exe is on every Windows runner; `/c exit` returns immediately
+fn launch_tracks_a_spawned_process_to_exit() {
     let (_tmp, base) = temp();
+    let script = base.join("wait.cmd");
+    write(&script, "@ping -n 2 127.0.0.1 >nul\r\n@exit /b 0\r\n");
     let cmd =
         std::env::var("COMSPEC").unwrap_or_else(|_| r"C:\Windows\System32\cmd.exe".to_owned());
     let target = LaunchTarget {
         program: Utf8PathBuf::from(cmd),
-        args: vec!["/c".to_owned(), "exit".to_owned()],
+        args: vec!["/d".to_owned(), "/c".to_owned(), script.as_str().to_owned()],
         working_dir: base,
     };
-    HardlinkDeployer::new()
+    let started = std::time::Instant::now();
+    let mut handle = HardlinkDeployer::new()
         .launch(&target)
         .expect("spawning a real exe should succeed");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    let mut saw_running = false;
+    let status = loop {
+        match handle.try_wait().expect("query launched process") {
+            Some(status) => break status,
+            None => saw_running = true,
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "launched process exits within the bound"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    };
+    assert!(status.success());
+    assert!(
+        saw_running,
+        "try_wait reports None while the process is still running"
+    );
+    assert!(
+        started.elapsed() >= std::time::Duration::from_millis(500),
+        "try_wait reports None until the process actually exits"
+    );
 }
 
 /// A one-file plan: stage `rel` in a mod under `base`, targeting `base/Data`

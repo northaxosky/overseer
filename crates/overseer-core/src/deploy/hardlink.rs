@@ -207,16 +207,8 @@ impl Deployer for HardlinkDeployer {
         }
     }
 
-    fn launch(&self, target: &LaunchTarget) -> Result<(), DeployError> {
-        std::process::Command::new(target.program.as_std_path())
-            .current_dir(target.working_dir.as_std_path())
-            .args(&target.args)
-            .spawn()
-            .map_err(|source| DeployError::Launch {
-                program: target.program.clone(),
-                source,
-            })?;
-        Ok(())
+    fn launch(&self, target: &LaunchTarget) -> Result<Box<dyn super::LaunchHandle>, DeployError> {
+        super::process::spawn(target)
     }
 }
 

@@ -62,6 +62,14 @@ impl OperationKind {
         )
     }
 
+    /// Report whether play blocks this operation.
+    pub(crate) fn is_play_unsafe(self) -> bool {
+        matches!(
+            self,
+            Self::Deploy | Self::Purge | Self::Install | Self::Remove | Self::Replace
+        )
+    }
+
     /// Report whether this operation refreshes cached data
     pub(super) fn is_refresh(self) -> bool {
         matches!(

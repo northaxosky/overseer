@@ -134,9 +134,25 @@ pub fn purge(
     instance: &Instance,
     progress: &dyn ProgressSink,
 ) -> Result<ReversalOutcome, ApplyError> {
+    purge_with_force(instance, progress, false)
+}
+
+/// Reverse a deployment despite a stale launch marker
+pub fn purge_forced(
+    instance: &Instance,
+    progress: &dyn ProgressSink,
+) -> Result<ReversalOutcome, ApplyError> {
+    purge_with_force(instance, progress, true)
+}
+
+fn purge_with_force(
+    instance: &Instance,
+    progress: &dyn ProgressSink,
+    force: bool,
+) -> Result<ReversalOutcome, ApplyError> {
     let _lock = InstanceLock::acquire(instance)?;
     let deployment = Deployment::load(instance)?;
-    purge_locked(instance, deployment, progress)
+    purge_locked(instance, deployment, progress, force)
 }
 
 /// A snapshot of an instance's recorded deployment
@@ -215,6 +231,7 @@ fn recover_if_needed(
     instance: &Instance,
     progress: &dyn ProgressSink,
 ) -> Result<Option<ReversalOutcome>, ApplyError> {
+    guard_launch_inactive(instance)?;
     if !Deployment::exists(instance) {
         return Ok(None);
     }
@@ -228,7 +245,7 @@ fn recover_if_needed(
         profile = %deployment.profile,
         "interrupted deployment found; purging before restart"
     );
-    purge_locked(instance, deployment, progress).map(Some)
+    purge_locked(instance, deployment, progress, false).map(Some)
 }
 
 /// Run ordinary purge while the caller holds the instance lock
@@ -236,7 +253,11 @@ fn purge_locked(
     instance: &Instance,
     deployment: Deployment,
     progress: &dyn ProgressSink,
+    force: bool,
 ) -> Result<ReversalOutcome, ApplyError> {
+    if !force {
+        guard_launch_inactive(instance)?;
+    }
     tracing::info!(profile = %deployment.profile, "purging recorded deployment");
     let mut outcome = ReversalOutcome::default();
     let baseline = match Deployment::load_baseline(instance) {
@@ -366,9 +387,18 @@ fn rollback_failed_deploy(
     progress: &dyn ProgressSink,
 ) {
     tracing::warn!("deploy failed; purging interrupted deployment");
-    if let Err(error) = purge_locked(instance, deployment, progress) {
+    if let Err(error) = purge_locked(instance, deployment, progress, false) {
         tracing::warn!(%error, "rollback after deploy failure was incomplete");
     }
+}
+
+fn guard_launch_inactive(instance: &Instance) -> Result<(), ApplyError> {
+    if crate::launch::has_launch_marker(instance)? {
+        return Err(ApplyError::LaunchActive {
+            path: crate::launch::launch_marker_path(instance),
+        });
+    }
+    Ok(())
 }
 
 /// Snapshot every path below the target without following reparse points

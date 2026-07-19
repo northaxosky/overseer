@@ -4,6 +4,7 @@
 use assert_cmd::Command;
 use camino::Utf8Path;
 use overseer_core::test_support::{FLAG_MASTER, tes4_bytes, write_zip};
+use overseer_core::{instance::Instance, launch};
 use predicates::prelude::*;
 use std::path::Path;
 use tempfile::TempDir;
@@ -95,6 +96,34 @@ fn full_workflow_init_enable_deploy_status_purge() {
     overseer(&["status", "--instance", inst_s])
         .success()
         .stdout(predicate::str::contains("No live deployment"));
+}
+
+#[test]
+fn launch_clear_removes_a_stale_marker() {
+    let tmp = TempDir::new().unwrap();
+    let inst = tmp.path().join("inst");
+    let inst_s = inst.to_str().unwrap();
+    overseer(&[
+        "instance",
+        "init",
+        "--path",
+        inst_s,
+        "--game-dir",
+        tmp.path().join("game").to_str().unwrap(),
+        "--local",
+        tmp.path().join("local").to_str().unwrap(),
+    ])
+    .success();
+    let instance = Instance::load(camino::Utf8PathBuf::from(inst_s)).expect("instance");
+    let marker = launch::launch_marker_path(&instance);
+    std::fs::create_dir_all(marker.parent().expect("marker parent")).expect("marker parent");
+    std::fs::write(&marker, b"active").expect("marker");
+
+    overseer(&["launch", "--clear", "--instance", inst_s])
+        .success()
+        .stdout(predicate::str::contains("Cleared stale launch marker"));
+
+    assert!(!marker.exists());
 }
 
 #[test]

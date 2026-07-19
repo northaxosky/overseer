@@ -42,6 +42,48 @@ fn launching_with_no_targets_notes_and_closes() {
     assert!(app.message.is_some(), "user is told there are none");
 }
 
+struct PendingLaunch;
+
+impl overseer_core::deploy::LaunchHandle for PendingLaunch {
+    fn try_wait(
+        &mut self,
+    ) -> Result<Option<std::process::ExitStatus>, overseer_core::deploy::DeployError> {
+        Ok(None)
+    }
+
+    fn detach(self: Box<Self>) {}
+}
+
+#[test]
+fn a_second_launch_is_rejected_before_spawning() {
+    let mut app = App::sample();
+    app.track_launch(crate::app::LaunchSession::new(
+        Box::new(PendingLaunch),
+        "Fallout 4".to_owned(),
+        "Default".to_owned(),
+        app.session.instance.clone(),
+        overseer_core::launch::LaunchMarker {
+            launch_id: 1,
+            tool: "Fallout 4".to_owned(),
+            profile: "Default".to_owned(),
+            timestamp: 1,
+            launcher_pid: std::process::id(),
+        },
+    ));
+
+    app.launch(Some(LaunchRow {
+        key: "script-extender".to_owned(),
+        kind: ToolKind::ScriptExtender,
+        display_name: "Script Extender".to_owned(),
+    }));
+
+    assert!(app.game_running());
+    assert_eq!(
+        app.message.as_ref().map(|notice| notice.text.as_str()),
+        Some("A launch session is already running")
+    );
+}
+
 #[test]
 fn empty_replace_picker_explains_that_downloads_have_no_archives() {
     let (_temp, mut app) = app_with_temp_instance();

@@ -1,12 +1,14 @@
 //! Application state and update logic.
 
 mod input;
+mod launch;
 mod list;
 mod modal;
 mod operation;
 mod pane;
 mod sort;
 
+pub(crate) use launch::LaunchSession;
 pub(crate) use list::ListCursor;
 pub(crate) use modal::{
     Confirm, ConfirmAction, DoctorReport, Info, LaunchRow, Modal, Prompt, PromptKind, Select,
@@ -61,7 +63,7 @@ pub(crate) const HELP_ENTRIES: &[(&str, &str)] = &[
 ];
 
 /// A transient footer message with a severity for coloring
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct Notice {
     pub(crate) text: String,
     pub(crate) role: Role,
@@ -226,6 +228,8 @@ pub(crate) struct App {
     pub(crate) saves: SavesState,
     pub(crate) operation: OperationState,
     pub(crate) message: Option<Notice>,
+    pub(crate) launch: Option<LaunchSession>,
+    pub(crate) launch_notice: Option<Notice>,
     pub(crate) settings: Settings,
     pub(crate) session: Session,
     pub(crate) mods: ModsPane,
@@ -240,6 +244,7 @@ impl App {
         mut settings: Settings,
     ) -> Result<Self> {
         let session = Session::load(instance_dir, requested)?;
+        let modal = stale_launch_modal(&session.instance)?;
 
         // Only a successful load is worth remembering
         settings.record_opened(instance_dir);
@@ -251,7 +256,7 @@ impl App {
 
         Ok(Self {
             should_quit: false,
-            modal: None,
+            modal,
             focus: Focus::Mods,
             workspace: Workspace::default(),
             conflicts: ConflictsState::default(),
@@ -259,6 +264,8 @@ impl App {
             saves: SavesState::default(),
             operation: OperationState::default(),
             message: None,
+            launch: None,
+            launch_notice: None,
             mods,
             plugins,
             settings,
@@ -289,6 +296,26 @@ impl App {
             role: Role::Muted,
         });
     }
+
+    /// Build the stale-marker prompt unless this TUI owns the marker.
+    pub(crate) fn stale_launch_modal_for(&self, instance: &Instance) -> Result<Option<Modal>> {
+        if self.tracks_launch_in(instance) {
+            return Ok(None);
+        }
+        stale_launch_modal(instance)
+    }
+}
+
+fn stale_launch_modal(instance: &Instance) -> Result<Option<Modal>> {
+    Ok(
+        overseer_core::launch::has_launch_marker(instance)?.then(|| {
+            Modal::Confirm(Confirm {
+                message: "A launch marker is present. Clear it only if the game has exited?"
+                    .to_owned(),
+                action: ConfirmAction::ClearLaunchMarker,
+            })
+        }),
+    )
 }
 
 /// The variant `delta` steps from `current` in `T::iter()` order, wrapping both ends

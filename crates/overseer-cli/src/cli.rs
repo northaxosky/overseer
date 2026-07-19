@@ -32,6 +32,9 @@ pub enum Command {
     Purge {
         #[command(flatten)]
         instance: InstanceArgs,
+        /// Ignore a stale launch marker
+        #[arg(long)]
+        force: bool,
     },
 
     /// Install a mod from a Downloads archive (.7z or .zip)
@@ -97,6 +100,9 @@ pub enum Command {
     Launch {
         /// Target name (omit to list the available targets)
         name: Option<String>,
+        /// Clear a stale launch marker without starting a target
+        #[arg(long, conflicts_with = "name")]
+        clear: bool,
         #[command(flatten)]
         instance: InstanceArgs,
     },

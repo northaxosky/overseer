@@ -71,6 +71,27 @@ fn accepting_purge_confirmation_submits_the_concrete_job() {
     app.finish_operation_after_terminal();
 }
 
+#[test]
+fn accepting_stale_launch_confirmation_clears_the_marker() {
+    let mut app = App::sample();
+    let marker = overseer_core::launch::launch_marker_path(&app.session.instance);
+    std::fs::create_dir_all(marker.parent().expect("marker parent")).expect("marker parent");
+    std::fs::write(&marker, b"active").expect("marker");
+    app.modal = Some(Modal::Confirm(Confirm {
+        message: "Clear stale marker?".to_owned(),
+        action: ConfirmAction::ClearLaunchMarker,
+    }));
+
+    app.handle_key(key(KeyCode::Char('y')));
+
+    assert!(!marker.exists());
+    assert!(
+        app.message
+            .as_ref()
+            .is_some_and(|notice| notice.text.contains("Cleared"))
+    );
+}
+
 /// A three-row profile `[A, <separator>, B]` seeded on disk under a temp instance
 fn app_with_separator() -> (tempfile::TempDir, App) {
     let (tmp, instance) = overseer_core::test_support::temp_instance();

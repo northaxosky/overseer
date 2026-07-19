@@ -1,10 +1,18 @@
 //! Resolving and running launch targets through the instance's deployment backend
 
-use crate::deploy::{DeployError, LaunchTarget, deployer_for};
+mod marker;
+
+use crate::apply::{ApplyError, InstanceLock};
+use crate::deploy::{DeployError, LaunchHandle, LaunchTarget, deployer_for};
 use crate::instance::Instance;
 use camino::{Utf8Path, Utf8PathBuf};
+use serde::{Deserialize, Serialize};
 use std::fs;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
 use thiserror::Error;
+
+static NEXT_LAUNCH_ID: AtomicU64 = AtomicU64::new(1);
 
 /// The source of a resolved launch tool
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -35,6 +43,16 @@ pub struct Tool {
     pub availability: ToolAvailability,
 }
 
+/// Context persisted while a launched game may still be running
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LaunchMarker {
+    pub launch_id: u64,
+    pub tool: String,
+    pub profile: String,
+    pub timestamp: u64,
+    pub launcher_pid: u32,
+}
+
 /// Errors from resolving or running a launch target
 #[derive(Debug, Error)]
 pub enum LaunchError {
@@ -53,6 +71,9 @@ pub enum LaunchError {
 
     #[error(transparent)]
     Backend(#[from] DeployError),
+
+    #[error(transparent)]
+    Apply(#[from] ApplyError),
 }
 
 /// Resolve all derived and user configured tools for this instance
@@ -81,7 +102,7 @@ pub fn tools(instance: &Instance) -> Vec<Tool> {
             name: name.to_owned(),
             availability: availability(&program),
             program,
-            args: Vec::new(),
+            args: script_extender_args(kind),
             output_mod: None,
         })
         .chain(instance.config.tools.iter().map(|user| Tool {
@@ -94,6 +115,14 @@ pub fn tools(instance: &Instance) -> Vec<Tool> {
             output_mod: user.output_mod.clone(),
         }))
         .collect()
+}
+
+/// Extra args a derived tool needs; F4SE must wait for the game so its exit tracks the session
+fn script_extender_args(kind: ToolKind) -> Vec<String> {
+    match kind {
+        ToolKind::ScriptExtender => vec!["-waitforclose".to_owned()],
+        ToolKind::Game | ToolKind::User => Vec::new(),
+    }
 }
 
 /// Inspect whether a program path points to a launchable file
@@ -183,11 +212,80 @@ fn launch_target(instance: &Instance, tool: Tool) -> LaunchTarget {
     }
 }
 
-/// Run a launch target by key or display name through the instance's deployer
-pub fn launch(instance: &Instance, key: &str) -> Result<(), LaunchError> {
+/// Run a launch target using the instance's configured default profile
+pub fn launch(instance: &Instance, key: &str) -> Result<Box<dyn LaunchHandle>, LaunchError> {
+    let profile = instance.config.default_profile.clone();
+    launch_tracked(instance, key, &profile).map(|(handle, _)| handle)
+}
+
+/// Run a launch target and persist its profile context
+pub fn launch_for_profile(
+    instance: &Instance,
+    key: &str,
+    profile: &str,
+) -> Result<Box<dyn LaunchHandle>, LaunchError> {
+    launch_tracked(instance, key, profile).map(|(handle, _)| handle)
+}
+
+/// Run a launch target and return its exact marker identity
+pub fn launch_tracked(
+    instance: &Instance,
+    key: &str,
+    profile: &str,
+) -> Result<(Box<dyn LaunchHandle>, LaunchMarker), LaunchError> {
     let tool = resolve(instance, key)?;
-    deployer_for(instance.config.deployer).launch(&launch_target(instance, tool))?;
-    Ok(())
+    let target = launch_target(instance, tool.clone());
+    let _lock = InstanceLock::acquire(instance)?;
+    if marker::exists(instance)? {
+        return Err(ApplyError::LaunchActive {
+            path: marker::path(instance),
+        }
+        .into());
+    }
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let marker = LaunchMarker {
+        launch_id: NEXT_LAUNCH_ID.fetch_add(1, Ordering::Relaxed),
+        tool: tool.name,
+        profile: profile.to_owned(),
+        timestamp,
+        launcher_pid: std::process::id(),
+    };
+    marker::write(instance, &marker)?;
+    match deployer_for(instance.config.deployer).launch(&target) {
+        Ok(handle) => Ok((handle, marker)),
+        Err(error) => {
+            if let Err(cleanup) = marker::remove_locked(instance) {
+                tracing::warn!(%cleanup, "failed to remove marker after launch failure");
+            }
+            Err(error.into())
+        }
+    }
+}
+
+/// Return the fixed marker path for an instance
+pub fn launch_marker_path(instance: &Instance) -> Utf8PathBuf {
+    marker::path(instance)
+}
+
+/// Report whether a launch marker is present
+pub fn has_launch_marker(instance: &Instance) -> Result<bool, ApplyError> {
+    marker::exists(instance)
+}
+
+/// Clear a stale or completed launch marker under the instance lock
+pub fn clear_launch_marker(instance: &Instance) -> Result<bool, ApplyError> {
+    marker::clear(instance)
+}
+
+/// Clear a marker only when it still matches the expected launch
+pub fn clear_launch_marker_if(
+    instance: &Instance,
+    expected: &LaunchMarker,
+) -> Result<bool, ApplyError> {
+    marker::clear_if(instance, expected)
 }
 
 /// Every launch target for this instance

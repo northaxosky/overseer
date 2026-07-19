@@ -19,7 +19,7 @@ fn main() -> Result<()> {
     ui::apply_color_choice(cli.color);
     match cli.command {
         Command::Deploy { target } => commands::deploy::deploy(&target),
-        Command::Purge { instance } => commands::deploy::purge(&instance),
+        Command::Purge { instance, force } => commands::deploy::purge(&instance, force),
         Command::Install {
             archive,
             instance,
@@ -30,7 +30,11 @@ fn main() -> Result<()> {
         Command::Profile { command } => commands::profile::run(command),
         Command::Instance { command } => commands::instance::run(command),
         Command::Status { instance } => commands::deploy::status(&instance),
-        Command::Launch { name, instance } => commands::launch::run(name, &instance),
+        Command::Launch {
+            name,
+            clear,
+            instance,
+        } => commands::launch::run(name, clear, &instance),
         Command::Exe { command } => commands::exe::run(command),
         Command::Doctor { target } => commands::doctor::run(&target),
         Command::Patch { command } => commands::patch::run(command),

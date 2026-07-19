@@ -6,11 +6,14 @@ mod error;
 mod hardlink;
 mod layout;
 mod plan;
+mod process;
 mod progress;
 mod record;
 
 pub use conflict::ConflictSnapshot;
-pub use deployer::{Deployer, DeployerKind, LaunchTarget, TargetOwnership, deployer_for};
+pub use deployer::{
+    Deployer, DeployerKind, LaunchHandle, LaunchTarget, TargetOwnership, deployer_for,
+};
 pub use error::DeployError;
 pub use hardlink::HardlinkDeployer;
 pub use layout::{BACKUP_DIR, DATA_DIR, ROOT_DIR, strip_data_prefix};

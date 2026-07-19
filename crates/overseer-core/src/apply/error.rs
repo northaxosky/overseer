@@ -38,6 +38,20 @@ pub enum ApplyError {
     #[error("instance is in use by another Overseer process; try again once it finishes")]
     Busy,
 
+    /// A launch marker blocks deployment reversal
+    #[error(
+        "a launched game may still be running; clear the launch marker at `{path}` only after it exits"
+    )]
+    LaunchActive { path: Utf8PathBuf },
+
+    /// The launch marker could not be encoded
+    #[error("launch marker state `{path}`")]
+    LaunchMarkerState {
+        path: Utf8PathBuf,
+        #[source]
+        source: serde_json::Error,
+    },
+
     /// A reversal could not be fully resolved; the journal is kept
     #[error(
         "`{path}` has an unresolved deployment reversal ({} removed, {} restored, {} captured, {} preserved, {} unresolved); purge again to retry",

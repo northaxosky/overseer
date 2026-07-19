@@ -32,6 +32,7 @@ impl App {
             ConfirmAction::DeletePluginSeparator { index } => self.delete_plugin_separator(index),
             ConfirmAction::Deploy => self.start_operation(DeployJob),
             ConfirmAction::Purge => self.start_operation(PurgeJob),
+            ConfirmAction::ClearLaunchMarker => self.clear_stale_launch_marker(),
         }
     }
 

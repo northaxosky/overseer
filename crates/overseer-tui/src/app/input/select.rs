@@ -7,7 +7,8 @@ use overseer_core::launch::{self, ToolKind};
 use ratatui::crossterm::event::{KeyCode, KeyEvent};
 
 use crate::app::{
-    App, Confirm, ConfirmAction, Focus, LaunchRow, ListCursor, Modal, Select, SelectKind, Session,
+    App, Confirm, ConfirmAction, Focus, LaunchRow, LaunchSession, ListCursor, Modal, Select,
+    SelectKind, Session,
 };
 
 impl App {
@@ -117,9 +118,25 @@ impl App {
 
     /// Launch the target at `selected` or note when there is none
     fn launch(&mut self, selected: Option<LaunchRow>) {
+        if self.game_running() {
+            self.note("A launch session is already running");
+            return;
+        }
         match selected {
-            Some(row) => match launch::launch(&self.session.instance, &row.key) {
-                Ok(()) => self.ok(format!("Launched {}", row.display_name)),
+            Some(row) => match launch::launch_tracked(
+                &self.session.instance,
+                &row.key,
+                &self.session.profile.name,
+            ) {
+                Ok((handle, marker)) => {
+                    self.track_launch(LaunchSession::new(
+                        handle,
+                        row.display_name,
+                        self.session.profile.name.clone(),
+                        self.session.instance.clone(),
+                        marker,
+                    ));
+                }
                 Err(e) => self.fail(format!("Launch failed: {e}")),
             },
             None => self.note("No launch targets — add one with `overseer exe add`"),
@@ -214,9 +231,17 @@ impl App {
         let dir = self.session.instance.root.clone();
         match Session::load(&dir, Some(&name)) {
             Ok(session) => {
+                let modal = match self.stale_launch_modal_for(&session.instance) {
+                    Ok(modal) => modal,
+                    Err(error) => {
+                        self.fail(format!("Error: {error}"));
+                        return;
+                    }
+                };
                 self.session = session;
                 self.after_session_changed();
                 self.focus = Focus::Mods;
+                self.modal = modal;
                 self.ok(format!("Switched to {name}"));
             }
             Err(e) => self.fail(format!("Error: {e}")),
@@ -233,9 +258,17 @@ impl App {
         let profile_name = self.session.profile.name.clone();
         match Session::load(&dir, Some(&profile_name)) {
             Ok(session) => {
+                let modal = match self.stale_launch_modal_for(&session.instance) {
+                    Ok(modal) => modal,
+                    Err(error) => {
+                        self.fail(format!("Error: {error}"));
+                        return;
+                    }
+                };
                 self.session = session;
                 self.after_session_changed();
                 self.focus = Focus::Mods;
+                self.modal = modal;
                 self.settings.record_opened(&dir);
                 if let Err(e) = self.settings.save() {
                     tracing::warn!(error = %e, "could not save settings");

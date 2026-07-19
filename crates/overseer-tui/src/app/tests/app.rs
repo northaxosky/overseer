@@ -23,3 +23,27 @@ fn session_load_without_a_profile_uses_the_configured_default() {
     let session = Session::load(&instance.root, None).expect("session");
     assert_eq!(session.profile.name, "Survival");
 }
+
+#[test]
+fn startup_marker_offers_a_dismissable_clear_confirmation() {
+    let mut app = App::sample();
+    let marker = overseer_core::launch::launch_marker_path(&app.session.instance);
+    std::fs::create_dir_all(marker.parent().expect("marker parent")).expect("marker parent");
+    std::fs::write(&marker, b"active").expect("marker");
+
+    app.modal = stale_launch_modal(&app.session.instance).expect("startup marker query");
+
+    assert!(matches!(
+        app.modal,
+        Some(Modal::Confirm(Confirm {
+            action: ConfirmAction::ClearLaunchMarker,
+            ..
+        }))
+    ));
+    app.handle_key(ratatui::crossterm::event::KeyEvent::new(
+        ratatui::crossterm::event::KeyCode::Char('n'),
+        ratatui::crossterm::event::KeyModifiers::NONE,
+    ));
+    assert!(app.modal.is_none());
+    assert!(marker.exists(), "dismissal keeps the marker");
+}

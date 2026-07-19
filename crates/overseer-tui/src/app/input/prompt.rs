@@ -391,6 +391,9 @@ impl App {
 
     /// Rename the selected mod to the name in the open prompt; stay open on any error
     fn submit_rename_mod(&mut self, old: String) {
+        if self.block_while_playing("rename mods") {
+            return;
+        }
         let Some(Modal::Prompt(prompt)) = self.modal.as_ref() else {
             return;
         };
@@ -477,6 +480,9 @@ impl App {
 
     /// Rename the profile to the name in the open prompt; stay open on any error
     fn submit_rename_profile(&mut self, old: String) {
+        if self.block_while_playing("rename profiles") {
+            return;
+        }
         let Some(Modal::Prompt(prompt)) = self.modal.as_ref() else {
             return;
         };
