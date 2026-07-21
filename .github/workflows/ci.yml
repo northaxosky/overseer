@@ -47,4 +47,6 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Core and diagnostics tests
-        run: cargo test -p overseer-core -p overseer-diagnostics --locked
+        # Linux forks copy the whole fd table, so parallel tests that spawn a child while holding
+        # the instance flock transiently contend across tests; run serially to avoid false Busy.
+        run: cargo test -p overseer-core -p overseer-diagnostics --locked -- --test-threads=1
