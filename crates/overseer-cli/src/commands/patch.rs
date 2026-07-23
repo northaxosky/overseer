@@ -432,7 +432,7 @@ fn print_convert_plan(view: ConvertPlanView<'_>) {
     println!("Detected edition (Fallout4.exe): {:?}", view.edition);
     println!("Backups: <binary>.overseer-bak beside each converted file");
     let label = view.target.label().to_owned();
-    print_plan_lines(view.plans, view.deltas, |_| label.clone());
+    print_plan_lines(view.plans, view.deltas, true, |_| label.clone());
 }
 
 struct DlcPlanView<'a> {
@@ -455,7 +455,7 @@ fn print_dlc_plan(view: DlcPlanView<'_>) {
         ));
     }
     println!("Backups: <file>.overseer-bak beside each converted file");
-    print_plan_lines(view.plans, view.deltas, |plan| {
+    print_plan_lines(view.plans, view.deltas, false, |plan| {
         format!(
             "consistency ({})",
             dlc::dlc_note(plan.item.rel_path).unwrap_or("revision")
@@ -466,29 +466,32 @@ fn print_dlc_plan(view: DlcPlanView<'_>) {
 fn print_plan_lines(
     plans: &[ItemPlan],
     deltas: &HashMap<String, Utf8PathBuf>,
+    show_source: bool,
     label_for: impl Fn(&ItemPlan) -> String,
 ) {
     let selected = selected_groups(plans, deltas);
     for plan in plans {
-        print_plan_line(
+        let (role, msg) = plan_line(
             plan,
             deltas.get(plan.item.rel_path),
             selected.contains(plan.item.group),
             &label_for(plan),
+            show_source,
         );
+        println!("{}", styled(role, msg));
     }
 }
 
-fn print_plan_line(
+/// Build the styled plan line for one item; `show_source` names the identified source edition
+/// (core edition flips), and stays off for source-agnostic policies like the DLC revision
+fn plan_line(
     plan: &ItemPlan,
     delta: Option<&Utf8PathBuf>,
     selected: bool,
     target_label: &str,
-) {
-    let source = plan
-        .known_source
-        .clone()
-        .unwrap_or_else(|| "unknown source".to_owned());
+    show_source: bool,
+) -> (Role, String) {
+    let source = show_source.then(|| plan.known_source.as_deref().unwrap_or("unknown source"));
     let delta_label = delta
         .map(|path| path.as_str().to_owned())
         .unwrap_or_else(|| "no delta".to_owned());
@@ -496,7 +499,7 @@ fn print_plan_line(
         VerifiedBy::Sha256 => String::new(),
         VerifiedBy::Crc32 => format!("; verified by {}", VerifiedBy::Crc32.label()),
     };
-    let (role, msg) = match plan.state {
+    match plan.state {
         ItemState::AlreadyTarget => (
             Role::Muted,
             format!("= {}: already {target_label}{gate}", plan.item.rel_path),
@@ -505,22 +508,27 @@ fn print_plan_line(
             Role::Muted,
             format!("- {}: missing{gate}", plan.item.rel_path),
         ),
-        ItemState::NeedsConversion if !selected => (
-            Role::Muted,
-            format!(
-                "~ {}: {source}, leaving as-is (no delta supplied)",
-                plan.item.rel_path
-            ),
-        ),
-        ItemState::NeedsConversion => (
-            Role::Added,
-            format!(
-                "+ {}: {source} -> {target_label}; delta: {delta_label}{gate}",
-                plan.item.rel_path
-            ),
-        ),
-    };
-    println!("{}", styled(role, msg));
+        ItemState::NeedsConversion if !selected => {
+            let prefix = source.map(|s| format!("{s}, ")).unwrap_or_default();
+            (
+                Role::Muted,
+                format!(
+                    "~ {}: {prefix}leaving as-is (no delta supplied)",
+                    plan.item.rel_path
+                ),
+            )
+        }
+        ItemState::NeedsConversion => {
+            let prefix = source.map(|s| format!("{s} -> ")).unwrap_or_default();
+            (
+                Role::Added,
+                format!(
+                    "+ {}: {prefix}{target_label}; delta: {delta_label}{gate}",
+                    plan.item.rel_path
+                ),
+            )
+        }
+    }
 }
 
 fn ba2(path: &Utf8Path, to: GenerationArg, gate: Gate) -> Result<()> {

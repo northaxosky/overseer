@@ -149,6 +149,56 @@ fn preview_returns_before_decoder_io() {
     assert!(!root.join("Fallout4.exe.overseer-tmp").exists());
 }
 
+#[test]
+fn dlc_plan_line_omits_the_source() {
+    let plan = dlc_plan_for("Data/DLCCoast.esm", ItemState::NeedsConversion);
+    let delta = Utf8PathBuf::from("d.vcdiff");
+    let (_, msg) = plan_line(
+        &plan,
+        Some(&delta),
+        true,
+        "consistency (corrected master)",
+        false,
+    );
+    assert_eq!(
+        msg,
+        "+ Data/DLCCoast.esm: consistency (corrected master); delta: d.vcdiff"
+    );
+}
+
+#[test]
+fn dlc_plan_line_leaves_as_is_without_a_source() {
+    let plan = dlc_plan_for("Data/DLCCoast.esm", ItemState::NeedsConversion);
+    let (_, msg) = plan_line(&plan, None, false, "consistency (corrected master)", false);
+    assert_eq!(
+        msg,
+        "~ Data/DLCCoast.esm: leaving as-is (no delta supplied)"
+    );
+}
+
+#[test]
+fn core_plan_line_shows_the_identified_source() {
+    let mut plan = core_plan_for("Fallout4.exe", ItemState::NeedsConversion);
+    plan.known_source = Some("Old-Gen 1.10.163".to_owned());
+    let delta = Utf8PathBuf::from("d.vcdiff");
+    let (_, msg) = plan_line(&plan, Some(&delta), true, "Next-Gen", true);
+    assert_eq!(
+        msg,
+        "+ Fallout4.exe: Old-Gen 1.10.163 -> Next-Gen; delta: d.vcdiff"
+    );
+}
+
+#[test]
+fn core_plan_line_still_names_an_unknown_source() {
+    let plan = core_plan_for("Fallout4.exe", ItemState::NeedsConversion);
+    let delta = Utf8PathBuf::from("d.vcdiff");
+    let (_, msg) = plan_line(&plan, Some(&delta), true, "Next-Gen", true);
+    assert_eq!(
+        msg,
+        "+ Fallout4.exe: unknown source -> Next-Gen; delta: d.vcdiff"
+    );
+}
+
 /// Render long help for one `overseer patch` subcommand
 fn patch_help(name: &str) -> String {
     let mut command = crate::cli::Cli::command();
